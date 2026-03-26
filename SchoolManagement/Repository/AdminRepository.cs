@@ -78,5 +78,65 @@ namespace SchoolManagement.Repository
                 EmployeesOnLeave = employeesOnLeave
             };
         }
+        public async Task<List<Schools>> GetSchoolsBySuperAdminIdAsync(int superAdminId)
+        {
+            return await _context.Schools
+                .Where(s => s.SuperAdminId == superAdminId && s.IsActive)
+                .ToListAsync();
+        }
+        public async Task<List<StaffListDto>> GetStaffFullAsync(int schoolId)
+        {
+            return await (from s in _context.Staff
+                          join r in _context.Roles on s.RoleId equals r.Id
+                          join sc in _context.Schools on s.SchoolId equals sc.Id
+                          where s.SchoolId == schoolId && s.IsActive
+                          select new StaffListDto
+                          {
+                              Id = s.Id,
+                              Name = s.Name,
+                              Email = s.Email,
+                              Phone = s.Phone,
+                              DOB = s.DOB,
+                              DOJ = s.DOJ,
+
+                              RoleId = r.Id,
+                              RoleName = r.RoleName,
+
+                              SchoolName = sc.SchoolName
+                          }).ToListAsync();
+        }
+
+        public async Task<Staff> AddStaffAsync(AddStaffDto dto)
+        {
+            var staff = new Staff
+            {
+                Name = dto.Name,
+                DOB = dto.DOB,
+                DOJ = dto.DOJ,
+                RoleId = dto.RoleId,
+                SchoolId = dto.SchoolId,
+                Email = dto.Email,
+                Phone = dto.Phone,
+                Adress = dto.Address,
+                IsActive = true,
+                Created_Date = DateTime.UtcNow
+            };
+
+            _context.Staff.Add(staff);
+            await _context.SaveChangesAsync();
+
+            return staff;
+        }
+        public async Task<List<RoleDto>> GetRolesBySchoolIdAsync()
+        {
+            return await _context.Roles
+                .Select(r => new RoleDto
+                {
+                    Id = r.Id,
+                    RoleName = r.RoleName,
+                })
+                .OrderBy(r => r.RoleName)
+                .ToListAsync();
+        }
     }
 }

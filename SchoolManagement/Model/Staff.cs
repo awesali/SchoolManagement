@@ -20,7 +20,7 @@
 
         public string Adress { get; set; }
 
-        public string Status { get; set; }
+        public string? Status { get; set; }
 
         public DateTime Created_Date { get; set; }
 

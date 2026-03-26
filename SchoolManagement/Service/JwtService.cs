@@ -22,7 +22,7 @@ namespace SchoolManagement.Service
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Email, user.Email),
             new Claim("RoleId", user.RoleId.ToString()),
-            new Claim("SchoolId", user.School_Id?.ToString() ?? "0")
+            new Claim(ClaimTypes.Name, user.Name)
         };
 
             var key = new SymmetricSecurityKey(
