@@ -24,6 +24,8 @@ namespace SchoolManagement.Data
         public DbSet<StaffAttendance> StaffAttendance { get; set; }
 
         public DbSet<StudentAttendance> StudentAttendance { get; set; }
+        public DbSet<StaffDocument> StaffDocuments { get; set; }
+        public DbSet<EmailTemplate> EmailTemplates { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);

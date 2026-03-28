@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
+using SchoolManagement.Service;
 using System.Security.Claims;
 
 namespace SchoolManagement.Controllers
@@ -123,36 +124,38 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpPost("add-staff")]
-        public async Task<IActionResult> AddStaff([FromBody] AddStaffDto dto)
+        [Consumes("multipart/form-data")] // 🔥 MUST ADD
+        public async Task<IActionResult> AddStaff([FromForm] AddStaffDto dto)
         {
-            if (dto == null)
-            {
-                return BadRequest(new
-                {
-                    success = false,
-                    message = "Invalid data"
-                });
-            }
-
-            if (dto.SchoolId <= 0 || dto.RoleId <= 0)
-            {
-                return BadRequest(new
-                {
-                    success = false,
-                    message = "SchoolId and RoleId are required"
-                });
-            }
-
             var result = await _repo.AddStaffAsync(dto);
 
-            return Ok(new
-            {
-                success = true,
-                message = "Staff added successfully",
-                data = result
-            });
+            if (!result.Success)
+                return BadRequest(result);
+
+            return Ok(result);
         }
 
+        [HttpPut("update-staff")]
+        public async Task<IActionResult> UpdateStaff([FromForm] UpdateStaffDto dto)
+        {
+            var result = await _repo.UpdateStaffAsync(dto);
+
+            if (!result)
+                return NotFound(new { message = "Staff not found" });
+
+            return Ok(new { message = "Staff updated successfully" });
+        }
+
+        [HttpDelete("delete-document")]
+        public async Task<IActionResult> DeleteDocument([FromQuery] int id)
+        {
+            var result = await _repo.DeleteDocumentAsync(id);
+
+            if (!result)
+                return NotFound(new { message = "Document not found" });
+
+            return Ok(new { message = "Document deleted successfully" });
+        }
         [HttpGet("Get-roles")]
         public async Task<IActionResult> GetRoles()
         {

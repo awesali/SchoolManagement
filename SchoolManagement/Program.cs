@@ -5,6 +5,7 @@ using Microsoft.OpenApi.Models;
 using SchoolManagement.Data;
 using SchoolManagement.Interfaces;
 using SchoolManagement.Repository;
+using SchoolManagement.Repository.SchoolManagement.Repository;
 using SchoolManagement.Service;
 using System.Text;
 
@@ -65,7 +66,9 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // Dependency Injection
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IAdminRepository, AdminRepository>();
+builder.Services.AddScoped<ICommonRepository, CommonRepository>();
 builder.Services.AddScoped<JwtService>();
+builder.Services.AddScoped<EmailService>();
 
 // JWT Authentication
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -93,6 +96,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseStaticFiles();
 
 // Enable CORS
 app.UseCors("AllowAll");

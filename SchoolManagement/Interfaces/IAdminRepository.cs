@@ -9,8 +9,9 @@ namespace SchoolManagement.Interfaces
         Task<DashboardCardDto> GetDashboardData(int schoolId);
         Task<List<Schools>> GetSchoolsBySuperAdminIdAsync(int superAdminId);
         Task<List<StaffListDto>> GetStaffFullAsync(int schoolId);
-        Task<Staff> AddStaffAsync(AddStaffDto dto);
+        Task<ApiResponse<Staff>> AddStaffAsync(AddStaffDto dto);
         Task<List<RoleDto>> GetRolesBySchoolIdAsync();
-
+        Task<bool> UpdateStaffAsync(UpdateStaffDto dto);
+        Task<bool> DeleteDocumentAsync(int documentId);
     }
 }

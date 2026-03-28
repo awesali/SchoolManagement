@@ -34,7 +34,7 @@ namespace SchoolManagement.Service
                 issuer: _config["Jwt:Issuer"],
                 audience: _config["Jwt:Audience"],
                 claims: claims,
-                expires: DateTime.Now.AddDays(1),
+                expires: DateTime.Now.AddDays(50),
                 signingCredentials: creds
             );
 
