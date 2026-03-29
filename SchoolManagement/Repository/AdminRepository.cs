@@ -439,5 +439,140 @@ namespace SchoolManagement.Repository
                 .OrderBy(r => r.RoleName)
                 .ToListAsync();
         }
+
+        public async Task<List<StudentDto>> GetStudentsBySchoolIdAsync(int schoolId)
+        {
+            var students = await (
+                from s in _context.Students
+
+                join se in _context.StudentEnrollment
+                    on s.Id equals se.StudentId into seGroup
+                from se in seGroup.DefaultIfEmpty()
+
+                join c in _context.Classes
+                    on se.ClassId equals c.Id into cGroup
+                from c in cGroup.DefaultIfEmpty()
+
+                join sd in _context.SectionDetails
+                    on se.SectionId equals sd.Id into sdGroup
+                from sd in sdGroup.DefaultIfEmpty()
+
+                join ac in _context.AcademicSessions
+                on s.SchoolId equals ac.SchoolId into acGroup
+                from ac in acGroup.DefaultIfEmpty()
+                where s.SchoolId == schoolId
+
+                select new StudentDto
+                {
+                    Id = s.Id,
+                    StudentName = s.StudentName,
+                    DOB = s.DOB,
+                    Email = s.Email,
+                    PhoneNumber = s.PhoneNumber,
+                    ParentId = s.ParentId,
+                    SchoolId = s.SchoolId,
+
+                    ClassName = c != null ? c.ClassName : null,
+                    SectionName = sd != null ? sd.SectionName : null,
+                    AcademicSession = ac != null ? ac.Year_Start : (DateTime?)null
+                }
+            ).ToListAsync();
+
+            return students;
+        }
+
+        public async Task<bool> AddStudentAsync(StudentCreateDto dto)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                // 1. Add Parent
+                var parent = new ParentDetails
+                {
+                    Name = dto.Parent.Name,
+                    PhoneNumber = dto.Parent.PhoneNumber,
+                    Address = dto.Parent.Address,
+                    Email = dto.Parent.Email,
+                    Relationship = dto.Parent.Relationship,
+                    Created_By = 1, // Replace with current user id
+                    Updated_By = 1,
+                    Created_Date = DateTime.Now,
+                    IsActive = true
+                };
+
+                _context.ParentDetails.Add(parent);
+                await _context.SaveChangesAsync();
+
+                // 2. Add Student
+                var student = new Students
+                {
+                    StudentName = dto.StudentName,
+                    DOB = dto.DOB,
+                    Email = dto.Email,
+                    PhoneNumber = dto.PhoneNumber,
+                    ParentId = parent.Id,
+                    SchoolId = dto.SchoolId,
+                    Created_By = 1,
+                    Updated_By = 1,
+                    Created_Date = DateTime.Now,
+                    IsActive = true
+                };
+              
+
+                _context.Students.Add(student);
+                await _context.SaveChangesAsync();
+
+                // 3. Add StudentEnrollment
+                var enrollment = new StudentEnrollment
+                {
+                    StudentId = student.Id,
+                    ClassId = dto.ClassId,
+                    SectionId = dto.SectionId,
+                    SessionId = dto.SessionId,
+                    SchoolId = dto.SchoolId,
+                    Created_By = 1,
+                    Updated_By = 1,
+                    Created_At = DateTime.Now,
+                    IsActive = true
+                };
+
+                _context.StudentEnrollment.Add(enrollment);
+                await _context.SaveChangesAsync();
+
+                // Commit transaction
+                await transaction.CommitAsync();
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                // Log error here
+                return false;
+            }
+        }
+
+        public async Task<List<EnrollmentInfoDto>> GetEnrollmentInfoBySchoolAsync(int schoolId)
+        {
+            var result = await (
+                from se in _context.Schools
+                join c in _context.Classes on se.Id equals c.SchoolId
+                join sd in _context.SectionDetails on se.Id equals sd.SchoolId
+                join s in _context.AcademicSessions on se.Id equals s.SchoolId
+               // where se.SchoolId == schoolId
+                select new EnrollmentInfoDto
+                {
+                    ClassId = c.Id,
+                    ClassName = c.ClassName,
+                    SectionId = sd.Id,
+                    SectionName = sd.SectionName,
+                    SessionId = s.Id,
+                    YearStart = s.Year_Start,
+                    YearEnd = s.Year_End
+                }
+            ).Distinct().ToListAsync();
+
+            return result;
+        }
     }
 }

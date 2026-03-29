@@ -11,6 +11,9 @@ namespace SchoolManagement.Interfaces
         Task<List<StaffListDto>> GetStaffFullAsync(int schoolId);
         Task<ApiResponse<Staff>> AddStaffAsync(AddStaffDto dto);
         Task<List<RoleDto>> GetRolesBySchoolIdAsync();
+        Task<List<StudentDto>> GetStudentsBySchoolIdAsync(int schoolId);
+        Task<bool> AddStudentAsync(StudentCreateDto dto);
+        Task<List<EnrollmentInfoDto>> GetEnrollmentInfoBySchoolAsync(int schoolId);
         Task<bool> UpdateStaffAsync(UpdateStaffDto dto);
         Task<bool> DeleteDocumentAsync(int documentId);
     }
