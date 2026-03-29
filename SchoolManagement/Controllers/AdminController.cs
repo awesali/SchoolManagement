@@ -173,5 +173,101 @@ namespace SchoolManagement.Controllers
                 data = roles
             });
         }
+
+
+        [HttpGet("students-by-school")]
+        [Authorize]
+        public async Task<IActionResult> GetStudentsBySchool([FromQuery] int schoolId)
+        {
+            if (schoolId <= 0)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Invalid schoolId"
+                });
+            }
+
+            var students = await _repo.GetStudentsBySchoolIdAsync(schoolId);
+
+            if (students == null || !students.Any())
+            {
+                return NotFound(new
+                {
+                    success = false,
+                    message = "No students found"
+                });
+            }
+
+            return Ok(new
+            {
+                success = true,
+                count = students.Count,
+                data = students
+            });
+        }
+
+        [HttpPost("add-student")]
+        [Authorize]
+        public async Task<IActionResult> AddStudent([FromBody] StudentCreateDto dto)
+        {
+            if (dto == null || dto.Parent == null)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Invalid input"
+                });
+            }
+
+            var result = await _repo.AddStudentAsync(dto);
+
+            if (!result)
+            {
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Failed to add student"
+                });
+            }
+
+            return Ok(new
+            {
+                success = true,
+                message = "Student added successfully"
+            });
+        }
+
+        [HttpGet("enrollment-info")]
+        [Authorize]
+        public async Task<IActionResult> GetEnrollmentInfo([FromQuery] int schoolId)
+        {
+            if (schoolId <= 0)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Invalid schoolId"
+                });
+            }
+
+            var enrollmentInfo = await _repo.GetEnrollmentInfoBySchoolAsync(schoolId);
+
+            if (enrollmentInfo == null || !enrollmentInfo.Any())
+            {
+                return NotFound(new
+                {
+                    success = false,
+                    message = "No enrollment data found"
+                });
+            }
+
+            return Ok(new
+            {
+                success = true,
+                count = enrollmentInfo.Count,
+                data = enrollmentInfo
+            });
+        }
     }
 }

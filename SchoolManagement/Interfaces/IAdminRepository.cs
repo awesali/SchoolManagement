@@ -11,6 +11,9 @@ namespace SchoolManagement.Interfaces
         Task<List<StaffListDto>> GetStaffFullAsync(int schoolId);
         Task<Staff> AddStaffAsync(AddStaffDto dto);
         Task<List<RoleDto>> GetRolesBySchoolIdAsync();
+        Task<List<StudentDto>> GetStudentsBySchoolIdAsync(int schoolId);
+        Task<bool> AddStudentAsync(StudentCreateDto dto);
+        Task<List<EnrollmentInfoDto>> GetEnrollmentInfoBySchoolAsync(int schoolId);
 
     }
 }
