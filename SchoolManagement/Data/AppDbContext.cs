@@ -31,9 +31,15 @@ namespace SchoolManagement.Data
         public DbSet<AcademicSessions> AcademicSessions { get; set; }
         public DbSet<StaffDocument> StaffDocuments { get; set; }
         public DbSet<EmailTemplate> EmailTemplates { get; set; }
+        public DbSet<Student_Documents> Student_Documents { get; set; }
+        public DbSet<Students_Parents_Creds> Students_Parents_Creds { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+            
+            // Configure Students_Parents_Creds table name
+            modelBuilder.Entity<Students_Parents_Creds>()
+                .ToTable("Students_Parents_Creds");
         }
     }
 }

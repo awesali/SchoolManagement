@@ -12,6 +12,9 @@
         public int SessionId { get; set; }
 
         public ParentDto Parent { get; set; }
+        public List<int?>? DocumentIds { get; set; }
+        public List<string>? DocumentNames { get; set; }  // ✅ names
+        public List<IFormFile>? Files { get; set; }
     }
     public class ParentDto
     {

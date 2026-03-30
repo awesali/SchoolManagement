@@ -146,6 +146,18 @@ namespace SchoolManagement.Controllers
             return Ok(new { message = "Staff updated successfully" });
         }
 
+        [HttpPut("update-student")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UpdateStudent([FromForm] StudentUpdateDto dto)
+        {
+            var result = await _repo.UpdateStudentAsync(dto);
+
+            if (!result)
+                return NotFound(new { message = "Student not found" });
+
+            return Ok(new { message = "Student updated successfully" });
+        }
+
         [HttpDelete("delete-document")]
         public async Task<IActionResult> DeleteDocument([FromQuery] int id)
         {
@@ -155,6 +167,28 @@ namespace SchoolManagement.Controllers
                 return NotFound(new { message = "Document not found" });
 
             return Ok(new { message = "Document deleted successfully" });
+        }
+
+        [HttpDelete("delete-student")]
+        public async Task<IActionResult> DeleteStudent([FromQuery] int id)
+        {
+            var result = await _repo.DeleteStudentAsync(id);
+
+            if (!result)
+                return NotFound(new { message = "Student not found" });
+
+            return Ok(new { message = "Student deleted successfully" });
+        }
+
+        [HttpDelete("delete-student-document")]
+        public async Task<IActionResult> DeleteStudentDocument([FromQuery] int id)
+        {
+            var result = await _repo.DeleteStudentDocumentAsync(id);
+
+            if (!result)
+                return NotFound(new { message = "Student document not found" });
+
+            return Ok(new { message = "Student document deleted successfully" });
         }
         [HttpGet("Get-roles")]
         public async Task<IActionResult> GetRoles()
@@ -210,9 +244,41 @@ namespace SchoolManagement.Controllers
             });
         }
 
+        [HttpGet("student-by-id")]
+        [Authorize]
+        public async Task<IActionResult> GetStudentById([FromQuery] int studentId)
+        {
+            if (studentId <= 0)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Invalid studentId"
+                });
+            }
+
+            var student = await _repo.GetStudentByIdAsync(studentId);
+
+            if (student == null)
+            {
+                return NotFound(new
+                {
+                    success = false,
+                    message = "Student not found"
+                });
+            }
+
+            return Ok(new
+            {
+                success = true,
+                data = student
+            });
+        }
+
         [HttpPost("add-student")]
         [Authorize]
-        public async Task<IActionResult> AddStudent([FromBody] StudentCreateDto dto)
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> AddStudent([FromForm] StudentCreateDto dto)
         {
             if (dto == null || dto.Parent == null)
             {
