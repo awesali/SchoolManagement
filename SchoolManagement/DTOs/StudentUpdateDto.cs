@@ -9,6 +9,7 @@ namespace SchoolManagement.DTOs
         public DateTime? DOB { get; set; }
         public string? Email { get; set; }
         public string? PhoneNumber { get; set; }
+        public bool? IsActive { get; set; }
         public int? ClassId { get; set; }
         public int? SectionId { get; set; }
         public int? SessionId { get; set; }

@@ -510,8 +510,9 @@ namespace SchoolManagement.Repository
                 from sd in sdGroup.DefaultIfEmpty()
 
                 join ac in _context.AcademicSessions
-                on s.SchoolId equals ac.SchoolId into acGroup
+                    on se.SessionId equals ac.Id into acGroup  // <-- Join by SessionId, not SchoolId
                 from ac in acGroup.DefaultIfEmpty()
+
                 where s.Id == studentId
 
                 select new StudentDto
@@ -523,6 +524,10 @@ namespace SchoolManagement.Repository
                     PhoneNumber = s.PhoneNumber,
                     ParentId = s.ParentId,
                     SchoolId = s.SchoolId,
+
+                    ClassId = se != null ? se.ClassId : (int?)null,       // <-- Add IDs
+                    SectionId = se != null ? se.SectionId : (int?)null,
+                    SessionId = se != null ? se.SessionId : (int?)null,
 
                     ClassName = c != null ? c.ClassName : null,
                     SectionName = sd != null ? sd.SectionName : null,
@@ -813,7 +818,11 @@ namespace SchoolManagement.Repository
                     student.PhoneNumber = dto.PhoneNumber;
                 student.Updated_By = 1;
                 student.Modified_Date = DateTime.Now;
+                if (dto.IsActive.HasValue)
+                    student.IsActive = dto.IsActive.Value;
 
+                student.Updated_By = 1;
+                student.Modified_Date = DateTime.Now;
                 await _context.SaveChangesAsync();
 
                 // 4️⃣ Update StudentEnrollment (if provided)
@@ -973,53 +982,53 @@ namespace SchoolManagement.Repository
             }
         }
 
-        public async Task<bool> DeleteStudentAsync(int studentId)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
-            {
-                var student = await _context.Students
-                    .FirstOrDefaultAsync(s => s.Id == studentId);
+        //public async Task<bool> DeleteStudentAsync(int studentId)
+        //{
+        //    using var transaction = await _context.Database.BeginTransactionAsync();
+        //    try
+        //    {
+        //        var student = await _context.Students
+        //            .FirstOrDefaultAsync(s => s.Id == studentId);
 
-                if (student == null)
-                    return false;
+        //        if (student == null)
+        //            return false;
 
-                // Delete student documents from server
-                var studentDocs = await _context.Student_Documents
-                    .Where(d => d.StudentId == studentId)
-                    .ToListAsync();
+        //        // Delete student documents from server
+        //        var studentDocs = await _context.Student_Documents
+        //            .Where(d => d.StudentId == studentId)
+        //            .ToListAsync();
 
-                foreach (var doc in studentDocs)
-                {
-                    if (!string.IsNullOrEmpty(doc.FileUrl))
-                    {
-                        var filePath = Path.Combine(
-                            _env.WebRootPath,
-                            doc.FileUrl.TrimStart('/')
-                        );
+        //        foreach (var doc in studentDocs)
+        //        {
+        //            if (!string.IsNullOrEmpty(doc.FileUrl))
+        //            {
+        //                var filePath = Path.Combine(
+        //                    _env.WebRootPath,
+        //                    doc.FileUrl.TrimStart('/')
+        //                );
 
-                        if (File.Exists(filePath))
-                        {
-                            File.Delete(filePath);
-                        }
-                    }
-                }
+        //                if (File.Exists(filePath))
+        //                {
+        //                    File.Delete(filePath);
+        //                }
+        //            }
+        //        }
 
-                // Mark student as inactive (soft delete)
-                student.IsActive = false;
-                student.Modified_Date = DateTime.Now;
+        //        // Mark student as inactive (soft delete)
+        //        student.IsActive = false;
+        //        student.Modified_Date = DateTime.Now;
 
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+        //        await _context.SaveChangesAsync();
+        //        await transaction.CommitAsync();
 
-                return true;
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
-        }
+        //        return true;
+        //    }
+        //    catch
+        //    {
+        //        await transaction.RollbackAsync();
+        //        throw;
+        //    }
+        //}
 
         public async Task<bool> DeleteStudentDocumentAsync(int documentId)
         {
@@ -1060,27 +1069,64 @@ namespace SchoolManagement.Repository
                 throw;
             }
         }
-        public async Task<List<EnrollmentInfoDto>> GetEnrollmentInfoBySchoolAsync(int schoolId)
+        //public async Task<List<EnrollmentInfoDto>> GetEnrollmentInfoBySchoolAsync(int schoolId)
+        //{
+        //    var result = await (
+        //        from se in _context.Schools
+        //        join c in _context.Classes on se.Id equals c.SchoolId
+        //        join sd in _context.SectionDetails on se.Id equals sd.SchoolId
+        //        join s in _context.AcademicSessions on se.Id equals s.SchoolId
+        //       // where se.SchoolId == schoolId
+        //        select new EnrollmentInfoDto
+        //        {
+        //            ClassId = c.Id,
+        //            ClassName = c.ClassName,
+        //            SectionId = sd.Id,
+        //            SectionName = sd.SectionName,
+        //            SessionId = s.Id,
+        //            YearStart = s.Year_Start,
+        //            YearEnd = s.Year_End
+        //        }
+        //    ).Distinct().ToListAsync();
+
+        //    return result;
+        //}
+
+
+        public async Task<EnrollmentInfoDto> GetEnrollmentInfoBySchoolAsync(int schoolId)
         {
-            var result = await (
-                from se in _context.Schools
-                join c in _context.Classes on se.Id equals c.SchoolId
-                join sd in _context.SectionDetails on se.Id equals sd.SchoolId
-                join s in _context.AcademicSessions on se.Id equals s.SchoolId
-               // where se.SchoolId == schoolId
-                select new EnrollmentInfoDto
+            var classes = await _context.Classes
+                .Where(c => c.SchoolId == schoolId)
+                .Select(c => new ClassDto
                 {
-                    ClassId = c.Id,
-                    ClassName = c.ClassName,
-                    SectionId = sd.Id,
-                    SectionName = sd.SectionName,
-                    SessionId = s.Id,
+                    Id = c.Id,
+                    Name = c.ClassName
+                }).ToListAsync();
+
+            var sections = await _context.SectionDetails
+                .Where(s => s.SchoolId == schoolId)
+                .Select(s => new SectionDto
+                {
+                    Id = s.Id,
+                    Name = s.SectionName,
+                    ClassId = s.ClassId
+                }).ToListAsync();
+
+            var sessions = await _context.AcademicSessions
+                .Where(s => s.SchoolId == schoolId)
+                .Select(s => new SessionDto
+                {
+                    Id = s.Id,
                     YearStart = s.Year_Start,
                     YearEnd = s.Year_End
-                }
-            ).Distinct().ToListAsync();
+                }).ToListAsync();
 
-            return result;
+            return new EnrollmentInfoDto
+            {
+                Classes = classes,
+                Sections = sections,
+                Sessions = sessions
+            };
         }
     }
 }
