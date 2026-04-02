@@ -14,11 +14,11 @@ namespace SchoolManagement.Interfaces
         Task<List<StudentDto>> GetStudentsBySchoolIdAsync(int schoolId);
         Task<StudentDto> GetStudentByIdAsync(int studentId);
         Task<bool> AddStudentAsync(StudentCreateDto dto);
-        Task<List<EnrollmentInfoDto>> GetEnrollmentInfoBySchoolAsync(int schoolId);
+        Task<EnrollmentInfoDto> GetEnrollmentInfoBySchoolAsync(int schoolId);
         Task<bool> UpdateStaffAsync(UpdateStaffDto dto);
         Task<bool> DeleteDocumentAsync(int documentId);
         Task<bool> UpdateStudentAsync(StudentUpdateDto dto);
-        Task<bool> DeleteStudentAsync(int studentId);
+        //Task<bool> DeleteStudentAsync(int studentId);
         Task<bool> DeleteStudentDocumentAsync(int documentId);
         Task<bool> CreateClassWithSectionsAsync(CreateClassWithSectionsDto dto);
         Task<List<ClassDetailDto>> GetClassDetailsBySchoolIdAsync(int schoolId);

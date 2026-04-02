@@ -169,16 +169,16 @@ namespace SchoolManagement.Controllers
             return Ok(new { message = "Document deleted successfully" });
         }
 
-        [HttpDelete("delete-student")]
-        public async Task<IActionResult> DeleteStudent([FromQuery] int id)
-        {
-            var result = await _repo.DeleteStudentAsync(id);
+        //[HttpDelete("delete-student")]
+        //public async Task<IActionResult> DeleteStudent([FromQuery] int id)
+        //{
+        //    var result = await _repo.DeleteStudentAsync(id);
 
-            if (!result)
-                return NotFound(new { message = "Student not found" });
+        //    if (!result)
+        //        return NotFound(new { message = "Student not found" });
 
-            return Ok(new { message = "Student deleted successfully" });
-        }
+        //    return Ok(new { message = "Student deleted successfully" });
+        //}
 
         [HttpDelete("delete-student-document")]
         public async Task<IActionResult> DeleteStudentDocument([FromQuery] int id)
@@ -322,7 +322,7 @@ namespace SchoolManagement.Controllers
 
             var enrollmentInfo = await _repo.GetEnrollmentInfoBySchoolAsync(schoolId);
 
-            if (enrollmentInfo == null || !enrollmentInfo.Any())
+            if (enrollmentInfo == null)
             {
                 return NotFound(new
                 {
@@ -334,7 +334,6 @@ namespace SchoolManagement.Controllers
             return Ok(new
             {
                 success = true,
-                count = enrollmentInfo.Count,
                 data = enrollmentInfo
             });
         }
