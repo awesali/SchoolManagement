@@ -1106,7 +1106,7 @@ namespace SchoolManagement.Repository
 
             var sections = await _context.SectionDetails
                 .Where(s => s.SchoolId == schoolId)
-                .Select(s => new SectionDto
+                .Select(s => new SectionDetailsDto
                 {
                     Id = s.Id,
                     Name = s.SectionName,

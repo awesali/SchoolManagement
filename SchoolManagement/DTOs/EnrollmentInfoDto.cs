@@ -4,7 +4,7 @@
     {
        
     public List<ClassDto> Classes { get; set; }
-        public List<SectionDto> Sections { get; set; }
+        public List<SectionDetailsDto> Sections { get; set; }
         public List<SessionDto> Sessions { get; set; }
     }
 
@@ -14,7 +14,7 @@
         public string Name { get; set; }
     }
 
-    public class SectionDto
+    public class SectionDetailsDto
     {
         public int Id { get; set; }
         public string Name { get; set; }
