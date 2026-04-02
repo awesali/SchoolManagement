@@ -20,5 +20,12 @@ namespace SchoolManagement.Interfaces
         Task<bool> UpdateStudentAsync(StudentUpdateDto dto);
         Task<bool> DeleteStudentAsync(int studentId);
         Task<bool> DeleteStudentDocumentAsync(int documentId);
+        Task<bool> CreateClassWithSectionsAsync(CreateClassWithSectionsDto dto);
+        Task<List<ClassDetailDto>> GetClassDetailsBySchoolIdAsync(int schoolId);
+        Task<bool> UpdateClassWithSectionsAsync(UpdateClassWithSectionsDto dto);
+        Task<List<SubjectDto>> GetSubjectsBySchoolIdAsync(int schoolId);
+        Task<SubjectDto> AddSubjectAsync(AddSubjectDto dto);
+        Task<bool> UpdateSubjectAsync(UpdateSubjectDto dto);
+        Task<bool> AssignSubjectsToSectionAsync(AssignSubjectToSectionDto dto);
     }
 }

@@ -33,6 +33,9 @@ namespace SchoolManagement.Data
         public DbSet<EmailTemplate> EmailTemplates { get; set; }
         public DbSet<Student_Documents> Student_Documents { get; set; }
         public DbSet<Students_Parents_Creds> Students_Parents_Creds { get; set; }
+        public DbSet<Subjects> Subjects { get; set; }
+        public DbSet<SubjectTeachers> SubjectTeachers { get; set; }
+        public DbSet<SectionSubjects> SectionSubjects { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);

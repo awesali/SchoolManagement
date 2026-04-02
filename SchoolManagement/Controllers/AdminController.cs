@@ -338,5 +338,143 @@ namespace SchoolManagement.Controllers
                 data = enrollmentInfo
             });
         }
+
+        [HttpPost("create-class-with-sections")]
+        public async Task<IActionResult> CreateClassWithSections(CreateClassWithSectionsDto dto)
+        {
+            var result = await _repo.CreateClassWithSectionsAsync(dto);
+
+            if (!result)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Failed to create class"
+                });
+            }
+
+            return Ok(new
+            {
+                success = true,
+                message = "Class with sections created successfully"
+            });
+        }
+
+        [HttpGet("calss-list")]
+        public async Task<IActionResult> GetClassList(int schoolId)
+        {
+            var data = await _repo.GetClassDetailsBySchoolIdAsync(schoolId);
+
+            var response = new ApiResponse<List<ClassDetailDto>>
+            {
+                Success = true,
+                Message = "Class list fetched successfully",
+                Data = data
+            };
+
+            return Ok(response);
+        }
+
+        [HttpPut("update-class-with-sections")]
+        public async Task<IActionResult> UpdateClassWithSections(UpdateClassWithSectionsDto dto)
+        {
+            var result = await _repo.UpdateClassWithSectionsAsync(dto);
+
+            if (!result)
+            {
+                return BadRequest(new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Update failed",
+                    Data = null
+                });
+            }
+
+            return Ok(new ApiResponse<string>
+            {
+                Success = true,
+                Message = "Class and sections updated successfully",
+                Data = null
+            });
+        }
+
+        [HttpGet("subjects-by-school")]
+        public async Task<IActionResult> GetSubjectsBySchool([FromQuery] int schoolId)
+        {
+            if (schoolId <= 0)
+                return BadRequest(new ApiResponse<string> { Success = false, Message = "Invalid schoolId" });
+
+            var subjects = await _repo.GetSubjectsBySchoolIdAsync(schoolId);
+
+            if (subjects == null || !subjects.Any())
+                return NotFound(new ApiResponse<string> { Success = false, Message = "No subjects found" });
+
+            return Ok(new ApiResponse<List<SubjectDto>>
+            {
+                Success = true,
+                Message = "Subjects fetched successfully",
+                Data = subjects
+            });
+        }
+
+        [HttpPost("add-subject")]
+        public async Task<IActionResult> AddSubject(AddSubjectDto dto)
+        {
+            try
+            {
+                var subject = await _repo.AddSubjectAsync(dto);
+
+                return Ok(new ApiResponse<SubjectDto>
+                {
+                    Success = true,
+                    Message = "Subject added successfully",
+                    Data = subject
+                });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        [HttpPut("update-subject")]
+        public async Task<IActionResult> UpdateSubject(UpdateSubjectDto dto)
+        {
+            try
+            {
+                var result = await _repo.UpdateSubjectAsync(dto);
+
+                if (!result)
+                    return NotFound(new ApiResponse<string> { Success = false, Message = "Subject not found" });
+
+                return Ok(new ApiResponse<string> { Success = true, Message = "Subject updated successfully" });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new ApiResponse<string> { Success = false, Message = ex.Message });
+            }
+        }
+
+        [HttpPost("assign-subjects-to-section")]
+        public async Task<IActionResult> AssignSubjectsToSection(AssignSubjectToSectionDto dto)
+        {
+            try
+            {
+                var result = await _repo.AssignSubjectsToSectionAsync(dto);
+
+                if (!result)
+                    return NotFound(new ApiResponse<string> { Success = false, Message = "Section not found" });
+
+                return Ok(new ApiResponse<string> { Success = true, Message = "Subjects assigned to section successfully" });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new ApiResponse<string> { Success = false, Message = ex.Message });
+            }
+        }
     }
 }

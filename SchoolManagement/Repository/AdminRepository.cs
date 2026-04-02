@@ -5,6 +5,7 @@ using SchoolManagement.Interfaces;
 using SchoolManagement.Model;
 using SchoolManagement.Repository.SchoolManagement.Repository;
 using SchoolManagement.Service;
+using System.Security.Claims;
 
 namespace SchoolManagement.Repository
 {
@@ -1081,6 +1082,296 @@ namespace SchoolManagement.Repository
             ).Distinct().ToListAsync();
 
             return result;
+        }
+        public async Task<bool> CreateClassWithSectionsAsync(CreateClassWithSectionsDto dto)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                // ✅ Create Class
+                var newClass = new Classes
+                {
+                    ClassName = dto.ClassName,
+                    SchoolId = dto.SchoolId,
+                    Created_Date = DateTime.UtcNow,
+                    IsActive = true,
+                };
+
+                _context.Classes.Add(newClass);
+                await _context.SaveChangesAsync();
+
+                // ✅ Create Sections
+                if (dto.Sections != null && dto.Sections.Any())
+                {
+                    var sections = dto.Sections.Select(sec => new SectionDetails
+                    {
+                        SectionName = sec.SectionName,
+                        ClassId = newClass.Id,
+                        SchoolId = dto.SchoolId,
+                        StaffId = sec.StaffId,
+                        Created_Date = DateTime.UtcNow,
+                        IsActive = true
+                    }).ToList();
+
+                    _context.SectionDetails.AddRange(sections);
+                    await _context.SaveChangesAsync();
+                }
+
+                await transaction.CommitAsync();
+                return true;
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                return false;
+            }
+        }
+        public async Task<List<ClassDetailDto>> GetClassDetailsBySchoolIdAsync(int schoolId)
+        {
+            return await _context.Classes
+                .Where(c => c.SchoolId == schoolId && c.IsActive)
+                .Select(c => new ClassDetailDto
+                {
+                    Id = c.Id,
+                    ClassName = c.ClassName,
+                    SchoolId = c.SchoolId,
+                    CreatedDate = c.Created_Date,
+                    IsActive = c.IsActive,
+
+                    SectionCount = _context.SectionDetails
+                        .Count(s => s.ClassId == c.Id && s.IsActive),
+
+                    // 🔥 Sections list
+                    Sections = _context.SectionDetails
+                        .Where(s => s.ClassId == c.Id && s.IsActive)
+                        .Select(s => new GetSectionDto
+                        {
+                            Id = s.Id,
+                            SectionName = s.SectionName,
+                            StaffId = s.StaffId,
+                            MonitorStudentId = s.MonitorStudentId
+                        }).ToList()
+                })
+                .OrderByDescending(c => c.CreatedDate)
+                .ToListAsync();
+        }
+
+        public async Task<bool> UpdateClassWithSectionsAsync(UpdateClassWithSectionsDto dto)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                // ✅ Get Class
+                var existingClass = await _context.Classes
+                    .FirstOrDefaultAsync(c => c.Id == dto.ClassId && c.IsActive);
+
+                if (existingClass == null)
+                    return false;
+
+                // ✅ Duplicate Class Name Check
+                var duplicateClass = await _context.Classes.AnyAsync(c =>
+                    c.ClassName == dto.ClassName &&
+                    c.SchoolId == existingClass.SchoolId &&
+                    c.Id != dto.ClassId &&
+                    c.IsActive);
+
+                if (duplicateClass)
+                    throw new Exception("Class already exists");
+
+                // ✅ Update Class
+                existingClass.ClassName = dto.ClassName;
+                existingClass.Modified_Date = DateTime.UtcNow;
+
+                await _context.SaveChangesAsync();
+
+                // ✅ Get Existing Sections
+                var existingSections = await _context.SectionDetails
+                    .Where(s => s.ClassId == dto.ClassId && s.IsActive)
+                    .ToListAsync();
+
+                // =========================
+                // ✅ ONLY UPDATE EXISTING
+                // =========================
+                foreach (var sec in dto.Sections)
+                {
+                    if (!sec.Id.HasValue)
+                        continue; // ❌ skip new sections
+
+                    var existingSection = existingSections
+                        .FirstOrDefault(s => s.Id == sec.Id.Value);
+
+                    if (existingSection != null)
+                    {
+                        existingSection.SectionName = sec.SectionName;
+                        existingSection.StaffId = sec.StaffId
+                            
+                            ;
+                        existingSection.Modified_Date = DateTime.UtcNow;
+                    }
+                }
+
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+                return true;
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                return false;
+            }
+        }
+        public async Task<List<SubjectDto>> GetSubjectsBySchoolIdAsync(int schoolId)
+        {
+            return await (
+                from s in _context.Subjects
+                join st in _context.SubjectTeachers on s.Id equals st.SubjectId into stGroup
+                from st in stGroup.DefaultIfEmpty()
+                join staff in _context.Staff on st.StaffId equals staff.Id into staffGroup
+                from staff in staffGroup.DefaultIfEmpty()
+                where s.SchoolId == schoolId && s.IsActive
+                select new SubjectDto
+                {
+                    Id = s.Id,
+                    SubjectName = s.SubjectName,
+                    SchoolId = s.SchoolId,
+                    Created_Date = s.Created_Date,
+                    Modified_Date = s.Modified_Date,
+                    IsActive = s.IsActive,
+                    TeacherId = staff != null ? staff.Id : (int?)null,
+                    TeacherName = staff != null ? staff.Name : null
+                }
+            ).ToListAsync();
+        }
+
+        public async Task<SubjectDto> AddSubjectAsync(AddSubjectDto dto)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            var duplicate = await _context.Subjects
+                .AnyAsync(s => s.SubjectName == dto.SubjectName && s.SchoolId == dto.SchoolId && s.IsActive);
+
+            if (duplicate)
+                throw new Exception("Subject already exists");
+
+            var subject = new Subjects
+            {
+                SubjectName = dto.SubjectName,
+                SchoolId = dto.SchoolId,
+                Created_Date = DateTime.UtcNow,
+                IsActive = true
+            };
+
+            _context.Subjects.Add(subject);
+            await _context.SaveChangesAsync();
+
+            var subjectTeacher = new SubjectTeachers
+            {
+                SubjectId = subject.Id,
+                StaffId = dto.StaffId,
+                SchoolId = dto.SchoolId,
+                Created_Date = DateTime.UtcNow,
+                IsActive = true
+            };
+
+            _context.SubjectTeachers.Add(subjectTeacher);
+            await _context.SaveChangesAsync();
+
+            await transaction.CommitAsync();
+
+            var teacher = await _context.Staff.FirstOrDefaultAsync(s => s.Id == dto.StaffId);
+
+            return new SubjectDto
+            {
+                Id = subject.Id,
+                SubjectName = subject.SubjectName,
+                SchoolId = subject.SchoolId,
+                Created_Date = subject.Created_Date,
+                IsActive = subject.IsActive,
+                TeacherId = teacher?.Id,
+                TeacherName = teacher?.Name
+            };
+        }
+        public async Task<bool> UpdateSubjectAsync(UpdateSubjectDto dto)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            var subject = await _context.Subjects
+                .FirstOrDefaultAsync(s => s.Id == dto.Id && s.IsActive);
+
+            if (subject == null)
+                return false;
+
+            var duplicate = await _context.Subjects
+                .AnyAsync(s => s.SubjectName == dto.SubjectName && s.SchoolId == subject.SchoolId && s.Id != dto.Id && s.IsActive);
+
+            if (duplicate)
+                throw new Exception("Subject name already exists");
+
+            subject.SubjectName = dto.SubjectName;
+            subject.Modified_Date = DateTime.UtcNow;
+
+            var subjectTeacher = await _context.SubjectTeachers
+                .FirstOrDefaultAsync(st => st.SubjectId == dto.Id && st.IsActive);
+
+            if (subjectTeacher != null)
+            {
+                subjectTeacher.StaffId = dto.StaffId;
+                subjectTeacher.Modified_Date = DateTime.UtcNow;
+            }
+            else
+            {
+                _context.SubjectTeachers.Add(new SubjectTeachers
+                {
+                    SubjectId = dto.Id,
+                    StaffId = dto.StaffId,
+                    SchoolId = subject.SchoolId,
+                    Created_Date = DateTime.UtcNow,
+                    IsActive = true
+                });
+            }
+
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            return true;
+        }
+        public async Task<bool> AssignSubjectsToSectionAsync(AssignSubjectToSectionDto dto)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            var sectionExists = await _context.SectionDetails
+                .AnyAsync(s => s.Id == dto.SectionId && s.IsActive);
+
+            if (!sectionExists)
+                return false;
+
+            // deactivate existing assignments
+            var existing = await _context.SectionSubjects
+                .Where(ss => ss.SectionId == dto.SectionId && ss.IsActive)
+                .ToListAsync();
+
+            existing.ForEach(ss => { ss.IsActive = false; ss.Modified_Date = DateTime.UtcNow; });
+
+            // add new assignments (skip duplicates)
+            var newEntries = dto.SubjectIds
+                .Distinct()
+                .Select(subjectId => new SectionSubjects
+                {
+                    SectionId = dto.SectionId,
+                    SubjectId = subjectId,
+                    SchoolId = dto.SchoolId,
+                    Created_Date = DateTime.UtcNow,
+                    IsActive = true
+                }).ToList();
+
+            _context.SectionSubjects.AddRange(newEntries);
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            return true;
         }
     }
 }

@@ -36,7 +36,30 @@
 
                 return password;
             }
+            public async Task<List<StaffDropdownDto>> GetStaffBySchoolIdAsync(int schoolId)
+            {
+                return await _context.Staff
+                    .Where(s => s.SchoolId == schoolId && s.IsActive)
+                    .Select(s => new StaffDropdownDto
+                    {
+                        Id = s.Id,
+                        Name = s.Name
+                    })
+                    .ToListAsync();
+            }
+
+            public async Task<List<SubjectPicklistDto>> GetSubjectsBySchoolIdAsync(int schoolId)
+            {
+                return await _context.Subjects
+                    .Where(s => s.SchoolId == schoolId && s.IsActive)
+                    .Select(s => new SubjectPicklistDto
+                    {
+                        Id = s.Id,
+                        SubjectName = s.SubjectName
+                    })
+                    .ToListAsync();
+            }
         }
     }
 
-}
+}   
