@@ -1230,34 +1230,57 @@ namespace SchoolManagement.Repository
                 existingClass.ClassName = dto.ClassName;
                 existingClass.Modified_Date = DateTime.UtcNow;
 
-                await _context.SaveChangesAsync();
-
                 // ✅ Get Existing Sections
                 var existingSections = await _context.SectionDetails
                     .Where(s => s.ClassId == dto.ClassId && s.IsActive)
                     .ToListAsync();
 
-                // =========================
-                // ✅ ONLY UPDATE EXISTING
-                // =========================
                 foreach (var sec in dto.Sections)
                 {
-                    if (!sec.Id.HasValue)
-                        continue; // ❌ skip new sections
+                    // ✅ Duplicate Section Check
+                    var isDuplicateSection = existingSections.Any(s =>
+                        s.SectionName == sec.SectionName &&
+                        (!sec.Id.HasValue || s.Id != sec.Id));
 
-                    var existingSection = existingSections
-                        .FirstOrDefault(s => s.Id == sec.Id.Value);
+                    if (isDuplicateSection)
+                        throw new Exception($"Section '{sec.SectionName}' already exists");
 
-                    if (existingSection != null)
+                    if (sec.Id.HasValue)
                     {
-                        existingSection.SectionName = sec.SectionName;
-                        existingSection.StaffId = sec.StaffId
-                            
-                            ;
-                        existingSection.Modified_Date = DateTime.UtcNow;
+                        // =====================
+                        // ✅ UPDATE EXISTING
+                        // =====================
+                        var existingSection = existingSections
+                            .FirstOrDefault(s => s.Id == sec.Id.Value);
+
+                        if (existingSection != null)
+                        {
+                            existingSection.SectionName = sec.SectionName;
+                            existingSection.StaffId = sec.StaffId;
+                            //existingSection.MonitorStudentId = sec.MonitorStudentId;
+                            existingSection.Modified_Date = DateTime.UtcNow;
+                        }
+                    }
+                    else
+                    {
+                        // =====================
+                        // ✅ ADD NEW SECTION
+                        // =====================
+                        var newSection = new SectionDetails
+                        {
+                            ClassId = dto.ClassId,
+                            SectionName = sec.SectionName,
+                            StaffId = sec.StaffId,
+                            //MonitorStudentId = sec.MonitorStudentId,
+                            Created_Date = DateTime.UtcNow,
+                            IsActive = true
+                        };
+
+                        await _context.SectionDetails.AddAsync(newSection);
                     }
                 }
 
+                // ✅ Save All Changes (single call)
                 await _context.SaveChangesAsync();
 
                 await transaction.CommitAsync();
@@ -1269,6 +1292,7 @@ namespace SchoolManagement.Repository
                 return false;
             }
         }
+
         public async Task<List<SubjectDto>> GetSubjectsBySchoolIdAsync(int schoolId)
         {
             return await (
