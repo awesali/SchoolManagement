@@ -70,7 +70,7 @@ builder.Services.AddScoped<IStudentParentRepository, StudentParentRepository>();
 builder.Services.AddScoped<ICommonRepository, CommonRepository>();
 builder.Services.AddScoped<JwtService>();
 builder.Services.AddScoped<EmailService>();
-
+builder.Services.AddHttpContextAccessor();
 // JWT Authentication
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 .AddJwtBearer(options =>
