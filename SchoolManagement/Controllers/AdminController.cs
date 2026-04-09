@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
 using SchoolManagement.Service;
+using System.Globalization;
 using System.Security.Claims;
 
 namespace SchoolManagement.Controllers
@@ -475,7 +476,50 @@ namespace SchoolManagement.Controllers
                 return BadRequest(new ApiResponse<string> { Success = false, Message = ex.Message });
             }
         }
+        [Authorize]
+        [HttpGet("GetStudentsBySection")]
+        public async Task<IActionResult> GetMyStudents()
+        {
+            // Get teacherId from claims
+            var teacherIdClaim = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+            if (teacherIdClaim == null)
+                return Unauthorized();
+            var students = await _repo.GetStudentsByTeacherIdAsync(teacherIdClaim);
+            return Ok(students);
+        }
 
+        [Authorize]
+        [HttpPost("StudentsAttendance")]
+        public async Task<IActionResult> MarkAttendance([FromBody] MarkBulkAttendanceDto dto)
+        {
+            if (dto == null || dto.Students == null || !dto.Students.Any())
+                return BadRequest("Invalid data");
+
+            //int teacherId = Convert.ToInt32(User.FindFirst("UserId")?.Value);
+            //int schoolId = Convert.ToInt32(User.FindFirst("SchoolId")?.Value);
+
+            var result = await _repo.MarkAttendanceAsync(dto);
+
+            return Ok(new { message = "Attendance marked successfully" });
+        }
+
+        [Authorize]
+        [HttpGet("Student-attendance-history")]
+        public async Task<IActionResult> GetAttendanceByDate(string date)
+        {
+            var teacherId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+            if (!DateTime.TryParseExact(date, "dd-MM-yyyy",
+       CultureInfo.InvariantCulture,
+       DateTimeStyles.None,
+       out DateTime parsedDate))
+            {
+                return BadRequest("Invalid date format. Use dd-MM-yyyy");
+            }
+
+            var result = await _repo.GetAttendanceHistoryAsync(teacherId, parsedDate);
+
+            return Ok(result);
+        }
         [HttpPost("save-timetable")]
         public async Task<IActionResult> SaveTimetable(SaveTimetableDto dto)
         {
