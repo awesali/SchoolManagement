@@ -27,5 +27,9 @@ namespace SchoolManagement.Interfaces
         Task<SubjectDto> AddSubjectAsync(AddSubjectDto dto);
         Task<bool> UpdateSubjectAsync(UpdateSubjectDto dto);
         Task<bool> AssignSubjectsToSectionAsync(AssignSubjectToSectionDto dto);
+        Task<bool> SaveTimetableAsync(SaveTimetableDto dto);
+        Task<object> GetTimetableAsync(int sectionId);
+        Task<bool> UpdateTimetableAsync(UpdateTimetableDto dto);
     }
+
 }

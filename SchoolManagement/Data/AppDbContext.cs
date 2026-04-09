@@ -36,6 +36,8 @@ namespace SchoolManagement.Data
         public DbSet<Subjects> Subjects { get; set; }
         public DbSet<SubjectTeachers> SubjectTeachers { get; set; }
         public DbSet<SectionSubjects> SectionSubjects { get; set; }
+        public DbSet<Timetables> Timetables { get; set; }
+        public DbSet<TimetablePeriods> TimetablePeriods { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
