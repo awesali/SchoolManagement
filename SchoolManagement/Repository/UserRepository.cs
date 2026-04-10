@@ -11,9 +11,9 @@ namespace SchoolManagement.Repository
     public class UserRepository : IUserRepository
     {
         private readonly AppDbContext _context;
-        private readonly JwtService _jwt;
+        private readonly IJwtService _jwt;
 
-        public UserRepository(AppDbContext context, JwtService jwt)
+        public UserRepository(AppDbContext context, IJwtService jwt)
         {
             _context = context;
             _jwt = jwt;

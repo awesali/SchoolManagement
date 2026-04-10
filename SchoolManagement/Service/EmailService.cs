@@ -5,7 +5,7 @@ using SchoolManagement.Data;
 
 namespace SchoolManagement.Service
 {
-    public class EmailService
+    public class EmailService : IEmailService
     {
         private readonly IConfiguration _config;
         private readonly AppDbContext _context;

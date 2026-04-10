@@ -1,11 +1,8 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using SchoolManagement.Data;
-using SchoolManagement.Interfaces;
-using SchoolManagement.Repository;
-using SchoolManagement.Repository.SchoolManagement.Repository;
 using SchoolManagement.Service;
 using System.Text;
 
@@ -16,7 +13,6 @@ builder.Services.AddControllers();
 
 // Swagger
 builder.Services.AddEndpointsApiExplorer();
-
 builder.Services.AddSwaggerGen(options =>
 {
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -66,14 +62,11 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         builder.Configuration.GetConnectionString("DefaultConnection")
     ));
 
-// Dependency Injection
-builder.Services.AddScoped<IUserRepository, UserRepository>();
-builder.Services.AddScoped<IAdminRepository, AdminRepository>();
-builder.Services.AddScoped<IStudentParentRepository, StudentParentRepository>();
-builder.Services.AddScoped<ICommonRepository, CommonRepository>();
-builder.Services.AddScoped<JwtService>();
-builder.Services.AddScoped<EmailService>();
+// 🔥 AUTO DI (Repositories + Services)
+builder.Services.RegisterAppServices();
+
 builder.Services.AddHttpContextAccessor();
+
 // JWT Authentication
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 .AddJwtBearer(options =>
@@ -104,7 +97,6 @@ app.UseCors("MyCorsPolicy");
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 
-// Authentication
 app.UseAuthentication();
 app.UseAuthorization();
 

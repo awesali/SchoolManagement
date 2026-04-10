@@ -16,10 +16,10 @@ namespace SchoolManagement.Repository
         private readonly ICommonRepository _common;
         private readonly IUserRepository _user;
         private readonly IWebHostEnvironment _env;
-        private readonly EmailService _emailService;
+        private readonly IEmailService _emailService;
         private readonly IHttpContextAccessor _httpContextAccessor;
 
-        public AdminRepository(AppDbContext context, IUserRepository user, ICommonRepository common, IWebHostEnvironment env, EmailService emailService, IHttpContextAccessor httpContextAccessor)
+        public AdminRepository(AppDbContext context, IUserRepository user, ICommonRepository common, IWebHostEnvironment env, IEmailService emailService, IHttpContextAccessor httpContextAccessor)
         {
             _context = context;
             _user = user;
@@ -29,149 +29,129 @@ namespace SchoolManagement.Repository
             _httpContextAccessor = httpContextAccessor;
         }
 
-        public async Task<Schools> CreateSchool(SchoolCreateDto dto, int userId)
+        public async Task<ApiResponse<Schools>> CreateSchool(SchoolCreateDto dto, int userId)
         {
-            var school = new Schools
+            try
             {
-                SchoolName = dto.SchoolName,
-                Address = dto.Address,
-                Email = dto.Email,
-                Phone = dto.Phone,
-                SuperAdminId = userId,
-                Created_By = userId,
-                Created_Date = DateTime.Now,
-                IsActive = true
-            };
+                var school = new Schools
+                {
+                    SchoolName = dto.SchoolName,
+                    Address = dto.Address,
+                    Email = dto.Email,
+                    Phone = dto.Phone,
+                    SuperAdminId = userId,
+                    Created_By = userId,
+                    Created_Date = DateTime.Now,
+                    IsActive = true
+                };
 
-            _context.Schools.Add(school);
+                _context.Schools.Add(school);
+                await _context.SaveChangesAsync();
 
-            await _context.SaveChangesAsync();
-
-            return school;
+                return new ApiResponse<Schools> { Success = true, Message = "School created successfully", Data = school };
+            }
+            catch (Exception ex)
+            {
+                return new ApiResponse<Schools> { Success = false, Message = ex.Message, Data = null };
+            }
         }
-        public async Task<DashboardCardDto> GetDashboardData(int schoolId)
+
+        public async Task<ApiResponse<DashboardCardDto>> GetDashboardData(int schoolId)
         {
             var today = DateTime.Today;
 
-            // Total Teachers
-            var totalTeachers = await _context.Staff
-                .Where(x => x.SchoolId == schoolId && x.IsActive)
-                .CountAsync();
+            var totalTeachers = await _context.Staff.Where(x => x.SchoolId == schoolId && x.IsActive).CountAsync();
+            var teachersPresent = await _context.StaffAttendance.Where(x => x.School_Id == schoolId && x.Attendance_Date == today && x.Status == "Present").CountAsync();
+            var totalStudents = await _context.Students.Where(x => x.SchoolId == schoolId && x.IsActive).CountAsync();
+            var studentsPresent = await _context.StudentAttendance.Where(x => x.School_Id == schoolId && x.Attendance_Date == today && x.Status == "Present").CountAsync();
+            var employeesOnLeave = await _context.StaffAttendance.Where(x => x.School_Id == schoolId && x.Attendance_Date == today && x.Status == "Leave").CountAsync();
 
-            // Teachers Present Today
-            var teachersPresent = await _context.StaffAttendance
-                .Where(x => x.School_Id == schoolId &&
-                            x.Attendance_Date == today &&
-                            x.Status == "Present")
-                .CountAsync();
-
-            // Total Students
-            var totalStudents = await _context.Students
-                .Where(x => x.SchoolId == schoolId && x.IsActive)
-                .CountAsync();
-
-            // Students Present
-            var studentsPresent = await _context.StudentAttendance
-                .Where(x => x.School_Id == schoolId &&
-                            x.Attendance_Date == today &&
-                            x.Status == "Present")
-                .CountAsync();
-
-            // Employees On Leave
-            var employeesOnLeave = await _context.StaffAttendance
-                .Where(x => x.School_Id == schoolId &&
-                            x.Attendance_Date == today &&
-                            x.Status == "Leave")
-                .CountAsync();
-
-            return new DashboardCardDto
+            return new ApiResponse<DashboardCardDto>
             {
-                TeachersPresentToday = $"{teachersPresent}/{totalTeachers}",
-                StudentsPresentToday = $"{studentsPresent}/{totalStudents}",
-                TotalEmployees = totalTeachers,
-                EmployeesOnLeave = employeesOnLeave
+                Success = true,
+                Message = "Dashboard data fetched successfully",
+                Data = new DashboardCardDto
+                {
+                    TeachersPresentToday = $"{teachersPresent}/{totalTeachers}",
+                    StudentsPresentToday = $"{studentsPresent}/{totalStudents}",
+                    TotalEmployees = totalTeachers,
+                    EmployeesOnLeave = employeesOnLeave
+                }
             };
         }
-        public async Task<List<Schools>> GetSchoolsBySuperAdminIdAsync(int superAdminId)
+
+        public async Task<ApiResponse<List<Schools>>> GetSchoolsBySuperAdminIdAsync(int superAdminId)
         {
-            return await _context.Schools
+            var data = await _context.Schools
                 .Where(s => s.SuperAdminId == superAdminId && s.IsActive)
+                .OrderByDescending(s => s.Created_Date)
                 .ToListAsync();
+
+            return new ApiResponse<List<Schools>> { Success = true, Message = "Schools fetched successfully", Data = data };
         }
-        public async Task<List<StaffListDto>> GetStaffFullAsync(int schoolId)
+
+        public async Task<(List<StaffListDto> Data, int TotalRecords)> GetStaffFullAsync(int schoolId, int page, int pageSize)
         {
-            return await (from s in _context.Staff
-                          join r in _context.Roles on s.RoleId equals r.Id
-                          join sc in _context.Schools on s.SchoolId equals sc.Id
+            var query = from s in _context.Staff
+                        join r in _context.Roles on s.RoleId equals r.Id
+                        join sc in _context.Schools on s.SchoolId equals sc.Id
+                        where s.SchoolId == schoolId
+                        orderby s.Id descending
+                        select new StaffListDto
+                        {
+                            Id = s.Id,
+                            Name = s.Name,
+                            Email = s.Email,
+                            Phone = s.Phone,
+                            DOB = s.DOB,
+                            DOJ = s.DOJ,
+                            RoleId = r.Id,
+                            RoleName = r.RoleName,
+                            SchoolName = sc.SchoolName,
+                            Address = s.Adress,
+                            IsActive = s.IsActive,
+                            Documents = _context.StaffDocuments
+                                .Where(d => d.StaffId == s.Id)
+                                .Select(d => new StaffDocumentDto
+                                {
+                                    DocumentId = d.Id,
+                                    DocumentName = d.DocumentName,
+                                    DocumentURL = d.FileUrl
+                                }).ToList()
+                        };
 
-                          where s.SchoolId == schoolId
-
-                          select new StaffListDto
-                          {
-                              Id = s.Id,
-                              Name = s.Name,
-                              Email = s.Email,
-                              Phone = s.Phone,
-                              DOB = s.DOB,
-                              DOJ = s.DOJ,
-
-                              RoleId = r.Id,
-                              RoleName = r.RoleName,
-
-                              SchoolName = sc.SchoolName,
-                              Address = s.Adress,
-                              IsActive = s.IsActive,
-
-                              Documents = _context.StaffDocuments
-                                  .Where(d => d.StaffId == s.Id)
-                                  .Select(d => new StaffDocumentDto
-                                  {
-                                      DocumentId = d.Id,
-                                      DocumentName = d.DocumentName,
-                                      DocumentURL = d.FileUrl
-                                  }).ToList()
-                          }).ToListAsync();
+            var total = await query.CountAsync();
+            var data = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+            return (data, total);
         }
-        public async Task<bool> DeleteDocumentAsync(int documentId)
+
+        public async Task<ApiResponse<string>> DeleteDocumentAsync(int documentId)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
-
             try
             {
-                var doc = await _context.StaffDocuments
-                    .FirstOrDefaultAsync(d => d.Id == documentId);
-
+                var doc = await _context.StaffDocuments.FirstOrDefaultAsync(d => d.Id == documentId);
                 if (doc == null)
-                    return false;
+                    return new ApiResponse<string> { Success = false, Message = "Document not found", Data = null };
 
-                // ✅ Delete file from server
                 if (!string.IsNullOrEmpty(doc.FileUrl))
                 {
-                    var filePath = Path.Combine(
-                        _env.WebRootPath,
-                        doc.FileUrl.TrimStart('/')
-                    );
-
-                    if (File.Exists(filePath))
-                    {
-                        File.Delete(filePath);
-                    }
+                    var filePath = Path.Combine(_env.WebRootPath, doc.FileUrl.TrimStart('/'));
+                    if (File.Exists(filePath)) File.Delete(filePath);
                 }
 
-                // ✅ Delete from DB
                 _context.StaffDocuments.Remove(doc);
-
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
-
-                return true;
+                return new ApiResponse<string> { Success = true, Message = "Document deleted successfully", Data = null };
             }
             catch
             {
                 await transaction.RollbackAsync();
-                throw;
+                return new ApiResponse<string> { Success = false, Message = "Failed to delete document", Data = null };
             }
         }
+
         public async Task<ApiResponse<Staff>> AddStaffAsync(AddStaffDto dto)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
@@ -313,19 +293,15 @@ namespace SchoolManagement.Repository
                 };
             }
         }
-        public async Task<bool> UpdateStaffAsync(UpdateStaffDto dto)
+        public async Task<ApiResponse<string>> UpdateStaffAsync(UpdateStaffDto dto)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
-
             try
             {
-                var staff = await _context.Staff
-                    .FirstOrDefaultAsync(s => s.Id == dto.Id);
-
+                var staff = await _context.Staff.FirstOrDefaultAsync(s => s.Id == dto.Id);
                 if (staff == null)
-                    return false;
+                    return new ApiResponse<string> { Success = false, Message = "Staff not found", Data = null };
 
-                // ✅ Update Staff
                 staff.Name = dto.Name;
                 staff.DOB = dto.DOB;
                 staff.DOJ = dto.DOJ;
@@ -336,68 +312,37 @@ namespace SchoolManagement.Repository
                 staff.IsActive = dto.IsActive;
                 staff.Modified_Date = DateTime.UtcNow;
 
-                // 📁 Folder path
                 var folderPath = Path.Combine(_env.WebRootPath, "staffdocs", staff.Id.ToString());
+                if (!Directory.Exists(folderPath)) Directory.CreateDirectory(folderPath);
 
-                if (!Directory.Exists(folderPath))
-                    Directory.CreateDirectory(folderPath);
+                var existingDocs = await _context.StaffDocuments.Where(d => d.StaffId == staff.Id).ToListAsync();
 
-                // ✅ Existing documents
-                var existingDocs = await _context.StaffDocuments
-                    .Where(d => d.StaffId == staff.Id)
-                    .ToListAsync();
-
-                // ✅ Handle files
                 if (dto.Files != null && dto.Files.Count > 0)
                 {
                     for (int i = 0; i < dto.Files.Count; i++)
                     {
                         var file = dto.Files[i];
-                        if (file == null || file.Length == 0)
-                            continue;
+                        if (file == null || file.Length == 0) continue;
 
                         var extension = Path.GetExtension(file.FileName);
-
-                        var inputName = (dto.DocumentNames != null && dto.DocumentNames.Count > i)
-                            ? dto.DocumentNames[i]
-                            : Path.GetFileNameWithoutExtension(file.FileName);
-
-                        var docName = inputName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)
-                            ? inputName
-                            : inputName + extension;
-
+                        var inputName = (dto.DocumentNames != null && dto.DocumentNames.Count > i) ? dto.DocumentNames[i] : Path.GetFileNameWithoutExtension(file.FileName);
+                        var docName = inputName.EndsWith(extension, StringComparison.OrdinalIgnoreCase) ? inputName : inputName + extension;
                         var uniqueFileName = Guid.NewGuid() + extension;
                         var filePath = Path.Combine(folderPath, uniqueFileName);
 
-                        // ✅ Save new file
                         using (var stream = new FileStream(filePath, FileMode.Create))
-                        {
                             await file.CopyToAsync(stream);
-                        }
 
-                        // 🔥 UPDATE or INSERT
                         if (dto.DocumentIds != null && dto.DocumentIds.Count > i && dto.DocumentIds[i].HasValue)
                         {
-                            var existing = existingDocs
-                                .FirstOrDefault(d => d.Id == dto.DocumentIds[i].Value);
-
+                            var existing = existingDocs.FirstOrDefault(d => d.Id == dto.DocumentIds[i].Value);
                             if (existing != null)
                             {
-                                // 🔥 DELETE OLD FILE
                                 if (!string.IsNullOrEmpty(existing.FileUrl))
                                 {
-                                    var oldFilePath = Path.Combine(
-                                        _env.WebRootPath,
-                                        existing.FileUrl.TrimStart('/')
-                                    );
-
-                                    if (File.Exists(oldFilePath))
-                                    {
-                                        File.Delete(oldFilePath);
-                                    }
+                                    var oldFilePath = Path.Combine(_env.WebRootPath, existing.FileUrl.TrimStart('/'));
+                                    if (File.Exists(oldFilePath)) File.Delete(oldFilePath);
                                 }
-
-                                // ✅ UPDATE DB
                                 existing.DocumentName = docName;
                                 existing.FileName = file.FileName;
                                 existing.FileUrl = $"/staffdocs/{staff.Id}/{uniqueFileName}";
@@ -405,1434 +350,37 @@ namespace SchoolManagement.Repository
                         }
                         else
                         {
-                            // ✅ ADD NEW DOCUMENT
-                            var newDoc = new StaffDocument
+                            await _context.StaffDocuments.AddAsync(new StaffDocument
                             {
                                 StaffId = staff.Id,
                                 DocumentName = docName,
                                 FileName = file.FileName,
                                 FileUrl = $"/staffdocs/{staff.Id}/{uniqueFileName}",
                                 CreatedDate = DateTime.UtcNow
-                            };
-
-                            await _context.StaffDocuments.AddAsync(newDoc);
+                            });
                         }
                     }
                 }
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
-
-                return true;
+                return new ApiResponse<string> { Success = true, Message = "Staff updated successfully", Data = null };
             }
             catch
             {
                 await transaction.RollbackAsync();
-                throw;
+                return new ApiResponse<string> { Success = false, Message = "Failed to update staff", Data = null };
             }
         }
-        public async Task<List<RoleDto>> GetRolesBySchoolIdAsync()
+
+        public async Task<ApiResponse<List<RoleDto>>> GetRolesBySchoolIdAsync()
         {
-            return await _context.Roles
-                .Select(r => new RoleDto
-                {
-                    Id = r.Id,
-                    RoleName = r.RoleName,
-                })
+            var roles = await _context.Roles
+                .Select(r => new RoleDto { Id = r.Id, RoleName = r.RoleName })
                 .OrderBy(r => r.RoleName)
                 .ToListAsync();
-        }
 
-        public async Task<List<StudentDto>> GetStudentsBySchoolIdAsync(int schoolId)
-        {
-            var students = await (
-                from s in _context.Students
-
-                join se in _context.StudentEnrollment
-                    on s.Id equals se.StudentId into seGroup
-                from se in seGroup.DefaultIfEmpty()
-
-                join c in _context.Classes
-                    on se.ClassId equals c.Id into cGroup
-                from c in cGroup.DefaultIfEmpty()
-
-                join sd in _context.SectionDetails
-                    on se.SectionId equals sd.Id into sdGroup
-                from sd in sdGroup.DefaultIfEmpty()
-
-                join ac in _context.AcademicSessions
-                on s.SchoolId equals ac.SchoolId into acGroup
-                from ac in acGroup.DefaultIfEmpty()
-                where s.SchoolId == schoolId
-
-                select new StudentDto
-                {
-                    Id = s.Id,
-                    StudentName = s.StudentName,
-                    DOB = s.DOB,
-                    Email = s.Email,
-                    PhoneNumber = s.PhoneNumber,
-                    ParentId = s.ParentId,
-                    SchoolId = s.SchoolId,
-
-                    ClassName = c != null ? c.ClassName : null,
-                    SectionName = sd != null ? sd.SectionName : null,
-                    AcademicSession = ac != null ? ac.Year_Start : (DateTime?)null,
-                    IsActive = s.IsActive,
-
-                    Documents = _context.Student_Documents
-                        .Where(d => d.StudentId == s.Id)
-                        .Select(d => new StudentDocumentDto
-                        {
-                            DocumentId = d.Id,
-                            DocumentName = d.DocumentName,
-                            DocumentURL = d.FileUrl,
-                            CreatedDate = d.CreatedDate
-                        }).ToList()
-                }
-            ).ToListAsync();
-
-            return students;
-        }
-
-        public async Task<StudentDto> GetStudentByIdAsync(int studentId)
-        {
-            var student = await (
-                from s in _context.Students
-
-                join se in _context.StudentEnrollment
-                    on s.Id equals se.StudentId into seGroup
-                from se in seGroup.DefaultIfEmpty()
-
-                join c in _context.Classes
-                    on se.ClassId equals c.Id into cGroup
-                from c in cGroup.DefaultIfEmpty()
-
-                join sd in _context.SectionDetails
-                    on se.SectionId equals sd.Id into sdGroup
-                from sd in sdGroup.DefaultIfEmpty()
-
-                join ac in _context.AcademicSessions
-                    on se.SessionId equals ac.Id into acGroup  // <-- Join by SessionId, not SchoolId
-                from ac in acGroup.DefaultIfEmpty()
-
-                where s.Id == studentId
-
-                select new StudentDto
-                {
-                    Id = s.Id,
-                    StudentName = s.StudentName,
-                    DOB = s.DOB,
-                    Email = s.Email,
-                    PhoneNumber = s.PhoneNumber,
-                    ParentId = s.ParentId,
-                    SchoolId = s.SchoolId,
-
-                    ClassId = se != null ? se.ClassId : (int?)null,       // <-- Add IDs
-                    SectionId = se != null ? se.SectionId : (int?)null,
-                    SessionId = se != null ? se.SessionId : (int?)null,
-
-                    ClassName = c != null ? c.ClassName : null,
-                    SectionName = sd != null ? sd.SectionName : null,
-                    AcademicSession = ac != null ? ac.Year_Start : (DateTime?)null,
-                    IsActive = s.IsActive,
-
-                    Documents = _context.Student_Documents
-                        .Where(d => d.StudentId == s.Id)
-                        .Select(d => new StudentDocumentDto
-                        {
-                            DocumentId = d.Id,
-                            DocumentName = d.DocumentName,
-                            DocumentURL = d.FileUrl,
-                            CreatedDate = d.CreatedDate
-                        }).ToList()
-                }
-            ).FirstOrDefaultAsync();
-
-            return student;
-        }
-
-        public async Task<bool> AddStudentAsync(StudentCreateDto dto)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
-            {
-                // 1. Add Parent
-                var parent = new ParentDetails
-                {
-                    Name = dto.Parent.Name,
-                    PhoneNumber = dto.Parent.PhoneNumber,
-                    Address = dto.Parent.Address,
-                    Email = dto.Parent.Email,
-                    Relationship = dto.Parent.Relationship,
-                    Created_By = 1,
-                    Updated_By = 1,
-                    Created_Date = DateTime.Now,
-                    IsActive = true
-                };
-
-                _context.ParentDetails.Add(parent);
-                await _context.SaveChangesAsync();
-
-                // 2. Add Student
-                var student = new Students
-                {
-                    StudentName = dto.StudentName,
-                    DOB = dto.DOB,
-                    Email = dto.Email,
-                    PhoneNumber = dto.PhoneNumber,
-                    ParentId = parent.Id,
-                    SchoolId = dto.SchoolId,
-                    Created_By = 1,
-                    Updated_By = 1,
-                    Created_Date = DateTime.Now,
-                    IsActive = true
-                };
-
-                _context.Students.Add(student);
-                await _context.SaveChangesAsync();
-
-                // 3. Add StudentEnrollment
-                var enrollment = new StudentEnrollment
-                {
-                    StudentId = student.Id,
-                    ClassId = dto.ClassId,
-                    SectionId = dto.SectionId,
-                    SessionId = dto.SessionId,
-                    SchoolId = dto.SchoolId,
-                    Created_By = 1,
-                    Updated_By = 1,
-                    Created_At = DateTime.Now,
-                    IsActive = true
-                };
-
-                _context.StudentEnrollment.Add(enrollment);
-                await _context.SaveChangesAsync();
-
-                // ✅ Generate Passwords and Create Credentials
-                var studentPassword = _common.GeneratePassword(dto.StudentName, dto.DOB);
-                var parentPassword = _common.GeneratePassword(dto.Parent.Name, dto.DOB);
-
-                // ✅ Create Student Credential
-                var studentCred = new Students_Parents_Creds
-                {
-                    Name = dto.StudentName,
-                    Email = dto.Email,
-                    Phone = dto.PhoneNumber,
-                    Password_Hash = BCrypt.Net.BCrypt.HashPassword(studentPassword),
-                    RoleName = "Student",
-                    School_Id = dto.SchoolId,
-                    Status = "Active",
-                    Created_At = DateTime.Now,
-                    IsActive = true
-                };
-
-                _context.Students_Parents_Creds.Add(studentCred);
-
-                // ✅ Create Parent Credential
-                var parentCred = new Students_Parents_Creds
-                {
-                    Name = dto.Parent.Name,
-                    Email = dto.Parent.Email,
-                    Phone = dto.Parent.PhoneNumber,
-                    Password_Hash = BCrypt.Net.BCrypt.HashPassword(parentPassword),
-                    RoleName = "Parent",
-                    School_Id = dto.SchoolId,
-                    Status = "Active",
-                    Created_At = DateTime.Now,
-                    IsActive = true
-                };
-
-                _context.Students_Parents_Creds.Add(parentCred);
-                await _context.SaveChangesAsync();
-
-                // 4. Handle Student Documents
-                if (dto.Files != null && dto.Files.Count > 0)
-                {
-                    var folderPath = Path.Combine(_env.WebRootPath, "studentdocs", student.Id.ToString());
-
-                    if (!Directory.Exists(folderPath))
-                        Directory.CreateDirectory(folderPath);
-
-                    var existingDocs = await _context.Student_Documents
-                        .Where(d => d.StudentId == student.Id)
-                        .ToListAsync();
-
-                    for (int i = 0; i < dto.Files.Count; i++)
-                    {
-                        var file = dto.Files[i];
-                        if (file == null || file.Length == 0) continue;
-
-                        var extension = Path.GetExtension(file.FileName);
-
-                        var inputName = (dto.DocumentNames != null && dto.DocumentNames.Count > i)
-                            ? dto.DocumentNames[i]
-                            : Path.GetFileNameWithoutExtension(file.FileName);
-
-                        var docName = inputName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)
-                            ? inputName
-                            : inputName + extension;
-
-                        var uniqueFileName = Guid.NewGuid() + extension;
-                        var filePath = Path.Combine(folderPath, uniqueFileName);
-
-                        // Save new file
-                        using (var stream = new FileStream(filePath, FileMode.Create))
-                        {
-                            await file.CopyToAsync(stream);
-                        }
-
-                        // Update or Insert
-                        if (dto.DocumentIds != null && dto.DocumentIds.Count > i && dto.DocumentIds[i].HasValue)
-                        {
-                            var existing = existingDocs
-                                .FirstOrDefault(d => d.Id == dto.DocumentIds[i].Value);
-
-                            if (existing != null)
-                            {
-                                // Delete old file
-                                if (!string.IsNullOrEmpty(existing.FileUrl))
-                                {
-                                    var oldFilePath = Path.Combine(_env.WebRootPath, existing.FileUrl.TrimStart('/'));
-                                    if (File.Exists(oldFilePath))
-                                        File.Delete(oldFilePath);
-                                }
-
-                                // Update DB
-                                existing.DocumentName = docName;
-                                existing.FileName = file.FileName;
-                                existing.FileUrl = $"/studentdocs/{student.Id}/{uniqueFileName}";
-                            }
-                        }
-                        else
-                        {
-                            // Add new document
-                            var newDoc = new Student_Documents
-                            {
-                                StudentId = student.Id,
-                                DocumentName = docName,
-                                FileName = file.FileName,
-                                FileUrl = $"/studentdocs/{student.Id}/{uniqueFileName}",
-                                CreatedDate = DateTime.UtcNow
-                            };
-
-                            await _context.Student_Documents.AddAsync(newDoc);
-                        }
-                    }
-
-                    await _context.SaveChangesAsync();
-                }
-
-                // ✅ Send Welcome Emails
-                // Send email to student
-                var studentPlaceholders = new Dictionary<string, string>
-                {
-                    { "StudentName", dto.StudentName },
-                    { "Email", dto.Email },
-                    { "Password", studentPassword },
-                    { "SchoolName", "Blue Berry School" }, // You might want to fetch this
-                    { "ClassName", $"Class {dto.ClassId}" },
-                    { "ParentName", dto.Parent.Name }
-                };
-
-                try
-                {
-                    var (studentSubject, studentBody) = await _emailService
-                        .GetEmailTemplateAsync("STUDENT_WELCOME", studentPlaceholders);
-
-                    await _emailService.SendEmailAsync(dto.Email, studentSubject, studentBody);
-                }
-                catch
-                {
-                    // Log error but don't fail the operation
-                }
-
-                // Send email to parent
-                var parentPlaceholders = new Dictionary<string, string>
-                {
-                    { "ParentName", dto.Parent.Name },
-                    { "StudentName", dto.StudentName },
-                    { "Email", dto.Parent.Email },
-                    { "Password", parentPassword },
-                    { "SchoolName", "Blue Berry School" },
-                    { "ClassName", $"Class {dto.ClassId}" }
-                };
-
-                try
-                {
-                    var (parentSubject, parentBody) = await _emailService
-                        .GetEmailTemplateAsync("STUDENT_WELCOME", parentPlaceholders);
-
-                    await _emailService.SendEmailAsync(dto.Parent.Email, parentSubject, parentBody);
-                }
-                catch
-                {
-                    // Log error but don't fail the operation
-                }
-
-                // Commit transaction
-                await transaction.CommitAsync();
-                return true;
-            }
-            catch (Exception ex)
-            {
-                await transaction.RollbackAsync();
-                // Log error here
-                return false;
-            }
-        }
-
-
-        public async Task<bool> UpdateStudentAsync(StudentUpdateDto dto)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
-            {
-                // 1️⃣ Get existing student
-                var student = await _context.Students
-                    .FirstOrDefaultAsync(s => s.Id == dto.Id);
-
-                if (student == null)
-                    return false;
-
-                // 2️⃣ Update Parent (if provided)
-                var parent = await _context.ParentDetails
-                    .FirstOrDefaultAsync(p => p.Id == student.ParentId);
-                
-                if (dto.Parent != null && parent != null)
-                {
-                    parent.Name = dto.Parent.Name ?? parent.Name;
-                    parent.PhoneNumber = dto.Parent.PhoneNumber ?? parent.PhoneNumber;
-                    parent.Address = dto.Parent.Address ?? parent.Address;
-                    parent.Email = dto.Parent.Email ?? parent.Email;
-                    parent.Relationship = dto.Parent.Relationship ?? parent.Relationship;
-                    parent.Updated_By = 1;
-                    parent.Modified_Date = DateTime.Now;
-                }
-
-                // 3️⃣ Update Student (only provided fields)
-                if (!string.IsNullOrEmpty(dto.StudentName))
-                    student.StudentName = dto.StudentName;
-                if (dto.DOB.HasValue)
-                    student.DOB = dto.DOB.Value;
-                if (!string.IsNullOrEmpty(dto.Email))
-                    student.Email = dto.Email;
-                if (!string.IsNullOrEmpty(dto.PhoneNumber))
-                    student.PhoneNumber = dto.PhoneNumber;
-                student.Updated_By = 1;
-                student.Modified_Date = DateTime.Now;
-                if (dto.IsActive.HasValue)
-                    student.IsActive = dto.IsActive.Value;
-
-                student.Updated_By = 1;
-                student.Modified_Date = DateTime.Now;
-                await _context.SaveChangesAsync();
-
-                // 4️⃣ Update StudentEnrollment (if provided)
-                if (dto.ClassId.HasValue || dto.SectionId.HasValue || dto.SessionId.HasValue)
-                {
-                    var enrollment = await _context.StudentEnrollment
-                        .FirstOrDefaultAsync(e => e.StudentId == student.Id);
-
-                    if (enrollment != null)
-                    {
-                        if (dto.ClassId.HasValue)
-                            enrollment.ClassId = dto.ClassId.Value;
-                        if (dto.SectionId.HasValue)
-                            enrollment.SectionId = dto.SectionId.Value;
-                        if (dto.SessionId.HasValue)
-                            enrollment.SessionId = dto.SessionId.Value;
-                        enrollment.Updated_By = 1;
-                        enrollment.Updated_Date = DateTime.Now;
-                    }
-                }
-
-                await _context.SaveChangesAsync();
-
-                // 5️⃣ Handle Student Documents
-                if (dto.Files != null && dto.Files.Count > 0)
-                {
-                    var folderPath = Path.Combine(_env.WebRootPath, "studentdocs", student.Id.ToString());
-
-                    if (!Directory.Exists(folderPath))
-                        Directory.CreateDirectory(folderPath);
-
-                    var existingDocs = await _context.Student_Documents
-                        .Where(d => d.StudentId == student.Id)
-                        .ToListAsync();
-
-                    for (int i = 0; i < dto.Files.Count; i++)
-                    {
-                        var file = dto.Files[i];
-                        if (file == null || file.Length == 0) continue;
-
-                        var extension = Path.GetExtension(file.FileName);
-                        var inputName = (dto.DocumentNames != null && dto.DocumentNames.Count > i)
-                            ? dto.DocumentNames[i]
-                            : Path.GetFileNameWithoutExtension(file.FileName);
-
-                        var docName = inputName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)
-                            ? inputName
-                            : inputName + extension;
-
-                        var uniqueFileName = Guid.NewGuid() + extension;
-                        var filePath = Path.Combine(folderPath, uniqueFileName);
-
-                        // Save new file
-                        using (var stream = new FileStream(filePath, FileMode.Create))
-                        {
-                            await file.CopyToAsync(stream);
-                        }
-
-                        // Update existing document if Id provided
-                        if (dto.DocumentIds != null && dto.DocumentIds.Count > i && dto.DocumentIds[i].HasValue)
-                        {
-                            var existing = existingDocs
-                                .FirstOrDefault(d => d.Id == dto.DocumentIds[i].Value);
-
-                            if (existing != null)
-                            {
-                                // Delete old file
-                                if (!string.IsNullOrEmpty(existing.FileUrl))
-                                {
-                                    var oldFilePath = Path.Combine(_env.WebRootPath, existing.FileUrl.TrimStart('/'));
-                                    if (File.Exists(oldFilePath))
-                                        File.Delete(oldFilePath);
-                                }
-
-                                existing.DocumentName = docName;
-                                existing.FileName = file.FileName;
-                                existing.FileUrl = $"/studentdocs/{student.Id}/{uniqueFileName}";
-                            }
-                        }
-                        else
-                        {
-                            // Add new document
-                            var newDoc = new Student_Documents
-                            {
-                                StudentId = student.Id,
-                                DocumentName = docName,
-                                FileName = file.FileName,
-                                FileUrl = $"/studentdocs/{student.Id}/{uniqueFileName}",
-                                CreatedDate = DateTime.UtcNow
-                            };
-
-                            await _context.Student_Documents.AddAsync(newDoc);
-                        }
-                    }
-
-                    await _context.SaveChangesAsync();
-                }
-
-                // ✅ Send Update Notification Emails
-                // Send email to student (if email was updated or always notify)
-                if (!string.IsNullOrEmpty(dto.Email))
-                {
-                    var studentPlaceholders = new Dictionary<string, string>
-                    {
-                        { "StudentName", student.StudentName },
-                        { "Email", dto.Email },
-                        { "SchoolName", "Blue Berry School" }, // You might want to fetch this
-                        { "UpdateDate", DateTime.Now.ToString("dd MMM yyyy") }
-                    };
-
-                    try
-                    {
-                        var (studentSubject, studentBody) = await _emailService
-                            .GetEmailTemplateAsync("STUDENT_UPDATE", studentPlaceholders);
-
-                        await _emailService.SendEmailAsync(dto.Email, studentSubject, studentBody);
-                    }
-                    catch
-                    {
-                        // Log error but don't fail the operation
-                    }
-                }
-
-                // Send email to parent (if parent email was updated)
-                if (dto.Parent?.Email != null && parent != null)
-                {
-                    var parentPlaceholders = new Dictionary<string, string>
-                    {
-                        { "ParentName", parent.Name },
-                        { "StudentName", student.StudentName },
-                        { "Email", dto.Parent.Email },
-                        { "SchoolName", "Blue Berry School" },
-                        { "UpdateDate", DateTime.Now.ToString("dd MMM yyyy") }
-                    };
-
-                    try
-                    {
-                        var (parentSubject, parentBody) = await _emailService
-                            .GetEmailTemplateAsync("PARENT_UPDATE", parentPlaceholders);
-
-                        await _emailService.SendEmailAsync(dto.Parent.Email, parentSubject, parentBody);
-                    }
-                    catch
-                    {
-                        // Log error but don't fail the operation
-                    }
-                }
-
-                await transaction.CommitAsync();
-                return true;
-            }
-            catch (Exception ex)
-            {
-                await transaction.RollbackAsync();
-                // Log the error
-                return false;
-            }
-        }
-
-        //public async Task<bool> DeleteStudentAsync(int studentId)
-        //{
-        //    using var transaction = await _context.Database.BeginTransactionAsync();
-        //    try
-        //    {
-        //        var student = await _context.Students
-        //            .FirstOrDefaultAsync(s => s.Id == studentId);
-
-        //        if (student == null)
-        //            return false;
-
-        //        // Delete student documents from server
-        //        var studentDocs = await _context.Student_Documents
-        //            .Where(d => d.StudentId == studentId)
-        //            .ToListAsync();
-
-        //        foreach (var doc in studentDocs)
-        //        {
-        //            if (!string.IsNullOrEmpty(doc.FileUrl))
-        //            {
-        //                var filePath = Path.Combine(
-        //                    _env.WebRootPath,
-        //                    doc.FileUrl.TrimStart('/')
-        //                );
-
-        //                if (File.Exists(filePath))
-        //                {
-        //                    File.Delete(filePath);
-        //                }
-        //            }
-        //        }
-
-        //        // Mark student as inactive (soft delete)
-        //        student.IsActive = false;
-        //        student.Modified_Date = DateTime.Now;
-
-        //        await _context.SaveChangesAsync();
-        //        await transaction.CommitAsync();
-
-        //        return true;
-        //    }
-        //    catch
-        //    {
-        //        await transaction.RollbackAsync();
-        //        throw;
-        //    }
-        //}
-
-        public async Task<bool> DeleteStudentDocumentAsync(int documentId)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
-            {
-                var doc = await _context.Student_Documents
-                    .FirstOrDefaultAsync(d => d.Id == documentId);
-
-                if (doc == null)
-                    return false;
-
-                // Delete file from server
-                if (!string.IsNullOrEmpty(doc.FileUrl))
-                {
-                    var filePath = Path.Combine(
-                        _env.WebRootPath,
-                        doc.FileUrl.TrimStart('/')
-                    );
-
-                    if (File.Exists(filePath))
-                    {
-                        File.Delete(filePath);
-                    }
-                }
-
-                // Delete from DB
-                _context.Student_Documents.Remove(doc);
-
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-
-                return true;
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
-        }
-        //public async Task<List<EnrollmentInfoDto>> GetEnrollmentInfoBySchoolAsync(int schoolId)
-        //{
-        //    var result = await (
-        //        from se in _context.Schools
-        //        join c in _context.Classes on se.Id equals c.SchoolId
-        //        join sd in _context.SectionDetails on se.Id equals sd.SchoolId
-        //        join s in _context.AcademicSessions on se.Id equals s.SchoolId
-        //       // where se.SchoolId == schoolId
-        //        select new EnrollmentInfoDto
-        //        {
-        //            ClassId = c.Id,
-        //            ClassName = c.ClassName,
-        //            SectionId = sd.Id,
-        //            SectionName = sd.SectionName,
-        //            SessionId = s.Id,
-        //            YearStart = s.Year_Start,
-        //            YearEnd = s.Year_End
-        //        }
-        //    ).Distinct().ToListAsync();
-
-        //    return result;
-        //}
-
-
-        public async Task<EnrollmentInfoDto> GetEnrollmentInfoBySchoolAsync(int schoolId)
-        {
-            var classes = await _context.Classes
-                .Where(c => c.SchoolId == schoolId)
-                .Select(c => new ClassDto
-                {
-                    Id = c.Id,
-                    Name = c.ClassName
-                }).ToListAsync();
-
-            var sections = await _context.SectionDetails
-                .Where(s => s.SchoolId == schoolId)
-                .Select(s => new SectionDetailsDto
-                {
-                    Id = s.Id,
-                    Name = s.SectionName,
-                    ClassId = s.ClassId
-                }).ToListAsync();
-
-            var sessions = await _context.AcademicSessions
-                .Where(s => s.SchoolId == schoolId)
-                .Select(s => new SessionDto
-                {
-                    Id = s.Id,
-                    YearStart = s.Year_Start,
-                    YearEnd = s.Year_End
-                }).ToListAsync();
-
-            return new EnrollmentInfoDto
-            {
-                Classes = classes,
-                Sections = sections,
-                Sessions = sessions
-            };
-        }
-        public async Task<bool> CreateClassWithSectionsAsync(CreateClassWithSectionsDto dto)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-
-            try
-            {
-                // ✅ Create Class
-                var newClass = new Classes
-                {
-                    ClassName = dto.ClassName,
-                    SchoolId = dto.SchoolId,
-                    Created_Date = DateTime.UtcNow,
-                    IsActive = true,
-                };
-
-                _context.Classes.Add(newClass);
-                await _context.SaveChangesAsync();
-
-                // ✅ Create Sections
-                if (dto.Sections != null && dto.Sections.Any())
-                {
-                    var sections = dto.Sections.Select(sec => new SectionDetails
-                    {
-                        SectionName = sec.SectionName,
-                        ClassId = newClass.Id,
-                        SchoolId = dto.SchoolId,
-                        StaffId = sec.StaffId,
-                        Created_Date = DateTime.UtcNow,
-                        IsActive = true
-                    }).ToList();
-
-                    _context.SectionDetails.AddRange(sections);
-                    await _context.SaveChangesAsync();
-                }
-
-                await transaction.CommitAsync();
-                return true;
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                return false;
-            }
-        }
-        public async Task<List<ClassDetailDto>> GetClassDetailsBySchoolIdAsync(int schoolId)
-        {
-            return await _context.Classes
-                .Where(c => c.SchoolId == schoolId && c.IsActive)
-                .Select(c => new ClassDetailDto
-                {
-                    Id = c.Id,
-                    ClassName = c.ClassName,
-                    SchoolId = c.SchoolId,
-                    CreatedDate = c.Created_Date,
-                    IsActive = c.IsActive,
-
-                    SectionCount = _context.SectionDetails
-                        .Count(s => s.ClassId == c.Id && s.IsActive),
-
-                    // 🔥 Sections list
-                    Sections = _context.SectionDetails
-                        .Where(s => s.ClassId == c.Id && s.IsActive)
-                        .Select(s => new GetSectionDto
-                        {
-                            Id = s.Id,
-                            SectionName = s.SectionName,
-                            StaffId = s.StaffId,
-                            MonitorStudentId = s.MonitorStudentId
-                        }).ToList()
-                })
-                .OrderByDescending(c => c.CreatedDate)
-                .ToListAsync();
-        }
-
-        public async Task<bool> UpdateClassWithSectionsAsync(UpdateClassWithSectionsDto dto)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-
-            try
-            {
-                // ✅ Get Class
-                var existingClass = await _context.Classes
-                    .FirstOrDefaultAsync(c => c.Id == dto.ClassId && c.IsActive);
-
-                if (existingClass == null)
-                    return false;
-
-                // ✅ Duplicate Class Name Check
-                var duplicateClass = await _context.Classes.AnyAsync(c =>
-                    c.ClassName == dto.ClassName &&
-                    c.SchoolId == existingClass.SchoolId &&
-                    c.Id != dto.ClassId &&
-                    c.IsActive);
-
-                if (duplicateClass)
-                    throw new Exception("Class already exists");
-
-                // ✅ Update Class
-                existingClass.ClassName = dto.ClassName;
-                existingClass.Modified_Date = DateTime.UtcNow;
-
-                // ✅ Get Existing Sections
-                var existingSections = await _context.SectionDetails
-                    .Where(s => s.ClassId == dto.ClassId && s.IsActive)
-                    .ToListAsync();
-
-                foreach (var sec in dto.Sections)
-                {
-                    // ✅ Duplicate Section Check
-                    var isDuplicateSection = existingSections.Any(s =>
-                        s.SectionName == sec.SectionName &&
-                        (!sec.Id.HasValue || s.Id != sec.Id));
-
-                    if (isDuplicateSection)
-                        throw new Exception($"Section '{sec.SectionName}' already exists");
-
-                    if (sec.Id.HasValue)
-                    {
-                        // =====================
-                        // ✅ UPDATE EXISTING
-                        // =====================
-                        var existingSection = existingSections
-                            .FirstOrDefault(s => s.Id == sec.Id.Value);
-
-                        if (existingSection != null)
-                        {
-                            existingSection.SectionName = sec.SectionName;
-                            existingSection.StaffId = sec.StaffId;
-                            //existingSection.MonitorStudentId = sec.MonitorStudentId;
-                            existingSection.Modified_Date = DateTime.UtcNow;
-                        }
-                    }
-                    else
-                    {
-                        // =====================
-                        // ✅ ADD NEW SECTION
-                        // =====================
-                        var newSection = new SectionDetails
-                        {
-                            ClassId = dto.ClassId,
-                            SectionName = sec.SectionName,
-                            StaffId = sec.StaffId,
-                            //MonitorStudentId = sec.MonitorStudentId,
-                            Created_Date = DateTime.UtcNow,
-                            IsActive = true
-                        };
-
-                        await _context.SectionDetails.AddAsync(newSection);
-                    }
-                }
-
-                // ✅ Save All Changes (single call)
-                await _context.SaveChangesAsync();
-
-                await transaction.CommitAsync();
-                return true;
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                return false;
-            }
-        }
-
-        public async Task<List<SubjectDto>> GetSubjectsBySchoolIdAsync(int schoolId)
-        {
-            return await (
-                from s in _context.Subjects
-                join st in _context.SubjectTeachers on s.Id equals st.SubjectId into stGroup
-                from st in stGroup.DefaultIfEmpty()
-                join staff in _context.Staff on st.StaffId equals staff.Id into staffGroup
-                from staff in staffGroup.DefaultIfEmpty()
-                where s.SchoolId == schoolId && s.IsActive
-                select new SubjectDto
-                {
-                    Id = s.Id,
-                    SubjectName = s.SubjectName,
-                    SchoolId = s.SchoolId,
-                    Created_Date = s.Created_Date,
-                    Modified_Date = s.Modified_Date,
-                    IsActive = s.IsActive,
-                    TeacherId = staff != null ? staff.Id : (int?)null,
-                    TeacherName = staff != null ? staff.Name : null
-                }
-            ).ToListAsync();
-        }
-
-        public async Task<SubjectDto> AddSubjectAsync(AddSubjectDto dto)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-
-            var duplicate = await _context.Subjects
-                .AnyAsync(s => s.SubjectName == dto.SubjectName && s.SchoolId == dto.SchoolId && s.IsActive);
-
-            if (duplicate)
-                throw new Exception("Subject already exists");
-
-            var subject = new Subjects
-            {
-                SubjectName = dto.SubjectName,
-                SchoolId = dto.SchoolId,
-                Created_Date = DateTime.UtcNow,
-                IsActive = true
-            };
-
-            _context.Subjects.Add(subject);
-            await _context.SaveChangesAsync();
-
-            var subjectTeacher = new SubjectTeachers
-            {
-                SubjectId = subject.Id,
-                StaffId = dto.StaffId,
-                SchoolId = dto.SchoolId,
-                Created_Date = DateTime.UtcNow,
-                IsActive = true
-            };
-
-            _context.SubjectTeachers.Add(subjectTeacher);
-            await _context.SaveChangesAsync();
-
-            await transaction.CommitAsync();
-
-            var teacher = await _context.Staff.FirstOrDefaultAsync(s => s.Id == dto.StaffId);
-
-            return new SubjectDto
-            {
-                Id = subject.Id,
-                SubjectName = subject.SubjectName,
-                SchoolId = subject.SchoolId,
-                Created_Date = subject.Created_Date,
-                IsActive = subject.IsActive,
-                TeacherId = teacher?.Id,
-                TeacherName = teacher?.Name
-            };
-        }
-        public async Task<bool> UpdateSubjectAsync(UpdateSubjectDto dto)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-
-            var subject = await _context.Subjects
-                .FirstOrDefaultAsync(s => s.Id == dto.Id && s.IsActive);
-
-            if (subject == null)
-                return false;
-
-            var duplicate = await _context.Subjects
-                .AnyAsync(s => s.SubjectName == dto.SubjectName && s.SchoolId == subject.SchoolId && s.Id != dto.Id && s.IsActive);
-
-            if (duplicate)
-                throw new Exception("Subject name already exists");
-
-            subject.SubjectName = dto.SubjectName;
-            subject.Modified_Date = DateTime.UtcNow;
-
-            var subjectTeacher = await _context.SubjectTeachers
-                .FirstOrDefaultAsync(st => st.SubjectId == dto.Id && st.IsActive);
-
-            if (subjectTeacher != null)
-            {
-                subjectTeacher.StaffId = dto.StaffId;
-                subjectTeacher.Modified_Date = DateTime.UtcNow;
-            }
-            else
-            {
-                _context.SubjectTeachers.Add(new SubjectTeachers
-                {
-                    SubjectId = dto.Id,
-                    StaffId = dto.StaffId,
-                    SchoolId = subject.SchoolId,
-                    Created_Date = DateTime.UtcNow,
-                    IsActive = true
-                });
-            }
-
-            await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
-
-            return true;
-        }
-        
-
-        public async Task<bool> AssignSubjectsToSectionAsync(AssignSubjectToSectionDto dto)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-
-            var sectionExists = await _context.SectionDetails
-                .AnyAsync(s => s.Id == dto.SectionId && s.IsActive);
-
-            if (!sectionExists)
-                return false;
-
-            // deactivate existing assignments
-            var existing = await _context.SectionSubjects
-                .Where(ss => ss.SectionId == dto.SectionId && ss.IsActive)
-                .ToListAsync();
-
-            existing.ForEach(ss => { ss.IsActive = false; ss.Modified_Date = DateTime.UtcNow; });
-
-            // add new assignments (skip duplicates)
-            var newEntries = dto.SubjectIds
-                .Distinct()
-                .Select(subjectId => new SectionSubjects
-                {
-                    SectionId = dto.SectionId,
-                    SubjectId = subjectId,
-                    SchoolId = dto.SchoolId,
-                    Created_Date = DateTime.UtcNow,
-                    IsActive = true
-                }).ToList();
-
-            _context.SectionSubjects.AddRange(newEntries);
-            await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
-
-            return true;
-        }
-        //public async Task<List<StudentDto>> GetStudentsByTeacherIdAsync(int teacherId)
-        //{
-        //    var schoolId = _context.Users.FirstOrDefaultAsync(u => u.Id == teacherId);
-        //    var students = await (
-        //        from s in _context.Students
-
-        //        join se in _context.StudentEnrollment
-        //            on s.Id equals se.StudentId into seGroup
-        //        from se in seGroup.DefaultIfEmpty()
-
-        //        join c in _context.Classes
-        //            on se.ClassId equals c.Id into cGroup
-        //        from c in cGroup.DefaultIfEmpty()
-
-        //        join sd in _context.SectionDetails
-        //            on se.SectionId equals sd.Id into sdGroup
-        //        from sd in sdGroup.DefaultIfEmpty()
-
-        //        join ac in _context.AcademicSessions
-        //            on se.SessionId equals ac.Id into acGroup
-        //        from ac in acGroup.DefaultIfEmpty()
-
-        //        where sd.StaffId == teacherId  // Filter by teacher assigned to the section
-
-        //        select new StudentDto
-        //        {
-        //            Id = s.Id,
-        //            StudentName = s.StudentName,
-        //            DOB = s.DOB,
-        //            Email = s.Email,
-        //            PhoneNumber = s.PhoneNumber,
-        //            ParentId = s.ParentId,
-        //            SchoolId = s.SchoolId,
-
-        //            ClassId = se != null ? se.ClassId : (int?)null,
-        //            SectionId = se != null ? se.SectionId : (int?)null,
-        //            SessionId = se != null ? se.SessionId : (int?)null,
-
-        //            ClassName = c != null ? c.ClassName : null,
-        //            SectionName = sd != null ? sd.SectionName : null,
-        //            AcademicSession = ac != null ? ac.Year_Start : (DateTime?)null,
-        //            IsActive = s.IsActive,
-
-        //            Documents = _context.Student_Documents
-        //                .Where(d => d.StudentId == s.Id)
-        //                .Select(d => new StudentDocumentDto
-        //                {
-        //                    DocumentId = d.Id,
-        //                    DocumentName = d.DocumentName,
-        //                    DocumentURL = d.FileUrl,
-        //                    CreatedDate = d.CreatedDate
-        //                }).ToList()
-        //        }
-        //    ).ToListAsync();
-
-        //    return students;
-        //}
-
-        public async Task<List<StudentDto>> GetStudentsByTeacherIdAsync(int teacherId)
-        {
-            var teacher = await _context.Users.FirstOrDefaultAsync(u => u.Id == teacherId);
-            if (teacher == null)
-                throw new Exception("Teacher not found");
-
-            var schoolId = teacher.School_Id;
-
-            // Fetch students without Distinct
-            var students = await (
-                from se in _context.StudentEnrollment
-                join sd in _context.SectionDetails on se.SectionId equals sd.Id
-                join s in _context.Students on se.StudentId equals s.Id
-                join c in _context.Classes on se.ClassId equals c.Id
-                join ac in _context.AcademicSessions on se.SessionId equals ac.Id
-                where sd.StaffId == teacherId
-                      && se.SchoolId == schoolId
-                      && sd.SchoolId == schoolId
-                      && s.SchoolId == schoolId
-                select new StudentDto
-                {
-                    Id = s.Id,
-                    StudentName = s.StudentName,
-                    DOB = s.DOB,
-                    Email = s.Email,
-                    PhoneNumber = s.PhoneNumber,
-                    ParentId = s.ParentId,
-                    SchoolId = s.SchoolId,
-
-                    ClassId = se.ClassId,
-                    SectionId = se.SectionId,
-                    SessionId = se.SessionId,
-
-                    ClassName = c.ClassName,
-                    SectionName = sd.SectionName,
-                    AcademicSession = ac.Year_Start,
-                    IsActive = s.IsActive,
-
-                    Documents = _context.Student_Documents
-                        .Where(d => d.StudentId == s.Id)
-                        .Select(d => new StudentDocumentDto
-                        {
-                            DocumentId = d.Id,
-                            DocumentName = d.DocumentName,
-                            DocumentURL = d.FileUrl,
-                            CreatedDate = d.CreatedDate
-                        }).ToList()
-                }
-            ).ToListAsync();
-
-            // Remove duplicates in memory (if any)
-            var distinctStudents = students
-                .GroupBy(s => s.Id)
-                .Select(g => g.First())
-                .ToList();
-
-            return distinctStudents;
-        }
-
-        public async Task<bool> MarkAttendanceAsync(MarkBulkAttendanceDto dto)
-        {
-            // ✅ Step 0: Get teacherId from claims
-            var teacherId = int.Parse(_httpContextAccessor.HttpContext.User
-     .FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-
-            if (teacherId == 0)
-                throw new Exception("Unauthorized");
-
-            // ✅ Step 1: Get the section and school
-            var section = await _context.SectionDetails
-                .FirstOrDefaultAsync(s => s.Id == dto.SectionId && s.StaffId == teacherId);
-
-            if (section == null)
-                throw new Exception("Unauthorized access or invalid section");
-
-            int schoolId = section.SchoolId;
-
-            // ✅ Step 2: Get valid students for this section
-            var validStudentIds = await _context.StudentEnrollment
-                .Where(se => se.SectionId == dto.SectionId)
-                .Select(se => se.StudentId)
-                .ToListAsync();
-
-            var existingAttendance = await _context.StudentAttendance
-                .Where(a => a.Attendance_Date.Date == dto.AttendanceDate.Date
-                            && dto.Students.Select(s => s.StudentId).Contains(a.Student_Id)
-                            && a.School_Id == schoolId)
-                .ToListAsync();
-
-            //if (existingAttendance.Any())
-            //    throw new Exception("Attendance has already been marked for some or all students for today");
-            foreach (var item in dto.Students)
-            {
-                // ❌ Skip invalid students
-                if (!validStudentIds.Contains(item.StudentId))
-                    continue;
-
-                var existing = await _context.StudentAttendance
-                    .FirstOrDefaultAsync(a =>
-                        a.Student_Id == item.StudentId &&
-                        a.Attendance_Date.Date == dto.AttendanceDate.Date &&
-                        a.School_Id == schoolId);
-
-                if (existing != null)
-                {
-                    // Update
-                    existing.Status = item.Status;
-                    existing.Updated_By = teacherId;
-                    existing.Updated_Date = DateTime.Now;
-                }
-                else
-                {
-                    // Insert
-                    var attendance = new StudentAttendance
-                    {
-                        Student_Id = item.StudentId,
-                        Attendance_Date = dto.AttendanceDate,
-                        Status = item.Status,
-                        School_Id = schoolId,
-                        Created_At = DateTime.Now,
-                        Created_By = teacherId,
-                        IsActive = true
-                    };
-
-                    _context.StudentAttendance.Add(attendance);
-                }
-            }
-
-            await _context.SaveChangesAsync();
-            return true;
-        }
-
-
-        public async Task<List<AttendanceHistoryDto>> GetAttendanceHistoryAsync(int teacherId, DateTime date)
-        {
-            var teacher = await _context.Users.FirstOrDefaultAsync(u => u.Id == teacherId);
-            if (teacher == null)
-                throw new Exception("Teacher not found");
-
-            var schoolId = teacher.School_Id;
-
-            var result = await (
-                from a in _context.StudentAttendance
-
-                join s in _context.Students
-                    on a.Student_Id equals s.Id
-
-                join se in _context.StudentEnrollment
-                    on s.Id equals se.StudentId
-
-                join c in _context.Classes
-                    on se.ClassId equals c.Id
-
-                join sd in _context.SectionDetails
-                    on se.SectionId equals sd.Id
-
-                where sd.StaffId == teacherId
-                      && sd.SchoolId == schoolId
-                      && a.School_Id == schoolId
-                      && a.Attendance_Date.Date == date.Date
-
-                select new AttendanceHistoryDto
-                {
-                    StudentId = s.Id,
-                    StudentName = s.StudentName,
-                    SectionId = sd.Id,
-                    SectionName = sd.SectionName,
-                    AttendanceDate = a.Attendance_Date,
-                    Status = a.Status
-                }
-            )
-            .OrderBy(x => x.StudentName)
-            .ToListAsync();
-
-            return result;
-        }
-        public async Task<bool> SaveTimetableAsync(SaveTimetableDto dto)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
-            {
-                var sectionId = dto.SectionId;
-                var schoolId = dto.SchoolId;
-
-                // ✅ CHECK: Timetable already exists or not
-                var timetableExists = await _context.Timetables
-                    .AnyAsync(t => t.SectionId == sectionId
-                                && t.SchoolId == schoolId
-                                && t.IsActive);
-
-                if (timetableExists)
-                {
-                    // 👉 Already exists → don't allow overwrite
-                    return false; // ya custom response de sakte ho
-                }
-
-                // =========================
-                // PERIOD VALIDATION
-                // =========================
-                var periodNumbers = dto.Periods.Select(p => p.PeriodNumber).ToList();
-                if (periodNumbers.Count != periodNumbers.Distinct().Count())
-                    throw new Exception("Duplicate period numbers found for this section");
-
-                // =========================
-                // SAVE PERIODS
-                // =========================
-                var periods = dto.Periods.Select(p => new TimetablePeriods
-                {
-                    SectionId = sectionId,
-                    PeriodNumber = p.PeriodNumber,
-                    StartTime = p.StartTime,
-                    EndTime = p.EndTime,
-                    IsBreak = p.IsBreak
-                }).ToList();
-
-                _context.TimetablePeriods.AddRange(periods);
-                await _context.SaveChangesAsync();
-
-                // =========================
-                // SAVE TIMETABLE SLOTS
-                // =========================
-                var slots = dto.Days.SelectMany(day => day.Periods.Select(p => new Timetables
-                {
-                    SectionId = sectionId,
-                    DayOfWeek = day.DayOfWeek,
-                    PeriodId = p.PeriodId,
-                    SubjectId = p.SubjectId,
-                    SchoolId = schoolId,
-                    IsActive = true,
-                    Created_Date = DateTime.UtcNow
-                })).ToList();
-
-                _context.Timetables.AddRange(slots);
-                await _context.SaveChangesAsync();
-
-                await transaction.CommitAsync();
-                return true;
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
-        }
-
-        public async Task<object> GetTimetableAsync(int sectionId)
-        {
-            var periods = await _context.TimetablePeriods
-                .Where(p => p.SectionId == sectionId)
-                .OrderBy(p => p.PeriodNumber)
-                .Select(p => new
-                {
-                    p.Id,
-                    p.SectionId,
-                    p.PeriodNumber,
-                    p.StartTime,
-                    p.EndTime,
-                    p.IsBreak
-                }).ToListAsync();
-
-            var slots = await _context.Timetables
-                .Where(t => t.SectionId == sectionId && t.IsActive)
-                .Select(t => new
-                {
-                    t.DayOfWeek,
-                    t.PeriodId,
-                    t.SubjectId,
-                    SubjectName = t.Subject != null ? t.Subject.SubjectName : null
-                }).ToListAsync();
-
-            return new { periods, slots };
-        }
-
-        public async Task<bool> UpdateTimetableAsync(UpdateTimetableDto dto)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
-            {
-                var sectionId = dto.SectionId;
-
-                var existingPeriods = await _context.TimetablePeriods
-                    .Where(p => p.SectionId == sectionId)
-                    .ToListAsync();
-                _context.TimetablePeriods.RemoveRange(existingPeriods);
-
-                var periodNumbers = dto.Periods.Select(p => p.PeriodNumber).ToList();
-                if (periodNumbers.Count != periodNumbers.Distinct().Count())
-                    throw new Exception("Duplicate period numbers found");
-
-                var periods = dto.Periods.Select(p => new TimetablePeriods
-                {
-                    SectionId = sectionId,
-                    PeriodNumber = p.PeriodNumber,
-                    StartTime = p.StartTime,
-                    EndTime = p.EndTime,
-                    IsBreak = p.IsBreak
-                }).ToList();
-
-                _context.TimetablePeriods.AddRange(periods);
-                await _context.SaveChangesAsync();
-
-                var existingSlots = await _context.Timetables
-                    .Where(t => t.SectionId == sectionId && t.IsActive)
-                    .ToListAsync();
-                _context.Timetables.RemoveRange(existingSlots);
-
-                var slots = dto.Days.SelectMany(day => day.Periods.Select(p => new Timetables
-                {
-                    SectionId = sectionId,
-                    DayOfWeek = day.DayOfWeek,
-                    PeriodId = p.PeriodId,
-                    SubjectId = p.SubjectId,
-                    SchoolId = dto.SchoolId,
-                    IsActive = true,
-                    Created_Date = DateTime.UtcNow
-                })).ToList();
-
-                _context.Timetables.AddRange(slots);
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-
-                return true;
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
+            return new ApiResponse<List<RoleDto>> { Success = true, Message = "Roles fetched successfully", Data = roles };
         }
     }
 }

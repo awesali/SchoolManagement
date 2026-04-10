@@ -14,6 +14,7 @@
         public int? SessionId { get; set; }
         public string ClassName { get; set; }
         public string SectionName { get; set; }
+        public string RollNumber  { get; set; }
         public DateTime? AcademicSession { get; set; }
         public bool IsActive { get; set; }
 

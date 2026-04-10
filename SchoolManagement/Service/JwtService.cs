@@ -6,7 +6,7 @@ using System.Text;
 
 namespace SchoolManagement.Service
 {
-    public class JwtService
+    public class JwtService : IJwtService
     {
         private readonly IConfiguration _config;
 

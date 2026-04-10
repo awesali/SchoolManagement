@@ -20,5 +20,12 @@
         public string SectionName { get; set; }
         public int StaffId { get; set; }
         public int? MonitorStudentId { get; set; }
+        public List<SectionSubjectDto> Subjects { get; set; }
+    }
+
+    public class SectionSubjectDto
+    {
+        public int SubjectId { get; set; }
+        public string SubjectName { get; set; }
     }
 }

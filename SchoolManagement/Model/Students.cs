@@ -15,6 +15,7 @@
         public int ParentId { get; set; }
 
         public int SchoolId { get; set; }
+        public string? Rollnumber { get; set; }
 
         public DateTime Created_Date { get; set; }
 

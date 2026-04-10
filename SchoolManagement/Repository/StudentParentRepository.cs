@@ -10,9 +10,9 @@ namespace SchoolManagement.Repository
     public class StudentParentRepository : IStudentParentRepository
     {
         private readonly AppDbContext _context;
-        private readonly JwtService _jwtService;
+        private readonly IJwtService _jwtService;
 
-        public StudentParentRepository(AppDbContext context, JwtService jwtService)
+        public StudentParentRepository(AppDbContext context, IJwtService jwtService)
         {
             _context = context;
             _jwtService = jwtService;
