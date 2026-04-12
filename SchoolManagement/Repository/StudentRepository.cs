@@ -449,77 +449,150 @@ namespace SchoolManagement.Repository
             return (data, total);
         }
 
+        //public async Task<ApiResponse<string>> MarkAttendanceAsync(MarkBulkAttendanceDto dto)
+        //{
+        //    // ✅ Step 0: Get teacherId from claims
+        //    var teacherId = int.Parse(_httpContextAccessor.HttpContext.User
+        //    .FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+
+        //    if (teacherId == 0)
+        //        throw new Exception("Unauthorized");
+
+        //    // ✅ Step 1: Get the section and school
+        //    var section = await _context.SectionDetails
+        //        .FirstOrDefaultAsync(s => s.Id == dto.SectionId && s.StaffId == teacherId);
+
+        //    if (section == null)
+        //        throw new Exception("Unauthorized access or invalid section");
+
+        //    int schoolId = section.SchoolId;
+
+        //    // ✅ Step 2: Get valid students for this section
+        //    var validStudentIds = await _context.StudentEnrollment
+        //        .Where(se => se.SectionId == dto.SectionId)
+        //        .Select(se => se.StudentId)
+        //        .ToListAsync();
+
+        //    var existingAttendance = await _context.StudentAttendance
+        //        .Where(a => a.Attendance_Date.Date == dto.AttendanceDate.Date
+        //                    && dto.Students.Select(s => s.StudentId).Contains(a.Student_Id)
+        //                    && a.School_Id == schoolId)
+        //        .ToListAsync();
+
+        //    //if (existingAttendance.Any())
+        //    //    throw new Exception("Attendance has already been marked for some or all students for today");
+        //    foreach (var item in dto.Students)
+        //    {
+        //        // ❌ Skip invalid students
+        //        if (!validStudentIds.Contains(item.StudentId))
+        //            continue;
+
+        //        var existing = await _context.StudentAttendance
+        //            .FirstOrDefaultAsync(a =>
+        //                a.Student_Id == item.StudentId &&
+        //                a.Attendance_Date.Date == dto.AttendanceDate.Date &&
+        //                a.School_Id == schoolId);
+
+        //        if (existing != null)
+        //        {
+        //            // Update
+        //            existing.Status = item.Status;
+        //            existing.Updated_By = teacherId;
+        //            existing.Updated_Date = DateTime.Now;
+        //        }
+        //        else
+        //        {
+        //            // Insert
+        //            var attendance = new StudentAttendance
+        //            {
+        //                Student_Id = item.StudentId,
+        //                Attendance_Date = dto.AttendanceDate,
+        //                Status = item.Status,
+        //                School_Id = schoolId,
+        //                Created_At = DateTime.Now,
+        //                Created_By = teacherId,
+        //                IsActive = true
+        //            };
+
+        //            _context.StudentAttendance.Add(attendance);
+        //        }
+        //    }
+
+        //    await _context.SaveChangesAsync();
+        //    return new ApiResponse<string> { Success = true, Message = "Attendance marked successfully", Data = null };
+        //}
+
         public async Task<ApiResponse<string>> MarkAttendanceAsync(MarkBulkAttendanceDto dto)
         {
             // ✅ Step 0: Get teacherId from claims
             var teacherId = int.Parse(_httpContextAccessor.HttpContext.User
-            .FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                .FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
 
             if (teacherId == 0)
-                throw new Exception("Unauthorized");
+                return new ApiResponse<string> { Success = false, Message = "Unauthorized" };
 
-            // ✅ Step 1: Get the section and school
+            // ✅ Step 1: Validate section
             var section = await _context.SectionDetails
                 .FirstOrDefaultAsync(s => s.Id == dto.SectionId && s.StaffId == teacherId);
 
             if (section == null)
-                throw new Exception("Unauthorized access or invalid section");
+                return new ApiResponse<string> { Success = false, Message = "Unauthorized access or invalid section" };
 
             int schoolId = section.SchoolId;
 
-            // ✅ Step 2: Get valid students for this section
+            // ✅ Step 2: Check if attendance already exists for this section & date
+            var alreadyMarked = await _context.StudentAttendance
+                .AnyAsync(a =>
+                    a.Attendance_Date.Date == dto.AttendanceDate.Date &&
+                    a.School_Id == schoolId &&
+                    _context.StudentEnrollment
+                        .Where(se => se.SectionId == dto.SectionId)
+                        .Select(se => se.StudentId)
+                        .Contains(a.Student_Id)
+                );
+
+            if (alreadyMarked)
+            {
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Attendance already marked for this section on selected date"
+                };
+            }
+
+            // ✅ Step 3: Get valid students
             var validStudentIds = await _context.StudentEnrollment
                 .Where(se => se.SectionId == dto.SectionId)
                 .Select(se => se.StudentId)
                 .ToListAsync();
 
-            var existingAttendance = await _context.StudentAttendance
-                .Where(a => a.Attendance_Date.Date == dto.AttendanceDate.Date
-                            && dto.Students.Select(s => s.StudentId).Contains(a.Student_Id)
-                            && a.School_Id == schoolId)
-                .ToListAsync();
-
-            //if (existingAttendance.Any())
-            //    throw new Exception("Attendance has already been marked for some or all students for today");
+            // ✅ Step 4: Insert ONLY (no update)
             foreach (var item in dto.Students)
             {
-                // ❌ Skip invalid students
                 if (!validStudentIds.Contains(item.StudentId))
                     continue;
 
-                var existing = await _context.StudentAttendance
-                    .FirstOrDefaultAsync(a =>
-                        a.Student_Id == item.StudentId &&
-                        a.Attendance_Date.Date == dto.AttendanceDate.Date &&
-                        a.School_Id == schoolId);
-
-                if (existing != null)
+                var attendance = new StudentAttendance
                 {
-                    // Update
-                    existing.Status = item.Status;
-                    existing.Updated_By = teacherId;
-                    existing.Updated_Date = DateTime.Now;
-                }
-                else
-                {
-                    // Insert
-                    var attendance = new StudentAttendance
-                    {
-                        Student_Id = item.StudentId,
-                        Attendance_Date = dto.AttendanceDate,
-                        Status = item.Status,
-                        School_Id = schoolId,
-                        Created_At = DateTime.Now,
-                        Created_By = teacherId,
-                        IsActive = true
-                    };
+                    Student_Id = item.StudentId,
+                    Attendance_Date = dto.AttendanceDate,
+                    Status = item.Status,
+                    School_Id = schoolId,
+                    Created_At = DateTime.Now,
+                    Created_By = teacherId,
+                    IsActive = true
+                };
 
-                    _context.StudentAttendance.Add(attendance);
-                }
+                _context.StudentAttendance.Add(attendance);
             }
 
             await _context.SaveChangesAsync();
-            return new ApiResponse<string> { Success = true, Message = "Attendance marked successfully", Data = null };
+
+            return new ApiResponse<string>
+            {
+                Success = true,
+                Message = "Attendance marked successfully"
+            };
         }
 
         public async Task<(List<AttendanceHistoryDto> Data, int TotalRecords)> GetAttendanceHistoryAsync(int teacherId, DateTime date, int page, int pageSize)
