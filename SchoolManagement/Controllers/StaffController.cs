@@ -10,10 +10,10 @@ namespace SchoolManagement.Controllers
     [ApiController]
     public class StaffController : ControllerBase
     {
-        private readonly IStaffService _repo;
-        public StaffController(IStaffService repo)
+        private readonly IStaffRepository _repo;
+        public StaffController(IStaffRepository repo)
         {
-            repo = _repo;
+            _repo = repo;
         }
         [Authorize]
         [HttpPost("staff/mark-attendance")]
@@ -27,6 +27,13 @@ namespace SchoolManagement.Controllers
         public async Task<IActionResult> GetStaffAttendanceHistory(DateTime fromDate, DateTime toDate)
         {
             var result = await _repo.GetStaffAttendanceHistoryAsync(fromDate, toDate);
+            return Ok(result);
+        }
+
+        [HttpGet("check-attendance")]
+        public async Task<IActionResult> CheckAttendance()
+        {
+            var result = await _repo.CheckTodayAttendanceAsync();
             return Ok(result);
         }
     }

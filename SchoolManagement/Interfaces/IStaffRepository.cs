@@ -2,9 +2,10 @@
 
 namespace SchoolManagement.Interfaces
 {
-    public interface IStaffService 
+    public interface IStaffRepository
     {
         Task<ApiResponse<string>> MarkStaffAttendanceAsync(MarkStaffAttendanceDto dto);
         Task<List<StaffAttendanceHistoryDto>> GetStaffAttendanceHistoryAsync(DateTime fromDate, DateTime toDate);
+        Task<StaffAttendanceNotificationDto> CheckTodayAttendanceAsync();
     }
 }

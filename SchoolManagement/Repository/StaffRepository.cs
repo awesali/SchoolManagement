@@ -8,7 +8,7 @@ using System.Security.Claims;
 
 namespace SchoolManagement.Repository
 {
-    public class StaffRepository : IStaffService
+    public class StaffRepository : IStaffRepository
     {
         private readonly AppDbContext _context;
         private readonly ICommonRepository _common;
@@ -25,26 +25,87 @@ namespace SchoolManagement.Repository
             _emailService = emailService;
             _httpContextAccessor = httpContextAccessor;
         }
+        //public async Task<ApiResponse<string>> MarkStaffAttendanceAsync(MarkStaffAttendanceDto dto)
+        //{
+        //    var staffId = int.Parse(_httpContextAccessor.HttpContext.User
+        //        .FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+
+        //    if (staffId == 0)
+        //        return new ApiResponse<string> { Success = false, Message = "Unauthorized" };
+
+        //    var staff = await _context.Users.FirstOrDefaultAsync(u => u.Id == staffId);
+        //    if (staff == null)
+        //        return new ApiResponse<string> { Success = false, Message = "Staff not found" };
+
+        //    var schoolId = staff.School_Id;
+
+        //    // ✅ Check if already marked
+        //    var alreadyMarked = await _context.StaffAttendance
+        //        .AnyAsync(a =>
+        //            a.Staff_Id == staffId &&
+        //            a.Attendance_Date.Date == dto.AttendanceDate.Date &&
+        //            a.School_Id == schoolId);
+
+        //    if (alreadyMarked)
+        //    {
+        //        return new ApiResponse<string>
+        //        {
+        //            Success = false,
+        //            Message = "Attendance already marked for this date"
+        //        };
+        //    }
+
+        //    // ✅ Insert
+        //    var attendance = new StaffAttendance
+        //    {
+        //        Staff_Id = staffId,
+        //        Attendance_Date = dto.AttendanceDate,
+        //        Status = dto.Status,
+        //        School_Id = schoolId,
+        //        Created_At = DateTime.Now,
+        //        Created_By = staffId,
+        //        IsActive = true
+        //    };
+
+        //    _context.StaffAttendance.Add(attendance);
+        //    await _context.SaveChangesAsync();
+
+        //    return new ApiResponse<string>
+        //    {
+        //        Success = true,
+        //        Message = "Attendance marked successfully"
+        //    };
+        //}
+
         public async Task<ApiResponse<string>> MarkStaffAttendanceAsync(MarkStaffAttendanceDto dto)
         {
-            var staffId = int.Parse(_httpContextAccessor.HttpContext.User
-                .FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+            // ✅ Step 0: Get staffId from claims
+            var staffIdClaim = _httpContextAccessor.HttpContext?.User?
+                .FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-            if (staffId == 0)
+            if (string.IsNullOrEmpty(staffIdClaim))
                 return new ApiResponse<string> { Success = false, Message = "Unauthorized" };
 
+            int staffId = int.Parse(staffIdClaim);
+
+            // ✅ Step 1: Validate staff
             var staff = await _context.Users.FirstOrDefaultAsync(u => u.Id == staffId);
             if (staff == null)
                 return new ApiResponse<string> { Success = false, Message = "Staff not found" };
 
             var schoolId = staff.School_Id;
 
-            // ✅ Check if already marked
+            // ✅ Step 2: Normalize date (important 🔥)
+            var attendanceDate = dto.AttendanceDate.Date;
+
+            // ✅ Step 3: Strong check (same day restriction)
             var alreadyMarked = await _context.StaffAttendance
                 .AnyAsync(a =>
                     a.Staff_Id == staffId &&
-                    a.Attendance_Date.Date == dto.AttendanceDate.Date &&
-                    a.School_Id == schoolId);
+                    a.School_Id == schoolId &&
+                    a.Attendance_Date >= attendanceDate &&
+                    a.Attendance_Date < attendanceDate.AddDays(1)
+                );
 
             if (alreadyMarked)
             {
@@ -55,13 +116,13 @@ namespace SchoolManagement.Repository
                 };
             }
 
-            // ✅ Insert
+            // ✅ Step 4: Insert
             var attendance = new StaffAttendance
             {
                 Staff_Id = staffId,
-                Attendance_Date = dto.AttendanceDate,
+                Attendance_Date = attendanceDate,
                 Status = dto.Status,
-               // School_Id = schoolId,
+                School_Id = schoolId,
                 Created_At = DateTime.Now,
                 Created_By = staffId,
                 IsActive = true
@@ -106,6 +167,60 @@ namespace SchoolManagement.Repository
                 .ToListAsync();
 
             return history;
+        }
+
+        public async Task<StaffAttendanceNotificationDto> CheckTodayAttendanceAsync()
+        {
+            var staffIdClaim = _httpContextAccessor.HttpContext?.User?
+                .FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+            if (string.IsNullOrEmpty(staffIdClaim))
+            {
+                return new StaffAttendanceNotificationDto
+                {
+                    ShouldMarkAttendance = false,
+                    Message = "Unauthorized"
+                };
+            }
+
+            int staffId = int.Parse(staffIdClaim);
+
+            var staff = await _context.Users.FirstOrDefaultAsync(u => u.Id == staffId);
+            if (staff == null)
+            {
+                return new StaffAttendanceNotificationDto
+                {
+                    ShouldMarkAttendance = false,
+                    Message = "Staff not found"
+                };
+            }
+
+            var schoolId = staff.School_Id;
+
+            var today = DateTime.Today;
+
+            var alreadyMarked = await _context.StaffAttendance
+                .AnyAsync(a =>
+                    a.Staff_Id == staffId &&
+                    a.School_Id == schoolId &&
+                    a.Attendance_Date >= today &&
+                    a.Attendance_Date < today.AddDays(1)
+                );
+
+            if (alreadyMarked)
+            {
+                return new StaffAttendanceNotificationDto
+                {
+                    ShouldMarkAttendance = false,
+                    Message = "Attendance already marked"
+                };
+            }
+
+            return new StaffAttendanceNotificationDto
+            {
+                ShouldMarkAttendance = true,
+                Message = "Please mark your attendance for today"
+            };
         }
     }
 }

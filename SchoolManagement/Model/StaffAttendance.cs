@@ -10,7 +10,7 @@
 
         public string Status { get; set; }
 
-        public int School_Id { get; set; }
+        public int? School_Id { get; set; }
 
         public DateTime Created_At { get; set; }
 
