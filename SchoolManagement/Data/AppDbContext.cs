@@ -38,6 +38,10 @@ namespace SchoolManagement.Data
         public DbSet<SectionSubjects> SectionSubjects { get; set; }
         public DbSet<Timetables> Timetables { get; set; }
         public DbSet<TimetablePeriods> TimetablePeriods { get; set; }
+        public DbSet<ExamTypes> ExamTypes { get; set; }
+        public DbSet<ExamInvigilators> ExamInvigilators { get; set; }
+        public DbSet<ExamSchedules> ExamSchedules { get; set; }
+        public DbSet<Exams> Exams { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);

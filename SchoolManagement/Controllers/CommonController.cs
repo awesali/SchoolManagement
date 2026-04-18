@@ -1,6 +1,6 @@
-﻿using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
 
 namespace SchoolManagement.Controllers
@@ -20,19 +20,14 @@ namespace SchoolManagement.Controllers
         public async Task<IActionResult> GetStaffBySchool(int schoolId)
         {
             var data = await _common.GetStaffBySchoolIdAsync(schoolId);
-
-            return Ok(new
-            {
-                success = true,
-                data = data
-            });
+            return Ok(new ApiResponse<object> { Success = true, Data = data });
         }
 
         [HttpGet("subjects/{schoolId}")]
         public async Task<IActionResult> GetSubjectsBySchool(int schoolId)
         {
             var data = await _common.GetSubjectsBySchoolIdAsync(schoolId);
-            return Ok(new { success = true, data });
+            return Ok(new ApiResponse<object> { Success = true, Data = data });
         }
     }
 }

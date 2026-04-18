@@ -20,62 +20,29 @@ namespace SchoolManagement.Controllers
         public async Task<IActionResult> Register([FromBody] StudentParentRegisterDto dto)
         {
             if (dto == null || string.IsNullOrEmpty(dto.Email) || string.IsNullOrEmpty(dto.Password))
-            {
-                return BadRequest(new
-                {
-                    success = false,
-                    message = "Invalid input"
-                });
-            }
+                return BadRequest(new ApiResponse<string> { Success = false, Message = "Invalid input" });
 
             var result = await _studentParentRepo.RegisterStudentParentAsync(dto);
 
-            if (!result)
-            {
-                return BadRequest(new
-                {
-                    success = false,
-                    message = "Email already exists or registration failed"
-                });
-            }
-
-            return Ok(new
-            {
-                success = true,
-                message = "Registration successful"
-            });
+            return result
+                ? Ok(new ApiResponse<string> { Success = true, Message = "Registration successful" })
+                : BadRequest(new ApiResponse<string> { Success = false, Message = "Email already exists or registration failed" });
         }
 
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] StudentParentLoginDto dto)
         {
             if (dto == null || string.IsNullOrEmpty(dto.Email) || string.IsNullOrEmpty(dto.Password))
-            {
-                return BadRequest(new
-                {
-                    success = false,
-                    message = "Invalid input"
-                });
-            }
+                return BadRequest(new ApiResponse<string> { Success = false, Message = "Invalid input" });
 
             try
             {
                 var token = await _studentParentRepo.LoginStudentParentAsync(dto);
-
-                return Ok(new
-                {
-                    success = true,
-                    token = token,
-                    message = "Login successful"
-                });
+                return Ok(new ApiResponse<string> { Success = true, Message = "Login successful", Data = token });
             }
             catch (Exception ex)
             {
-                return Unauthorized(new
-                {
-                    success = false,
-                    message = ex.Message
-                });
+                return Unauthorized(new ApiResponse<string> { Success = false, Message = ex.Message });
             }
         }
 
@@ -84,31 +51,19 @@ namespace SchoolManagement.Controllers
         public async Task<IActionResult> GetProfile()
         {
             var email = User.Identity?.Name;
-            
+
             if (string.IsNullOrEmpty(email))
-            {
-                return Unauthorized(new
-                {
-                    success = false,
-                    message = "Unauthorized"
-                });
-            }
+                return Unauthorized(new ApiResponse<string> { Success = false, Message = "Unauthorized" });
 
             var user = await _studentParentRepo.GetByEmailAsync(email);
 
             if (user == null)
-            {
-                return NotFound(new
-                {
-                    success = false,
-                    message = "User not found"
-                });
-            }
+                return NotFound(new ApiResponse<string> { Success = false, Message = "User not found" });
 
-            return Ok(new
+            return Ok(new ApiResponse<object>
             {
-                success = true,
-                data = new
+                Success = true,
+                Data = new
                 {
                     id = user.Id,
                     name = user.Name,

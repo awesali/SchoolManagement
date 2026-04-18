@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
@@ -202,6 +202,23 @@ namespace SchoolManagement.Repository
                 await transaction.RollbackAsync();
                 return new ApiResponse<string> { Success = false, Message = "Update failed", Data = null };
             }
+        }
+
+        public async Task<ApiResponse<List<SectionSubjectDto>>> GetSubjectsBySectionIdAsync(int sectionId)
+        {
+            var sectionExists = await _context.SectionDetails.AnyAsync(s => s.Id == sectionId && s.IsActive);
+            if (!sectionExists)
+                return new ApiResponse<List<SectionSubjectDto>> { Success = false, Message = "Section not found", Data = null };
+
+            var subjects = await _context.SectionSubjects
+                .Where(ss => ss.SectionId == sectionId && ss.IsActive)
+                .Join(_context.Subjects, ss => ss.SubjectId, sub => sub.Id, (ss, sub) => new SectionSubjectDto
+                {
+                    SubjectId = sub.Id,
+                    SubjectName = sub.SubjectName
+                }).ToListAsync();
+
+            return new ApiResponse<List<SectionSubjectDto>> { Success = true, Message = "Subjects fetched successfully", Data = subjects };
         }
 
     }

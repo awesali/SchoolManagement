@@ -11,5 +11,7 @@ namespace SchoolManagement.Interfaces
         Task<(List<ClassDetailDto> Data, int TotalRecords)> GetClassDetailsPagedAsync(int schoolId, int page, int pageSize);
 
         Task<ApiResponse<string>> UpdateClassWithSectionsAsync(UpdateClassWithSectionsDto dto);
+
+        Task<ApiResponse<List<SectionSubjectDto>>> GetSubjectsBySectionIdAsync(int sectionId);
     }
 }
