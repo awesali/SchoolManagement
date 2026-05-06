@@ -382,5 +382,66 @@ namespace SchoolManagement.Repository
 
             return new ApiResponse<List<RoleDto>> { Success = true, Message = "Roles fetched successfully", Data = roles };
         }
+
+        public async Task<ApiResponse<string>> CreateAcademicSessionAsync(CreateSessionDto dto)
+        {
+            // 🔹 Validation
+            if (dto.YearEnd <= dto.YearStart)
+            {
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "YearEnd must be greater than YearStart"
+                };
+            }
+
+            // 🔹 Prevent duplicate session
+            var exists = await _context.AcademicSessions
+                .AnyAsync(x => x.SchoolId == dto.SchoolId &&
+                               x.Year_Start == dto.YearStart &&
+                               x.Year_End == dto.YearEnd);
+
+            if (exists)
+            {
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Session already exists"
+                };
+            }
+
+            // 🔹 Ensure only one active session
+            if (dto.IsActive)
+            {
+                var activeSessions = await _context.AcademicSessions
+                    .Where(x => x.SchoolId == dto.SchoolId && x.IsActive)
+                    .ToListAsync();
+
+                foreach (var session in activeSessions)
+                {
+                    session.IsActive = false;
+                }
+            }
+
+            // 🔹 Create new session
+            var newSession = new AcademicSessions
+            {
+                SchoolId = dto.SchoolId,
+                Year_Start = dto.YearStart,
+                Year_End = dto.YearEnd,
+                IsActive = dto.IsActive,
+                Created_At = DateTime.Now,
+                //IsActive = true
+            };
+
+            _context.AcademicSessions.Add(newSession);
+            await _context.SaveChangesAsync();
+
+            return new ApiResponse<string>
+            {
+                Success = true,
+                Message = "Academic session created successfully"
+            };
+        }
     }
 }

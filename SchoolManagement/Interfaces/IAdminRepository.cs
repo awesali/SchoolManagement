@@ -20,5 +20,6 @@ namespace SchoolManagement.Interfaces
         Task<ApiResponse<string>> UpdateStaffAsync(UpdateStaffDto dto);
 
         Task<ApiResponse<List<RoleDto>>> GetRolesBySchoolIdAsync();
+        Task<ApiResponse<string>> CreateAcademicSessionAsync(CreateSessionDto dto);
     }
 }

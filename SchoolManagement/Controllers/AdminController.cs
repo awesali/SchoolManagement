@@ -101,5 +101,14 @@ namespace SchoolManagement.Controllers
             var result = await _repo.GetRolesBySchoolIdAsync();
             return Ok(result);
         }
+
+        [HttpPost("create-session")]
+        public async Task<IActionResult> CreateSession([FromBody] CreateSessionDto dto)
+        {
+            var result = await _repo.CreateAcademicSessionAsync(dto);
+            return Ok(result);
+        }
     }
+
+   
 }
