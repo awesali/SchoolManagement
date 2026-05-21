@@ -83,17 +83,19 @@ namespace SchoolManagement.Repository
             var staffIdClaim = _httpContextAccessor.HttpContext?.User?
                 .FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
+
+
             if (string.IsNullOrEmpty(staffIdClaim))
                 return new ApiResponse<string> { Success = false, Message = "Unauthorized" };
 
             int staffId = int.Parse(staffIdClaim);
 
             // ✅ Step 1: Validate staff
-            var staff = await _context.Users.FirstOrDefaultAsync(u => u.Id == staffId);
+            var staff = await _context.Staff.FirstOrDefaultAsync(u => u.usersid == staffId);
             if (staff == null)
                 return new ApiResponse<string> { Success = false, Message = "Staff not found" };
 
-            var schoolId = staff.School_Id;
+            var schoolId = staff.SchoolId;
 
             // ✅ Step 2: Normalize date (important 🔥)
             var attendanceDate = dto.AttendanceDate.Date;
@@ -101,7 +103,7 @@ namespace SchoolManagement.Repository
             // ✅ Step 3: Strong check (same day restriction)
             var alreadyMarked = await _context.StaffAttendance
                 .AnyAsync(a =>
-                    a.Staff_Id == staffId &&
+                    a.Staff_Id == staff.Id &&
                     a.School_Id == schoolId &&
                     a.Attendance_Date >= attendanceDate &&
                     a.Attendance_Date < attendanceDate.AddDays(1)
@@ -119,7 +121,7 @@ namespace SchoolManagement.Repository
             // ✅ Step 4: Insert
             var attendance = new StaffAttendance
             {
-                Staff_Id = staffId,
+                Staff_Id = staff.Id,
                 Attendance_Date = attendanceDate,
                 Status = dto.Status,
                 School_Id = schoolId,
@@ -138,7 +140,7 @@ namespace SchoolManagement.Repository
             };
         }
 
-        public async Task<List<StaffAttendanceHistoryDto>> GetStaffAttendanceHistoryAsync(DateTime fromDate, DateTime toDate)
+        public async Task<List<StaffAttendanceHistoryDto>> GetStaffAttendanceHistoryAsync(DateTime fromDate, DateTime toDate,int schoolid )
         {
             var staffId = int.Parse(_httpContextAccessor.HttpContext.User
                 .FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
@@ -146,16 +148,9 @@ namespace SchoolManagement.Repository
             if (staffId == 0)
                 throw new Exception("Unauthorized");
 
-            var staff = await _context.Users.FirstOrDefaultAsync(u => u.Id == staffId);
-            if (staff == null)
-                throw new Exception("Staff not found");
-
-            var schoolId = staff.School_Id;
-
             var history = await _context.StaffAttendance
                 .Where(a =>
-                    a.Staff_Id == staffId &&
-                    a.School_Id == schoolId &&
+                    a.School_Id == schoolid &&
                     a.Attendance_Date.Date >= fromDate.Date &&
                     a.Attendance_Date.Date <= toDate.Date)
                 .OrderByDescending(a => a.Attendance_Date)

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
+using SchoolManagement.Model;
 
 namespace SchoolManagement.Controllers
 {
@@ -24,9 +25,9 @@ namespace SchoolManagement.Controllers
         }
         [Authorize]
         [HttpGet("staff/attendance-history")]
-        public async Task<IActionResult> GetStaffAttendanceHistory(DateTime fromDate, DateTime toDate)
+        public async Task<IActionResult> GetStaffAttendanceHistory(DateTime fromDate, DateTime toDate, int schoolid)
         {
-            var result = await _repo.GetStaffAttendanceHistoryAsync(fromDate, toDate);
+            var result = await _repo.GetStaffAttendanceHistoryAsync(fromDate, toDate, schoolid);
             return Ok(result);
         }
 
