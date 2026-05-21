@@ -158,8 +158,10 @@ namespace SchoolManagement.Repository
 
             try
             {
-                // ✅ Email check
-                var emailExists = await _context.Staff.AnyAsync(e => e.Email == dto.Email && e.SchoolId == dto.SchoolId);
+                // ✅ Email check in Staff table
+                var emailExists = await _context.Staff
+                    .AnyAsync(e => e.Email == dto.Email && e.SchoolId == dto.SchoolId);
+
                 if (emailExists)
                 {
                     return new ApiResponse<Staff>
@@ -170,7 +172,36 @@ namespace SchoolManagement.Repository
                     };
                 }
 
-                // ✅ Create Staff
+                // ✅ Generate Password
+                var password = _common.GeneratePassword(dto.Name, dto.DOB);
+
+                // ✅ Register User FIRST
+                var req = new RegisterDto
+                {
+                    Name = dto.Name,
+                    Email = dto.Email,
+                    Phone = dto.Phone,
+                    RoleId = dto.RoleId,
+                    SchoolId = dto.SchoolId,
+                    Password = password
+                };
+
+                var userResult = await _user.Register(req);
+
+                // ❌ If user registration failed
+                if (userResult == null || userResult.Id <= 0)
+                {
+                    await transaction.RollbackAsync();
+
+                    return new ApiResponse<Staff>
+                    {
+                        Success = false,
+                        Message = "User registration failed",
+                        Data = null
+                    };
+                }
+
+                // ✅ Create Staff after User created
                 var staff = new Staff
                 {
                     Name = dto.Name,
@@ -181,44 +212,27 @@ namespace SchoolManagement.Repository
                     Email = dto.Email,
                     Phone = dto.Phone,
                     Adress = dto.Address,
+                    usersid = userResult.Id, // ✅ Save UserId
                     IsActive = true,
                     Created_Date = DateTime.UtcNow
                 };
 
                 _context.Staff.Add(staff);
+
                 await _context.SaveChangesAsync();
 
-                // ✅ Generate Password
-                var password = _common.GeneratePassword(dto.Name, dto.DOB);
-
-                // ✅ Register User
-                var Req = new RegisterDto
-                {
-                    Name = dto.Name,
-                    Email = dto.Email,
-                    Phone = dto.Phone,
-                    RoleId = dto.RoleId,
-                    SchoolId = dto.SchoolId,
-                    Password = password // 🔥 FIXED
-                };
-
-                var result = await _user.Register(Req);
-
                 // ✅ Send Email
-                if (result != null)
-                {
-                    var placeholders = new Dictionary<string, string>
+                var placeholders = new Dictionary<string, string>
                     {
                         { "Name", dto.Name },
                         { "Email", dto.Email },
                         { "Password", password }
                     };
 
-                    var (subject, body) = await _emailService
-                        .GetEmailTemplateAsync("STAFF_CREDENTIALS", placeholders);
+                var (subject, body) = await _emailService
+                    .GetEmailTemplateAsync("STAFF_CREDENTIALS", placeholders);
 
-                    await _emailService.SendEmailAsync(dto.Email, subject, body);
-                }
+                await _emailService.SendEmailAsync(dto.Email, subject, body);
 
                 // 📁 Folder path
                 var folderPath = Path.Combine(_env.WebRootPath, "staffdocs", staff.Id.ToString());
@@ -271,9 +285,9 @@ namespace SchoolManagement.Repository
                     await _context.SaveChangesAsync();
                 }
 
+                // ✅ Commit only if ALL success
                 await transaction.CommitAsync();
 
-                // ✅ Success Response
                 return new ApiResponse<Staff>
                 {
                     Success = true,
@@ -283,6 +297,7 @@ namespace SchoolManagement.Repository
             }
             catch (Exception ex)
             {
+                // ❌ Rollback everything if ANYTHING fails
                 await transaction.RollbackAsync();
 
                 return new ApiResponse<Staff>
