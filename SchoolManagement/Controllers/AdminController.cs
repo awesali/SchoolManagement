@@ -108,7 +108,42 @@ namespace SchoolManagement.Controllers
             var result = await _repo.CreateAcademicSessionAsync(dto);
             return Ok(result);
         }
-    }
 
-   
+        [HttpGet("GetStaffAttendanceBySchool")]
+        public async Task<IActionResult> GetAttendanceBySchool(int schoolId)
+        {
+            var result = await _repo.GetStaffAttendanceBySchoolAsync(schoolId);
+
+            if (result == null || !result.Any())
+            {
+                return NotFound("No attendance records found.");
+            }
+
+            return Ok(result);
+        }
+
+        [HttpGet("GetStaffAttendanceHistoryByDate")]
+        public async Task<IActionResult> GetAttendanceHistory(
+    DateTime fromDate,
+    DateTime toDate)
+        {
+            if (fromDate > toDate)
+            {
+                return BadRequest("From date cannot be greater than To date.");
+            }
+
+            var result = await _repo.GetAttendanceHistoryAsync(fromDate, toDate);
+
+            if (!result.Any())
+            {
+                return NotFound("No attendance records found.");
+            }
+
+            return Ok(result);
+        }
+    }
 }
+
+
+
+

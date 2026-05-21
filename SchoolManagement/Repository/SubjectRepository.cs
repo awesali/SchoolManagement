@@ -174,6 +174,25 @@ namespace SchoolManagement.Repository
                 return new ApiResponse<string> { Success = false, Message = ex.Message, Data = null };
             }
         }
+        public async Task<List<GetSectionSubjectDto>> GetSubjectsBySectionAsync(int sectionId, int schoolId)
+        {
+            var result = await (
+                from ss in _context.SectionSubjects
+                join s in _context.Subjects
+                on ss.SubjectId equals s.Id
+                where ss.SectionId == sectionId
+                      && ss.SchoolId == schoolId
+                      && ss.IsActive == true
+                      && s.IsActive == true
+                select new GetSectionSubjectDto
+                {
+                    SubjectId = s.Id,
+                    SubjectName = s.SubjectName
+                }
+            ).ToListAsync();
+
+            return result;
+        }
 
     }
 }

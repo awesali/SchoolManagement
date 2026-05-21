@@ -12,5 +12,7 @@ namespace SchoolManagement.Interfaces
 
         Task<ApiResponse<string>> AssignSubjectsToSectionAsync(AssignSubjectToSectionDto dto);
 
+        Task<List<GetSectionSubjectDto>> GetSubjectsBySectionAsync(int sectionId, int schoolId);
+
     }
 }

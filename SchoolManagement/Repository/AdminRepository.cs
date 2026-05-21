@@ -443,5 +443,57 @@ namespace SchoolManagement.Repository
                 Message = "Academic session created successfully"
             };
         }
+
+        public async Task<List<StaffAttendanceDto>> GetStaffAttendanceBySchoolAsync(int schoolId)
+        {
+            var result = await (
+                from attendance in _context.StaffAttendance
+                join staff in _context.Staff
+                on attendance.Staff_Id equals staff.Id
+                where attendance.School_Id == schoolId
+                      && attendance.IsActive == true
+                      && staff.IsActive == true
+                select new StaffAttendanceDto
+                {
+                    StaffName = staff.Name,
+                    Email = staff.Email,
+                    Phone = staff.Phone,
+                    AttendanceDate = attendance.Attendance_Date,
+                    Status = attendance.Status
+                }
+            ).ToListAsync();
+
+            return result;
+        }
+
+        public async Task<List<StaffAttendanceHistoryByDateDto>> GetAttendanceHistoryAsync(
+    DateTime fromDate,
+    DateTime toDate)
+        {
+            var result = await (
+                from attendance in _context.StaffAttendance
+                join staff in _context.Staff
+                on attendance.Staff_Id equals staff.Id
+
+                where attendance.Attendance_Date.Date >= fromDate.Date
+                      && attendance.Attendance_Date.Date <= toDate.Date
+                      && attendance.IsActive == true
+                      && staff.IsActive == true
+
+                orderby attendance.Attendance_Date descending
+
+                select new StaffAttendanceHistoryByDateDto
+                {
+                    StaffName = staff.Name,
+                    Email = staff.Email,
+                    Phone = staff.Phone,
+                    AttendanceDate = attendance.Attendance_Date,
+                    Status = attendance.Status
+                }
+
+            ).ToListAsync();
+
+            return result;
+        }
     }
 }

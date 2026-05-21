@@ -61,5 +61,18 @@ namespace SchoolManagement.Controllers
             var result = await _repo.AssignSubjectsToSectionAsync(dto);
             return result.Success ? Ok(result) : BadRequest(result);
         }
+
+        [HttpGet("GetSubjectsBySection")]
+        public async Task<IActionResult> GetSubjectsBySection(int sectionId,int schoolId)
+        {
+            var result = await _repo.GetSubjectsBySectionAsync(sectionId, schoolId);
+
+            if (result == null || !result.Any())
+            {
+                return NotFound("No subjects found for this section");
+            }
+
+            return Ok(result);
+        }
     }
 }
