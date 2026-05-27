@@ -124,15 +124,19 @@ namespace SchoolManagement.Controllers
 
         [HttpGet("GetStaffAttendanceHistoryByDate")]
         public async Task<IActionResult> GetAttendanceHistory(
-    DateTime fromDate,
-    DateTime toDate)
+        int schoolId,
+        DateTime fromDate,
+        DateTime toDate)
         {
             if (fromDate > toDate)
             {
                 return BadRequest("From date cannot be greater than To date.");
             }
 
-            var result = await _repo.GetAttendanceHistoryAsync(fromDate, toDate);
+            var result = await _repo.GetAttendanceHistoryAsync(
+                schoolId,
+                fromDate,
+                toDate);
 
             if (!result.Any())
             {
@@ -143,7 +147,3 @@ namespace SchoolManagement.Controllers
         }
     }
 }
-
-
-
-

@@ -482,15 +482,17 @@ namespace SchoolManagement.Repository
         }
 
         public async Task<List<StaffAttendanceHistoryByDateDto>> GetAttendanceHistoryAsync(
-    DateTime fromDate,
-    DateTime toDate)
+     int schoolId,
+     DateTime fromDate,
+     DateTime toDate)
         {
             var result = await (
                 from attendance in _context.StaffAttendance
                 join staff in _context.Staff
                 on attendance.Staff_Id equals staff.Id
 
-                where attendance.Attendance_Date.Date >= fromDate.Date
+                where attendance.School_Id == schoolId
+                      && attendance.Attendance_Date.Date >= fromDate.Date
                       && attendance.Attendance_Date.Date <= toDate.Date
                       && attendance.IsActive == true
                       && staff.IsActive == true
