@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
+using SchoolManagement.Model;
 using System.Globalization;
 using System.Security.Claims;
 
@@ -140,6 +141,93 @@ namespace SchoolManagement.Controllers
                 TotalRecords = total,
                 PageSize = pageSize
             });
+        }
+
+        [HttpGet("GetStudentsForFees")]
+        public async Task<IActionResult> GetStudents(int schoolId,int classId,int sectionId, int sessionId)
+        {
+            var result = await _repo.GetStudentsForFees(schoolId,classId, sectionId, sessionId);
+            return Ok(result);
+        }
+
+        [HttpPost("AssignStudentFees")]
+        public async Task<IActionResult> AssignFees( AssignFeeDto dto)
+        {
+            var result = await _repo.AssignFeesAsync(dto);
+
+            return Ok(result);
+        }
+
+        [HttpGet("GetStudentFees")]
+        public async Task<IActionResult> GetStudentFees(int studentId)
+        {
+            var result = await _repo.GetStudentFeesAsync(studentId);
+            return Ok(result);
+        }
+
+        [HttpGet("GetPendingFees")]
+        public async Task<IActionResult> PendingFees(int schoolId,int? classId,int? sectionId)
+        {
+            var result =
+                await _repo.GetPendingFeesAsync( schoolId,classId, sectionId);
+            return Ok(result);
+        }
+
+        [HttpPost("PayFee")]
+        public async Task<IActionResult> PayFee( FeePaymentDto dto)
+        {
+            var result = await _repo.PayFeeAsync(dto);
+
+            return Ok(new
+            {
+                Success = result,
+                Message = "Fee payment successful"
+            });
+        }
+
+        // ==========================
+        // PAYMENT HISTORY
+        // ==========================
+
+        [HttpGet("GetPaymentHistory")]
+        public async Task<IActionResult> GetPaymentHistory(int studentId)
+        {
+            var result = await _repo.GetPaymentHistory(studentId);
+            return Ok(result);
+        }
+
+        // ==========================
+        // RECEIPT
+        // ==========================
+
+        [HttpGet("GetReceipt")]
+        public async Task<IActionResult> GetReceipt( int paymentId)
+        {
+            var result = await _repo.GetReceipt(paymentId);
+
+            if (result == null)
+            {
+                return NotFound(new
+                {
+                    Message = "Receipt not found"
+                });
+            }
+
+            return Ok(result);
+        }
+
+        [HttpPost("CreateFeeType")]
+        public async Task<IActionResult> CreateFeeType(FeeType dto)
+        {
+            var result = await _repo.CreateFeeType(dto);
+            return Ok(result);
+        }
+
+        [HttpGet("GetFeeTypes")]
+        public async Task<IActionResult> GetFeeTypes(int schoolId)
+        {
+            var result = await _repo.GetFeeTypes(schoolId);
+            return Ok(result);
         }
     }
 }

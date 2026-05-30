@@ -42,6 +42,9 @@ namespace SchoolManagement.Data
         public DbSet<ExamInvigilators> ExamInvigilators { get; set; }
         public DbSet<ExamSchedules> ExamSchedules { get; set; }
         public DbSet<Exams> Exams { get; set; }
+        public DbSet<FeePayments> FeePayments { get; set; }
+        public DbSet<StudentFee> StudentFees { get; set; }
+        public DbSet<FeeType> FeeTypes { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);

@@ -871,5 +871,405 @@ namespace SchoolManagement.Repository
             }
         }
 
+        public async Task<IEnumerable<object>> GetStudentsForFees(
+            int schoolId,
+            int classId,
+            int sectionId,
+            int sessionId)
+        {
+            try
+            {
+                return await (
+                    from se in _context.StudentEnrollment
+
+                    join s in _context.Students
+                        on se.StudentId equals s.Id
+
+                    join c in _context.Classes
+                        on se.ClassId equals c.Id
+
+                    join sec in _context.SectionDetails
+                        on se.SectionId equals sec.Id
+
+                    where se.SchoolId == schoolId
+                          && s.SchoolId == schoolId
+                          && c.SchoolId == schoolId
+                          && sec.SchoolId == schoolId
+
+                          && se.ClassId == classId
+                          && se.SectionId == sectionId
+                          && se.SessionId == sessionId
+                          && se.IsActive == true
+
+                    select new
+                    {
+                        StudentId = s.Id,
+                        StudentName = s.StudentName,
+                        ClassName = c.ClassName,
+                        SectionName = sec.SectionName
+                    }
+
+                ).ToListAsync();
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        public async Task<bool> AssignFeesAsync(AssignFeeDto dto)
+        {
+            try
+            {
+                foreach (var studentId in dto.StudentIds)
+                {
+                    var alreadyExists = await _context.StudentFees
+                        .AnyAsync(x =>
+                            x.StudentId == studentId
+                            && x.FeeTypeId == dto.FeeTypeId
+                            && x.SessionId == dto.SessionId
+                            && x.IsActive);
+
+                    if (!alreadyExists)
+                    {
+                        var fee = new StudentFee
+                        {
+                            StudentId = studentId,
+                            FeeTypeId = dto.FeeTypeId,
+                            Amount = dto.Amount,
+                            SessionId = dto.SessionId,
+                            SchoolId = dto.SchoolId,
+                            Status = "Pending",
+                            Created_Date = DateTime.Now,
+                            IsActive = true
+                        };
+
+                        _context.StudentFees.Add(fee);
+                    }
+                }
+
+                return await _context.SaveChangesAsync() > 0;
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        public async Task<IEnumerable<object>> GetStudentFeesAsync(int studentId)
+        {
+            try
+            {
+                return await _context.StudentFees
+
+                    .Where(x => x.StudentId == studentId)
+
+                    .Select(x => new
+                    {
+                        x.Id,
+
+                        FeeType =
+                            _context.FeeTypes
+                            .Where(f => f.Id == x.FeeTypeId)
+                            .Select(f => f.Name)
+                            .FirstOrDefault(),
+
+                        TotalAmount = x.Amount,
+
+                        PaidAmount =
+                            _context.FeePayments
+                            .Where(p => p.StudentFeeId == x.Id)
+                            .Sum(p => (decimal?)p.AmountPaid) ?? 0,
+
+                        Balance =
+                            x.Amount -
+                            (
+                                _context.FeePayments
+                                .Where(p => p.StudentFeeId == x.Id)
+                                .Sum(p => (decimal?)p.AmountPaid) ?? 0
+                            ),
+
+                        x.Status
+                    })
+
+                    .ToListAsync();
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        public async Task<IEnumerable<object>> GetPendingFeesAsync(
+    int schoolId,
+    int? classId,
+    int? sectionId)
+        {
+            try
+            {
+                var query =
+
+                    from sf in _context.StudentFees
+
+                    join s in _context.Students
+                        on sf.StudentId equals s.Id
+
+                    join se in _context.StudentEnrollment
+                        on s.Id equals se.StudentId
+
+                    join c in _context.Classes
+                        on se.ClassId equals c.Id
+
+                    join sec in _context.SectionDetails
+                        on se.SectionId equals sec.Id
+
+                    where sf.SchoolId == schoolId
+                          && s.SchoolId == schoolId
+                          && se.SchoolId == schoolId
+                          && c.SchoolId == schoolId
+                          && sec.SchoolId == schoolId
+
+                          && sf.Status != "Paid"
+                          && sf.IsActive == true
+
+                    select new
+                    {
+                        StudentFeeId = sf.Id,
+
+                        StudentId = s.Id,
+
+                        StudentName = s.StudentName,
+
+                        ClassId = c.Id,
+
+                        ClassName = c.ClassName,
+
+                        SectionId = sec.Id,
+
+                        SectionName = sec.SectionName,
+
+                        FeeTypeId = sf.FeeTypeId,
+
+                        Amount = sf.Amount,
+
+                        Paid =
+                            _context.FeePayments
+                            .Where(p =>
+                                p.StudentFeeId == sf.Id
+                                && p.SchoolId == schoolId
+                                && p.IsActive == true)
+                            .Sum(p => (decimal?)p.AmountPaid) ?? 0,
+
+                        Balance =
+                            sf.Amount -
+                            (
+                                _context.FeePayments
+                                .Where(p =>
+                                    p.StudentFeeId == sf.Id
+                                    && p.SchoolId == schoolId
+                                    && p.IsActive == true)
+                                .Sum(p => (decimal?)p.AmountPaid) ?? 0
+                            ),
+
+                        sf.Status
+                    };
+
+                // Filter by Class
+
+                if (classId.HasValue)
+                {
+                    query = query.Where(x => x.ClassId == classId.Value);
+                }
+
+                // Filter by Section
+
+                if (sectionId.HasValue)
+                {
+                    query = query.Where(x => x.SectionId == sectionId.Value);
+                }
+
+                return await query.ToListAsync();
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+        public async Task<bool> PayFeeAsync(FeePaymentDto dto)
+        {
+            try
+            {
+                var payment = new FeePayments
+                {
+                    StudentFeeId = dto.StudentFeeId,
+
+                    AmountPaid = dto.AmountPaid,
+
+                    Payment_Mode = dto.PaymentMode,
+
+                    Payment_Date = DateTime.Now,
+
+                    Receipt_Number =
+                        "RCPT-" + Guid.NewGuid().ToString().Substring(0, 6),
+
+                    SchoolId = dto.SchoolId
+                };
+
+                _context.FeePayments.Add(payment);
+
+                await _context.SaveChangesAsync();
+
+                var fee = await _context.StudentFees
+                    .FirstOrDefaultAsync(x => x.Id == dto.StudentFeeId);
+
+                var totalPaid = await _context.FeePayments
+                    .Where(x => x.StudentFeeId == dto.StudentFeeId)
+                    .SumAsync(x => x.AmountPaid);
+
+                if (totalPaid == 0)
+                    fee.Status = "Pending";
+
+                else if (totalPaid < fee.Amount)
+                    fee.Status = "Partial";
+
+                else
+                    fee.Status = "Paid";
+
+                return await _context.SaveChangesAsync() > 0;
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        public async Task<IEnumerable<object>> GetPaymentHistory(
+            int studentId)
+        {
+            try
+            {
+                return await (
+
+                    from fp in _context.FeePayments
+
+                    join sf in _context.StudentFees
+                        on fp.StudentFeeId equals sf.Id
+
+                    join ft in _context.FeeTypes
+                        on sf.FeeTypeId equals ft.Id
+
+                    where sf.StudentId == studentId
+
+                    orderby fp.Payment_Date descending
+
+                    select new
+                    {
+                        PaymentId = fp.Id,
+
+                        FeeType = ft.Name,
+
+                        AmountPaid = fp.AmountPaid,
+
+                        PaymentDate = fp.Payment_Date,
+
+                        PaymentMode = fp.Payment_Mode,
+
+                        ReceiptNumber = fp.Receipt_Number
+                    }
+
+                ).ToListAsync();
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        public async Task<object> GetReceipt(int paymentId)
+        {
+            try
+            {
+                return await (
+
+                    from fp in _context.FeePayments
+
+                    join sf in _context.StudentFees
+                        on fp.StudentFeeId equals sf.Id
+
+                    join s in _context.Students
+                        on sf.StudentId equals s.Id
+
+                    join ft in _context.FeeTypes
+                        on sf.FeeTypeId equals ft.Id
+
+                    join se in _context.StudentEnrollment
+                        on s.Id equals se.StudentId
+
+                    join c in _context.Classes
+                        on se.ClassId equals c.Id
+
+                    join sec in _context.SectionDetails
+                        on se.SectionId equals sec.Id
+
+                    where fp.Id == paymentId
+
+                    select new
+                    {
+                        ReceiptNumber = fp.Receipt_Number,
+
+                        PaymentDate = fp.Payment_Date,
+
+                        StudentName = s.StudentName,
+
+                        ClassName = c.ClassName,
+
+                        SectionName = sec.SectionName,
+
+                        FeeType = ft.Name,
+
+                        AmountPaid = fp.AmountPaid,
+
+                        PaymentMode = fp.Payment_Mode
+                    }
+
+                ).FirstOrDefaultAsync();
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        public async Task<bool> CreateFeeType(FeeType dto)
+        {
+            try
+            {
+                _context.FeeTypes.Add(dto);
+                return await _context.SaveChangesAsync() > 0;
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        public async Task<IEnumerable<object>> GetFeeTypes(int schoolId)
+        {
+            try
+            {
+                return await _context.FeeTypes
+                    .Where(x => x.SchoolId == schoolId && x.IsActive)
+                    .Select(x => new
+                    {
+                        x.Id,
+                        x.Name
+                    })
+                    .ToListAsync();
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
     }
 }
