@@ -431,8 +431,7 @@ AddExamSubject(
                     SubjectId = dto.SubjectId,
                     MaxMarks = dto.MaxMarks,
                     PassingMarks = dto.PassingMarks,
-                    CreatedBy = userId,
-                    CreatedDate = DateTime.Now,
+                    Created_Date = DateTime.Now,
                     IsActive = true
                 };
 

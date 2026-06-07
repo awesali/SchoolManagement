@@ -18,9 +18,7 @@
 
         public decimal PassingMarks { get; set; }
 
-        public DateTime CreatedDate { get; set; }
-
-        public int CreatedBy { get; set; }
+        public DateTime Created_Date { get; set; }
 
         public bool IsActive { get; set; }
     }
