@@ -48,6 +48,7 @@ builder.Services.AddCors(options =>
     {
         policy.WithOrigins(
                 "http://localhost:3000",
+                "http://localhost:3001",
                 "http://school.cognerasystems.com",
                 "https://school.cognerasystems.com")
               .AllowAnyHeader()

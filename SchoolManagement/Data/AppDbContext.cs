@@ -49,6 +49,8 @@ namespace SchoolManagement.Data
         public DbSet<SectionSubjectTeachers> SectionSubjectTeachers { get; set; }
         public DbSet<ExamMarks> ExamMarks { get; set; }
         public DbSet<ExamResults> ExamResults { get; set; }
+        public DbSet<StaffSalaryStructure> StaffSalaryStructure { get; set; }
+        public DbSet<SalaryPayment> SalaryPayment { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);

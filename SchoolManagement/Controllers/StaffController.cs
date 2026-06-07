@@ -37,5 +37,49 @@ namespace SchoolManagement.Controllers
             var result = await _repo.CheckTodayAttendanceAsync();
             return Ok(result);
         }
+        [HttpPost("assign")]
+        public async Task<IActionResult> AssignSalary(AssignSalaryDto dto)
+        {
+            return Ok(await _repo.AssignSalary(dto));
+        }
+
+        [HttpPost("generate")]
+        public async Task<IActionResult> Generate(int month, int year)
+        {
+            return Ok(
+                await _repo.GenerateMonthlySalary(month, year));
+        }
+
+        [HttpPost("pay")]
+        public async Task<IActionResult> Pay(PaySalaryDto dto)
+        {
+            return Ok(await _repo.PaySalary(dto));
+        }
+
+        [HttpGet("history/{staffId}")]
+        public async Task<IActionResult> History(int staffId)
+        {
+            return Ok(
+                await _repo.GetSalaryHistory(staffId));
+        }
+
+        [HttpGet("pending")]
+        public async Task<IActionResult> Pending()
+        {
+            return Ok(await _repo.GetPendingSalary());
+        }
+
+        [HttpGet("pending/{staffId}")]
+        public async Task<IActionResult> PendingByStaff(int staffId)
+        {
+            return Ok(
+                await _repo.GetPendingSalaryByStaff(staffId));
+        }
+
+        [HttpGet("dashboard")]
+        public async Task<IActionResult> Dashboard(int schoolId)
+        {
+            return Ok(await _repo.GetDashboard(schoolId));
+        }
     }
 }
