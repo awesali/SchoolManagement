@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
 using SchoolManagement.Model;
+using SchoolManagement.Repository;
 using System.Security.Claims;
 
 namespace SchoolManagement.Controllers
@@ -186,6 +188,13 @@ namespace SchoolManagement.Controllers
                 : BadRequest(result);
         }
 
+        [HttpPost("CreateExamSchedule")]
+        public async Task<IActionResult> CreateExamSchedule([FromBody] CreateExamScheduleDto dto)
+        {
+            var result = await _repo.CreateExamSchedule(dto);
+            return result.Success ? Ok(result) : BadRequest(result);
+        }
+
         [HttpGet("GetMarksEntrySheet")]
         public async Task<IActionResult> GetMarksEntrySheet(
           int schoolId,
@@ -193,15 +202,15 @@ namespace SchoolManagement.Controllers
           int sectionId,
           int subjectId)
         {
-            var teacherId = int.Parse(
-                User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+            int userId = int.Parse(
+     User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
 
             var result = await _repo.GetMarksEntrySheet(
                 schoolId,
                 examId,
                 sectionId,
                 subjectId,
-                teacherId);
+                userId);
 
             return result.Success
                 ? Ok(result)
@@ -212,12 +221,13 @@ namespace SchoolManagement.Controllers
         public async Task<IActionResult> SaveMarks(
             SaveMarksDto dto)
         {
-            var teacherId = int.Parse(
-                User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+            int userId = int.Parse(
+     User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+
 
             var result = await _repo.SaveMarks(
                 dto,
-                teacherId);
+                userId);
 
             return result.Success
                 ? Ok(result)
@@ -263,6 +273,12 @@ namespace SchoolManagement.Controllers
         {
             var result = await _repo.PublishResults(examId, schoolId);
             return result.Success ? Ok(result) : BadRequest(result);
+        }
+        [HttpGet("student-result-detail")]
+        public async Task<IActionResult> GetStudentResultDetail(int studentId,int examId,int schoolId)
+        {
+            var result = await _repo.GetStudentResultDetail(studentId,examId,schoolId);
+            return Ok(result);
         }
     }
 }

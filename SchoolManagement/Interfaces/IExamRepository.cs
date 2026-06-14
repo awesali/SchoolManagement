@@ -60,12 +60,12 @@ AssignInvigilator(
                 int examId,
                 int sectionId,
                 int subjectId,
-                int teacherId);
+                int userId);
 
         Task<ApiResponse<string>>
             SaveMarks(
                 SaveMarksDto dto,
-                int teacherId);
+                int userId);
 
         Task<ApiResponse<string>>
             LockMarks(
@@ -79,5 +79,6 @@ AssignInvigilator(
         Task<ApiResponse<StudentResultDto>> GetStudentResult(int studentId, int examId, int schoolId);
 
         Task<ApiResponse<string>> PublishResults(int examId, int schoolId);
+        Task<ApiResponse<StudentResultDetailDto>>GetStudentResultDetail(int studentId,int examId,int schoolId);
     }
 }

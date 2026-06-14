@@ -3,6 +3,7 @@ using SchoolManagement.Data;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
 using SchoolManagement.Model;
+using System.Security.Claims;
 
 namespace SchoolManagement.Repository
 {
@@ -457,22 +458,53 @@ AddExamSubject(
         }
 
         public async Task<ApiResponse<List<ExamSubjectResponseDto>>>
-GetExamSubjects(int examId)
+     GetExamSubjects(int examId)
         {
             try
             {
                 var data = await (
-                    from es in _context.ExamSubjects
-                    join s in _context.Subjects
-                        on es.SubjectId equals s.Id
-                    where es.ExamId == examId
-                    select new ExamSubjectResponseDto
-                    {
-                        Id = es.Id,
-                        SubjectName = s.SubjectName,
-                        MaxMarks = es.MaxMarks,
-                        PassingMarks = es.PassingMarks
-                    }).ToListAsync();
+from es in _context.ExamSubjects
+
+join s in _context.Subjects
+    on es.SubjectId equals s.Id
+
+join c in _context.Classes
+    on es.ClassId equals c.Id
+
+join sec in _context.SectionDetails
+    on es.SectionId equals sec.Id into secJoin
+from sec in secJoin.DefaultIfEmpty()
+
+from sch in _context.ExamSchedules
+    .Where(x =>
+        x.ExamId == es.ExamId &&
+        x.ClassId == es.ClassId &&
+        x.SubjectId == es.SubjectId &&
+        x.SectionId == es.SectionId)
+    .DefaultIfEmpty()
+
+where es.ExamId == examId
+
+select new ExamSubjectResponseDto
+{
+    Id = es.Id,
+    SubjectId = es.SubjectId,
+    SubjectName = s.SubjectName,
+
+    ClassId = c.Id,
+    ClassName = c.ClassName,
+
+    SectionId = sec != null ? sec.Id : (int?)null,
+    SectionName = sec != null ? sec.SectionName : null,
+
+    MaxMarks = es.MaxMarks,
+    PassingMarks = es.PassingMarks,
+
+    ExamDate = sch != null ? sch.ExamDate : null,
+    StartTime = sch != null ? sch.StartTime : null,
+    EndTime = sch != null ? sch.EndTime : null
+}
+                ).ToListAsync();
 
                 return new ApiResponse<List<ExamSubjectResponseDto>>
                 {
@@ -489,7 +521,6 @@ GetExamSubjects(int examId)
                 };
             }
         }
-
         public async Task<ApiResponse<ExamSchedules>>
 CreateExamSchedule(
     CreateExamScheduleDto dto)
@@ -585,8 +616,14 @@ AssignInvigilator(
           int examId,
           int sectionId,
           int subjectId,
-          int teacherId)
+          int userId)
         {
+         
+
+            var teacherId = await _context.Staff
+                .Where(x => x.usersid == userId)
+                .Select(x => x.Id)
+                .FirstOrDefaultAsync();
             try
             {
                 var isAllowed =
@@ -622,6 +659,7 @@ AssignInvigilator(
                     {
                         StudentId = st.Id,
                         StudentName = st.StudentName,
+                        RollNumber = st.Rollnumber,
 
                         Marks = _context.ExamMarks
                             .Where(m =>
@@ -656,15 +694,20 @@ AssignInvigilator(
             }
         }
 
-        public async Task<ApiResponse<string>>
-            SaveMarks(
-            SaveMarksDto dto,
-            int teacherId)
+        public async Task<ApiResponse<string>> SaveMarks(
+    SaveMarksDto dto,
+    int userId)
         {
             try
             {
-                var isAllowed =
-                    await _context.SectionSubjectTeachers
+                // Get teacherId
+                var teacherId = await _context.Staff
+                    .Where(x => x.usersid == userId)
+                    .Select(x => x.Id)
+                    .FirstOrDefaultAsync();
+
+                // Check permission
+                var isAllowed = await _context.SectionSubjectTeachers
                     .AnyAsync(x =>
                         x.StaffId == teacherId &&
                         x.SectionId == dto.SectionId &&
@@ -680,28 +723,60 @@ AssignInvigilator(
                         Message = "Unauthorized"
                     };
                 }
+                var scheduleId = dto.ExamScheduleId;
 
+                if (scheduleId == 0)
+                {
+                    scheduleId = await _context.ExamSchedules
+                        .Where(x =>
+                            x.ExamId == dto.ExamId &&
+                            x.SectionId == dto.SectionId &&
+                            x.SubjectId == dto.SubjectId)
+                        .Select(x => x.Id)
+                        .FirstOrDefaultAsync();
+                }
+
+                if (scheduleId == 0)
+                {
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Exam schedule not found"
+                    };
+                }
+                // Get all existing marks for this exam + schedule + students
+                var studentIds = dto.Marks.Select(m => m.StudentId).ToList();
+
+                var existingMarks = await _context.ExamMarks
+                    .Where(x =>
+                        x.ExamId == dto.ExamId &&
+                        x.ExamScheduleId == scheduleId &&
+                        studentIds.Contains(x.StudentId))
+                    .ToListAsync();
+
+                // Check if any are locked
+                var locked = existingMarks
+                    .FirstOrDefault(x => x.IsLocked);
+
+                if (locked != null)
+                {
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = $"Marks are locked for StudentId {locked.StudentId}. Update not allowed."
+                    };
+                }
+
+                // Update existing + insert new
                 foreach (var mark in dto.Marks)
                 {
-                    var existing =
-                        await _context.ExamMarks
-                        .FirstOrDefaultAsync(x =>
-                            x.ExamId == dto.ExamId &&
-                            x.ExamScheduleId == dto.ExamScheduleId &&
-                            x.StudentId == mark.StudentId);
+                    var existing = existingMarks
+                        .FirstOrDefault(x => x.StudentId == mark.StudentId);
 
                     if (existing != null)
                     {
-                        if (existing.IsLocked)
-                        {
-                            continue;
-                        }
-
-                        existing.ObtainedMarks =
-                            mark.ObtainedMarks;
-
-                        existing.Remarks =
-                            mark.Remarks;
+                        existing.ObtainedMarks = mark.ObtainedMarks;
+                        existing.Remarks = mark.Remarks;
                     }
                     else
                     {
@@ -709,12 +784,12 @@ AssignInvigilator(
                         {
                             SchoolId = dto.SchoolId,
                             ExamId = dto.ExamId,
-                            ExamScheduleId = dto.ExamScheduleId,
+                            ExamScheduleId = scheduleId,
                             StudentId = mark.StudentId,
                             ObtainedMarks = mark.ObtainedMarks,
                             Remarks = mark.Remarks,
                             EnteredBy = teacherId,
-                            EnteredDate = DateTime.Now,
+                            EnteredDate = DateTime.UtcNow,
                             IsLocked = false,
                             IsActive = true
                         };
@@ -889,6 +964,7 @@ AssignInvigilator(
                     where r.ExamId == examId && r.SchoolId == schoolId
                     select new StudentResultDto
                     {
+                        StudentId = s.Id,
                         StudentName = s.StudentName,
                         TotalMarks = r.TotalMarks,
                         ObtainedMarks = r.ObtainedMarks,
@@ -969,6 +1045,112 @@ AssignInvigilator(
                 Success = true,
                 Message = "Results Published Successfully"
             };
+        }
+
+        public async Task<ApiResponse<StudentResultDetailDto>>
+    GetStudentResultDetail(
+    int studentId,
+    int examId,
+    int schoolId)
+        {
+            try
+            {
+                var student = await _context.Students
+                    .FirstOrDefaultAsync(x => x.Id == studentId);
+
+                if (student == null)
+                {
+                    return new ApiResponse<StudentResultDetailDto>
+                    {
+                        Success = false,
+                        Message = "Student not found"
+                    };
+                }
+
+                var result = await _context.ExamResults
+                    .FirstOrDefaultAsync(x =>
+                        x.StudentId == studentId &&
+                        x.ExamId == examId &&
+                        x.SchoolId == schoolId);
+
+                if (result == null)
+                {
+                    return new ApiResponse<StudentResultDetailDto>
+                    {
+                        Success = false,
+                        Message = "Result not generated"
+                    };
+                }
+
+                var examName = await _context.Exams
+                    .Where(x => x.Id == examId)
+                    .Select(x => x.Name)
+                    .FirstOrDefaultAsync();
+
+                var subjects = await (
+                    from em in _context.ExamMarks
+
+                    join esch in _context.ExamSchedules
+                        on em.ExamScheduleId equals esch.Id
+
+                    join sub in _context.Subjects
+                        on esch.SubjectId equals sub.Id
+
+                    from exSub in _context.ExamSubjects
+                        .Where(x =>
+                            x.ExamId == esch.ExamId &&
+                            x.SubjectId == esch.SubjectId &&
+                            x.ClassId == esch.ClassId &&
+                            x.SectionId == esch.SectionId)
+
+                    where em.StudentId == studentId
+                          && em.ExamId == examId
+
+                    select new StudentSubjectResultDto
+                    {
+                        SubjectId = sub.Id,
+                        SubjectName = sub.SubjectName,
+                        MaxMarks = exSub.MaxMarks,
+                        PassingMarks = exSub.PassingMarks,
+                        ObtainedMarks = em.ObtainedMarks,
+                        Status = em.ObtainedMarks >= exSub.PassingMarks
+                            ? "PASS"
+                            : "FAIL",
+                        Remarks = em.Remarks
+                    }
+                ).ToListAsync();
+
+                var dto = new StudentResultDetailDto
+                {
+                    StudentId = student.Id,
+                    StudentName = student.StudentName,
+
+                    ExamName = examName,
+
+                    TotalMarks = result.TotalMarks,
+                    ObtainedMarks = result.ObtainedMarks,
+
+                    Percentage = result.Percentage,
+                    Grade = result.Grade,
+                    ResultStatus = result.ResultStatus,
+
+                    Subjects = subjects
+                };
+
+                return new ApiResponse<StudentResultDetailDto>
+                {
+                    Success = true,
+                    Data = dto
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ApiResponse<StudentResultDetailDto>
+                {
+                    Success = false,
+                    Message = ex.Message
+                };
+            }
         }
     }
 }

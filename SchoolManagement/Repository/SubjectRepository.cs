@@ -131,7 +131,14 @@ namespace SchoolManagement.Repository
                         IsActive = true
                     });
                 }
+                var sectionMappings = await _context.SectionSubjectTeachers
+                    .Where(x => x.SubjectId == dto.Id && x.IsActive)
+                    .ToListAsync();
 
+                foreach (var mapping in sectionMappings)
+                {
+                    mapping.StaffId = dto.StaffId;
+                }
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
                 return new ApiResponse<string> { Success = true, Message = "Subject updated successfully", Data = null };
@@ -143,35 +150,128 @@ namespace SchoolManagement.Repository
             }
         }
 
-        public async Task<ApiResponse<string>> AssignSubjectsToSectionAsync(AssignSubjectToSectionDto dto)
+        //public async Task<ApiResponse<string>> AssignSubjectsToSectionAsync(AssignSubjectToSectionDto dto)
+        //{
+        //    using var transaction = await _context.Database.BeginTransactionAsync();
+        //    try
+        //    {
+        //        var sectionExists = await _context.SectionDetails.AnyAsync(s => s.Id == dto.SectionId && s.IsActive);
+        //        if (!sectionExists)
+        //            return new ApiResponse<string> { Success = false, Message = "Section not found", Data = null };
+
+        //        var existing = await _context.SectionSubjects.Where(ss => ss.SectionId == dto.SectionId && ss.IsActive).ToListAsync();
+        //        existing.ForEach(ss => { ss.IsActive = false; ss.Modified_Date = DateTime.UtcNow; });
+
+        //        _context.SectionSubjects.AddRange(dto.SubjectIds.Distinct().Select(subjectId => new SectionSubjects
+        //        {
+        //            SectionId = dto.SectionId,
+        //            SubjectId = subjectId,
+        //            SchoolId = dto.SchoolId,
+        //            Created_Date = DateTime.UtcNow,
+        //            IsActive = true
+        //        }).ToList());
+
+        //        await _context.SaveChangesAsync();
+        //        await transaction.CommitAsync();
+        //        return new ApiResponse<string> { Success = true, Message = "Subjects assigned to section successfully", Data = null };
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        await transaction.RollbackAsync();
+        //        return new ApiResponse<string> { Success = false, Message = ex.Message, Data = null };
+        //    }
+        //}
+        public async Task<ApiResponse<string>> AssignSubjectsToSectionAsync(
+    AssignSubjectToSectionDto dto)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
+
             try
             {
-                var sectionExists = await _context.SectionDetails.AnyAsync(s => s.Id == dto.SectionId && s.IsActive);
+                var sectionExists = await _context.SectionDetails
+                    .AnyAsync(s => s.Id == dto.SectionId && s.IsActive);
+
                 if (!sectionExists)
-                    return new ApiResponse<string> { Success = false, Message = "Section not found", Data = null };
-
-                var existing = await _context.SectionSubjects.Where(ss => ss.SectionId == dto.SectionId && ss.IsActive).ToListAsync();
-                existing.ForEach(ss => { ss.IsActive = false; ss.Modified_Date = DateTime.UtcNow; });
-
-                _context.SectionSubjects.AddRange(dto.SubjectIds.Distinct().Select(subjectId => new SectionSubjects
                 {
-                    SectionId = dto.SectionId,
-                    SubjectId = subjectId,
-                    SchoolId = dto.SchoolId,
-                    Created_Date = DateTime.UtcNow,
-                    IsActive = true
-                }).ToList());
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Section not found"
+                    };
+                }
+
+                // Deactivate old section-subject mappings
+                var existingSectionSubjects = await _context.SectionSubjects
+                    .Where(x => x.SectionId == dto.SectionId && x.IsActive)
+                    .ToListAsync();
+
+                existingSectionSubjects.ForEach(x =>
+                {
+                    x.IsActive = false;
+                    x.Modified_Date = DateTime.UtcNow;
+                });
+
+                // Deactivate old section-subject-teacher mappings
+                var existingMappings = await _context.SectionSubjectTeachers
+                    .Where(x => x.SectionId == dto.SectionId && x.IsActive)
+                    .ToListAsync();
+
+                existingMappings.ForEach(x =>
+                {
+                    x.IsActive = false;
+                });
+
+                foreach (var subjectId in dto.SubjectIds.Distinct())
+                {
+                    // Insert SectionSubjects
+                    _context.SectionSubjects.Add(new SectionSubjects
+                    {
+                        SectionId = dto.SectionId,
+                        SubjectId = subjectId,
+                        SchoolId = dto.SchoolId,
+                        Created_Date = DateTime.UtcNow,
+                        IsActive = true
+                    });
+
+                    // Find assigned teacher
+                    var teacher = await _context.SubjectTeachers
+                        .FirstOrDefaultAsync(x =>
+                            x.SubjectId == subjectId &&
+                            x.IsActive);
+
+                    if (teacher != null)
+                    {
+                        _context.SectionSubjectTeachers.Add(
+                            new SectionSubjectTeachers
+                            {
+                                SectionId = dto.SectionId,
+                                SubjectId = subjectId,
+                                StaffId = teacher.StaffId,
+                                SchoolId = dto.SchoolId,
+                                Created_Date = DateTime.UtcNow,
+                                IsActive = true
+                            });
+                    }
+                }
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
-                return new ApiResponse<string> { Success = true, Message = "Subjects assigned to section successfully", Data = null };
+
+                return new ApiResponse<string>
+                {
+                    Success = true,
+                    Message = "Subjects assigned successfully"
+                };
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return new ApiResponse<string> { Success = false, Message = ex.Message, Data = null };
+
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = ex.Message
+                };
             }
         }
         public async Task<List<GetSectionSubjectDto>> GetSubjectsBySectionAsync(int sectionId, int schoolId)

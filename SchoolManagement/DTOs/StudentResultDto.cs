@@ -2,6 +2,7 @@
 {
     public class StudentResultDto
     {
+        public int StudentId { get; set; }
         public string StudentName { get; set; }
 
         public string ExamName { get; set; }

@@ -51,6 +51,10 @@ namespace SchoolManagement.Repository
         {
             var user = await _context.Users
                 .FirstOrDefaultAsync(x => x.Email == dto.Email);
+            var staffId = await _context.Staff
+    .Where(x => x.usersid == user.Id)
+    .Select(x => x.Id)
+    .FirstOrDefaultAsync();
 
             if (user == null)
                 throw new Exception("Invalid Email");

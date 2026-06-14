@@ -14,8 +14,8 @@
 
         public int EnteredBy { get; set; }
 
-        public DateTime Created_Date { get; set; }
-        public DateTime CreatedDate { get; set; }
+        //public DateTime Created_Date { get; set; }
+        //public DateTime CreatedDate { get; set; }
         public DateTime EnteredDate { get; set; }
         public bool IsActive { get; set; } = true;
 

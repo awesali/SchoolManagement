@@ -9,7 +9,7 @@
         public int StaffId { get; set; }
         public int SchoolId { get; set; }
 
-        public DateTime CreatedDate { get; set; }
+        public DateTime Created_Date { get; set; }
 
         public bool IsActive { get; set; } = true;
     }
