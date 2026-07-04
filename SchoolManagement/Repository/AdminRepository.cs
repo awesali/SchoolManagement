@@ -36,7 +36,17 @@ namespace SchoolManagement.Repository
                 var school = new Schools
                 {
                     SchoolName = dto.SchoolName,
-                    Address = dto.Address,
+                    Address = string.IsNullOrWhiteSpace(dto.Address)
+                        ? BuildAddress(dto)
+                        : dto.Address,
+                    Street = dto.Street,
+                    City = dto.City,
+                    PinCode = dto.PinCode,
+                    Country = dto.Country,
+                    State = dto.State,
+                    Landmark = dto.Landmark,
+                    Latitude = dto.Latitude,
+                    Longitude = dto.Longitude,
                     Email = dto.Email,
                     Phone = dto.Phone,
                     SuperAdminId = userId,
@@ -54,6 +64,19 @@ namespace SchoolManagement.Repository
             {
                 return new ApiResponse<Schools> { Success = false, Message = ex.Message, Data = null };
             }
+        }
+
+        private static string BuildAddress(SchoolCreateDto dto)
+        {
+            return string.Join(", ", new[]
+            {
+                dto.Street,
+                dto.Landmark,
+                dto.City,
+                dto.State,
+                dto.PinCode,
+                dto.Country
+            }.Where(part => !string.IsNullOrWhiteSpace(part)));
         }
 
         public async Task<ApiResponse<DashboardCardDto>> GetDashboardData(int schoolId)

@@ -58,6 +58,14 @@ namespace SchoolManagement.Data
             // Configure Students_Parents_Creds table name
             modelBuilder.Entity<Students_Parents_Creds>()
                 .ToTable("Students_Parents_Creds");
+
+            modelBuilder.Entity<Schools>()
+                .Property(s => s.Latitude)
+                .HasColumnType("decimal(9,6)");
+
+            modelBuilder.Entity<Schools>()
+                .Property(s => s.Longitude)
+                .HasColumnType("decimal(9,6)");
         }
     }
 }

@@ -3,6 +3,7 @@ using SchoolManagement.Data;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
 using SchoolManagement.Model;
+using SchoolManagement.Service;
 using System.Security.Claims;
 
 namespace SchoolManagement.Repository
@@ -10,10 +11,12 @@ namespace SchoolManagement.Repository
     public class ExamRepository : IExamRepository
     {
         private readonly AppDbContext _context;
+        private readonly IEmailService _emailService;
 
-        public ExamRepository(AppDbContext context)
+        public ExamRepository(AppDbContext context, IEmailService emailService)
         {
             _context = context;
+            _emailService = emailService;
         }
 
         // ---------------- CREATE EXAM ----------------
@@ -223,8 +226,7 @@ namespace SchoolManagement.Repository
         //        .ToListAsync();
         //}
 
-        public async Task<ApiResponse<ExamTypes>>
-            CreateExamType(CreateExamTypeDto dto, int userId)
+        public async Task<ApiResponse<ExamTypes>>CreateExamType(CreateExamTypeDto dto, int userId)
         {
             try
             {
@@ -256,8 +258,7 @@ namespace SchoolManagement.Repository
             }
         }
 
-        public async Task<ApiResponse<List<ExamTypes>>>
-            GetExamTypes(int schoolId)
+        public async Task<ApiResponse<List<ExamTypes>>>GetExamTypes(int schoolId)
         {
             try
             {
@@ -284,8 +285,7 @@ namespace SchoolManagement.Repository
             }
         }
 
-        public async Task<ApiResponse<Exams>>
-            CreateExam(CreateExamDto dto, int userId)
+        public async Task<ApiResponse<Exams>>CreateExam(CreateExamDto dto, int userId)
         {
             try
             {
@@ -324,8 +324,7 @@ namespace SchoolManagement.Repository
             }
         }
 
-        public async Task<ApiResponse<List<Exams>>>
-            GetExams(int schoolId)
+        public async Task<ApiResponse<List<Exams>>>GetExams(int schoolId)
         {
             try
             {
@@ -362,8 +361,7 @@ namespace SchoolManagement.Repository
             }
         }
 
-        public async Task<ApiResponse<Exams>>
-            PublishExam(int examId)
+        public async Task<ApiResponse<Exams>>PublishExam(int examId)
         {
             try
             {
@@ -380,8 +378,9 @@ namespace SchoolManagement.Repository
                 }
 
                 exam.IsPublished = true;
-
                 await _context.SaveChangesAsync();
+
+                await SendExamPublishEmailsAsync(exam);
 
                 return new ApiResponse<Exams>
                 {
@@ -400,10 +399,58 @@ namespace SchoolManagement.Repository
             }
         }
 
-        public async Task<ApiResponse<ExamSubjects>>
-AddExamSubject(
-    AddExamSubjectDto dto,
-    int userId)
+        private async Task SendExamPublishEmailsAsync(Exams exam)
+        {
+            var classSections = await _context.ExamSubjects
+                .Where(x => x.ExamId == exam.Id && x.IsActive)
+                .Select(x => new { x.ClassId, x.SectionId, x.SubjectId })
+                .Distinct()
+                .ToListAsync();
+
+            foreach (var cs in classSections)
+            {
+                var subject = await _context.Subjects
+                    .FirstOrDefaultAsync(x => x.Id == cs.SubjectId);
+
+                var students = await (
+                    from se in _context.StudentEnrollment
+                    join st in _context.Students on se.StudentId equals st.Id
+                    where se.ClassId == cs.ClassId
+                        && se.SectionId == cs.SectionId
+                        && se.SchoolId == exam.SchoolId
+                        && se.IsActive
+                        && !string.IsNullOrEmpty(st.Email)
+                    select new { st.StudentName, st.Email }
+                ).ToListAsync();
+
+                foreach (var student in students)
+                {
+                    try
+                    {
+                        var (emailSubject, body) = await _emailService.GetEmailTemplateAsync("ExamPublished",
+                            new Dictionary<string, string>
+                            {
+                        { "StudentName", student.StudentName },
+                        { "ExamName", exam.Name },
+                        { "SubjectName", subject?.SubjectName ?? "" },
+                        { "StartDate", exam.StartDate?.ToString("dd MMM yyyy") ?? "" },
+                        { "EndDate", exam.EndDate?.ToString("dd MMM yyyy") ?? "" }
+                            });
+
+                        await _emailService.SendEmailAsync(
+                            student.Email,
+                            emailSubject,
+                            body);
+                    }
+                    catch
+                    {
+                        // Don't fail publish if email fails
+                    }
+                }
+            }
+        }
+
+        public async Task<ApiResponse<ExamSubjects>>AddExamSubject(AddExamSubjectDto dto, int userId)
         {
             try
             {
@@ -457,8 +504,7 @@ AddExamSubject(
             }
         }
 
-        public async Task<ApiResponse<List<ExamSubjectResponseDto>>>
-     GetExamSubjects(int examId)
+        public async Task<ApiResponse<List<ExamSubjectResponseDto>>>GetExamSubjects(int examId)
         {
             try
             {
@@ -521,9 +567,7 @@ select new ExamSubjectResponseDto
                 };
             }
         }
-        public async Task<ApiResponse<ExamSchedules>>
-CreateExamSchedule(
-    CreateExamScheduleDto dto)
+        public async Task<ApiResponse<ExamSchedules>>CreateExamSchedule(CreateExamScheduleDto dto)
         {
             try
             {
@@ -577,9 +621,7 @@ CreateExamSchedule(
             }
         }
 
-        public async Task<ApiResponse<ExamInvigilators>>
-AssignInvigilator(
-    AssignInvigilatorDto dto)
+        public async Task<ApiResponse<ExamInvigilators>>AssignInvigilator(AssignInvigilatorDto dto)
         {
             try
             {
@@ -610,13 +652,7 @@ AssignInvigilator(
                 };
             }
         }
-        public async Task<ApiResponse<List<MarksEntrySheetDto>>>
-          GetMarksEntrySheet(
-          int schoolId,
-          int examId,
-          int sectionId,
-          int subjectId,
-          int userId)
+        public async Task<ApiResponse<List<MarksEntrySheetDto>>>GetMarksEntrySheet(int schoolId, int examId, int sectionId, int subjectId, int userId)
         {
          
 
@@ -694,9 +730,7 @@ AssignInvigilator(
             }
         }
 
-        public async Task<ApiResponse<string>> SaveMarks(
-    SaveMarksDto dto,
-    int userId)
+        public async Task<ApiResponse<string>> SaveMarks(SaveMarksDto dto, int userId)
         {
             try
             {
@@ -816,10 +850,7 @@ AssignInvigilator(
             }
         }
 
-        public async Task<ApiResponse<string>>
-            LockMarks(
-            int examId,
-            int schoolId)
+        public async Task<ApiResponse<string>>LockMarks(int examId, int schoolId)
         {
             try
             {
@@ -1047,11 +1078,7 @@ AssignInvigilator(
             };
         }
 
-        public async Task<ApiResponse<StudentResultDetailDto>>
-    GetStudentResultDetail(
-    int studentId,
-    int examId,
-    int schoolId)
+        public async Task<ApiResponse<StudentResultDetailDto>>GetStudentResultDetail(int studentId, int examId, int schoolId)
         {
             try
             {
