@@ -9,7 +9,7 @@
         public DateTime DOB { get; set; }
 
         public int RoleId { get; set; }
-        public int usersid { get; set; }
+        public int? usersid { get; set; }
 
         public DateTime DOJ { get; set; }
 

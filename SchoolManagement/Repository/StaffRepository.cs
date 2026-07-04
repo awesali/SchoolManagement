@@ -91,7 +91,7 @@ namespace SchoolManagement.Repository
             int staffId = int.Parse(staffIdClaim);
 
             // ✅ Step 1: Validate staff
-            var staff = await _context.Staff.FirstOrDefaultAsync(u => u.Id == staffId);
+            var staff = await _context.Staff.FirstOrDefaultAsync(u => u.usersid == staffId);
             if (staff == null)
                 return new ApiResponse<string> { Success = false, Message = "Staff not found" };
 
@@ -99,6 +99,50 @@ namespace SchoolManagement.Repository
 
             // ✅ Step 2: Normalize date (important 🔥)
             var attendanceDate = dto.AttendanceDate.Date;
+
+            if (string.Equals(dto.Status, "Present", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!dto.Latitude.HasValue || !dto.Longitude.HasValue)
+                {
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Location is required to mark present attendance"
+                    };
+                }
+
+                var school = await _context.Schools
+                    .Where(s => s.Id == schoolId && s.IsActive)
+                    .Select(s => new { s.Latitude, s.Longitude })
+                    .FirstOrDefaultAsync();
+
+                if (school == null)
+                    return new ApiResponse<string> { Success = false, Message = "School not found" };
+
+                if (!school.Latitude.HasValue || !school.Longitude.HasValue)
+                {
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "School location is not configured"
+                    };
+                }
+
+                var distanceInMeters = CalculateDistanceInMeters(
+                    (double)dto.Latitude.Value,
+                    (double)dto.Longitude.Value,
+                    (double)school.Latitude.Value,
+                    (double)school.Longitude.Value);
+
+                if (distanceInMeters > 500)
+                {
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "You are outside the 500 meter school radius. Attendance cannot be marked."
+                    };
+                }
+            }
 
             // ✅ Step 3: Strong check (same day restriction)
             var alreadyMarked = await _context.StaffAttendance
@@ -138,6 +182,29 @@ namespace SchoolManagement.Repository
                 Success = true,
                 Message = "Attendance marked successfully"
             };
+        }
+
+        private static double CalculateDistanceInMeters(double latitude1, double longitude1, double latitude2, double longitude2)
+        {
+            const double earthRadiusInMeters = 6371000;
+
+            var latitudeDifference = ToRadians(latitude2 - latitude1);
+            var longitudeDifference = ToRadians(longitude2 - longitude1);
+            var lat1Radians = ToRadians(latitude1);
+            var lat2Radians = ToRadians(latitude2);
+
+            var haversine =
+                Math.Sin(latitudeDifference / 2) * Math.Sin(latitudeDifference / 2) +
+                Math.Cos(lat1Radians) * Math.Cos(lat2Radians) *
+                Math.Sin(longitudeDifference / 2) * Math.Sin(longitudeDifference / 2);
+
+            var centralAngle = 2 * Math.Atan2(Math.Sqrt(haversine), Math.Sqrt(1 - haversine));
+            return earthRadiusInMeters * centralAngle;
+        }
+
+        private static double ToRadians(double degrees)
+        {
+            return degrees * Math.PI / 180;
         }
 
         public async Task<List<StaffAttendanceHistoryDto>> GetStaffAttendanceHistoryAsync(DateTime fromDate, DateTime toDate,int schoolid )
