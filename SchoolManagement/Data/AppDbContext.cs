@@ -16,6 +16,18 @@ namespace SchoolManagement.Data
         public DbSet<Users> Users { get; set; }
 
         public DbSet<Roles> Roles { get; set; }
+        public DbSet<ErpModule> ErpModules { get; set; }
+        public DbSet<ErpPage> ErpPages { get; set; }
+        public DbSet<ErpAction> ErpActions { get; set; }
+        public DbSet<Permission> Permissions { get; set; }
+        public DbSet<RolePermission> RolePermissions { get; set; }
+        public DbSet<EmployeeRole> EmployeeRoles { get; set; }
+        public DbSet<EmployeePermission> EmployeePermissions { get; set; }
+        public DbSet<PermissionOverride> PermissionOverrides { get; set; }
+        public DbSet<FeatureFlag> FeatureFlags { get; set; }
+        public DbSet<PermissionAuditLog> PermissionAuditLogs { get; set; }
+        public DbSet<UserSchoolAccess> UserSchoolAccess { get; set; }
+        public DbSet<UserSessionAccess> UserSessionAccess { get; set; }
         public DbSet<Schools> Schools { get; set; }
         public DbSet<Staff> Staff { get; set; }
 
@@ -51,6 +63,35 @@ namespace SchoolManagement.Data
         public DbSet<ExamResults> ExamResults { get; set; }
         public DbSet<StaffSalaryStructure> StaffSalaryStructure { get; set; }
         public DbSet<SalaryPayment> SalaryPayment { get; set; }
+        public DbSet<VehicleType> VehicleTypes { get; set; }
+        public DbSet<TransportVehicle> TransportVehicles { get; set; }
+        public DbSet<TransportDriver> TransportDrivers { get; set; }
+        public DbSet<TransportConductor> TransportConductors { get; set; }
+        public DbSet<TransportRoute> TransportRoutes { get; set; }
+        public DbSet<TransportRouteStop> TransportRouteStops { get; set; }
+        public DbSet<TransportVehicleAssignment> TransportVehicleAssignments { get; set; }
+        public DbSet<StudentTransportAllocation> StudentTransportAllocations { get; set; }
+        public DbSet<TransportFee> TransportFees { get; set; }
+        public DbSet<TransportFeePayment> TransportFeePayments { get; set; }
+        public DbSet<TransportFuelLog> TransportFuelLogs { get; set; }
+        public DbSet<TransportVehicleMaintenance> TransportVehicleMaintenance { get; set; }
+        public DbSet<TransportDriverAttendance> TransportDriverAttendance { get; set; }
+        public DbSet<TransportGpsLocation> TransportGpsLocations { get; set; }
+        public DbSet<InventoryCategory> InventoryCategories { get; set; }
+        public DbSet<InventoryVendor> InventoryVendors { get; set; }
+        public DbSet<InventoryProduct> InventoryProducts { get; set; }
+        public DbSet<InventoryProductVariant> InventoryProductVariants { get; set; }
+        public DbSet<InventoryBook> InventoryBooks { get; set; }
+        public DbSet<InventoryKit> InventoryKits { get; set; }
+        public DbSet<InventoryKitItem> InventoryKitItems { get; set; }
+        public DbSet<InventoryPurchaseOrder> InventoryPurchaseOrders { get; set; }
+        public DbSet<InventoryPurchaseOrderItem> InventoryPurchaseOrderItems { get; set; }
+        public DbSet<InventoryStockTransaction> InventoryStockTransactions { get; set; }
+        public DbSet<InventoryStudentOrder> InventoryStudentOrders { get; set; }
+        public DbSet<InventoryStudentOrderItem> InventoryStudentOrderItems { get; set; }
+        public DbSet<InventoryPayment> InventoryPayments { get; set; }
+        public DbSet<InventoryReturn> InventoryReturns { get; set; }
+        public DbSet<InventoryReturnItem> InventoryReturnItems { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -66,6 +107,16 @@ namespace SchoolManagement.Data
             modelBuilder.Entity<Schools>()
                 .Property(s => s.Longitude)
                 .HasColumnType("decimal(9,6)");
+
+            modelBuilder.Entity<TransportGpsLocation>().Property(x => x.Latitude).HasColumnType("decimal(9,6)");
+            modelBuilder.Entity<TransportGpsLocation>().Property(x => x.Longitude).HasColumnType("decimal(9,6)");
+            modelBuilder.Entity<ErpModule>().HasIndex(x => x.Key).IsUnique();
+            modelBuilder.Entity<ErpPage>().HasIndex(x => x.Key).IsUnique();
+            modelBuilder.Entity<ErpAction>().HasIndex(x => x.Key).IsUnique();
+            modelBuilder.Entity<Permission>().HasIndex(x => x.Key).IsUnique();
+            modelBuilder.Entity<RolePermission>().HasIndex(x => new { x.RoleId, x.PermissionId }).IsUnique();
+            modelBuilder.Entity<EmployeeRole>().HasIndex(x => new { x.UserId, x.RoleId }).IsUnique();
+            modelBuilder.Entity<PermissionOverride>().HasIndex(x => new { x.UserId, x.PermissionId }).IsUnique();
         }
     }
 }

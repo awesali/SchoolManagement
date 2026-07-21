@@ -109,6 +109,50 @@ namespace SchoolManagement.Controllers
             return Ok(result);
         }
 
+        [HttpGet("parents-by-school")]
+        public async Task<IActionResult> GetParentsBySchool(
+            [FromQuery] int schoolId,
+            int page = 1,
+            int pageSize = 10,
+            string? search = null)
+        {
+            if (schoolId <= 0)
+                return BadRequest("A valid schoolId is required.");
+
+            page = Math.Max(page, 1);
+            pageSize = Math.Clamp(pageSize, 1, 100);
+
+            var (data, total) = await _repo.GetParentsBySchoolAsync(schoolId, page, pageSize, search);
+
+            return Ok(new PagedResponse<List<ParentListDto>>
+            {
+                Success = true,
+                Message = "Parents fetched successfully",
+                Data = data,
+                CurrentPage = page,
+                TotalPages = (int)Math.Ceiling((double)total / pageSize),
+                TotalRecords = total,
+                PageSize = pageSize
+            });
+        }
+
+        [HttpGet("academic-sessions")]
+        public async Task<IActionResult> GetAcademicSessions([FromQuery] int schoolId)
+        {
+            if (schoolId <= 0)
+            {
+                return BadRequest(new ApiResponse<List<AcademicSessionDto>>
+                {
+                    Success = false,
+                    Message = "A valid schoolId is required",
+                    Data = new List<AcademicSessionDto>()
+                });
+            }
+
+            var result = await _repo.GetAcademicSessionsAsync(schoolId);
+            return Ok(result);
+        }
+
         [HttpGet("GetStaffAttendanceBySchool")]
         public async Task<IActionResult> GetAttendanceBySchool(int schoolId)
         {

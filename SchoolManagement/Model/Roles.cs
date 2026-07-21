@@ -6,6 +6,8 @@
 
         public string RoleName { get; set; }
 
+        public string? Description { get; set; }
+
         public int? School_Id { get; set; }
 
         public DateTime Created_Date { get; set; }

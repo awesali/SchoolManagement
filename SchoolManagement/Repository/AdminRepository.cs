@@ -482,6 +482,29 @@ namespace SchoolManagement.Repository
             };
         }
 
+        public async Task<ApiResponse<List<AcademicSessionDto>>> GetAcademicSessionsAsync(int schoolId)
+        {
+            var sessions = await _context.AcademicSessions
+                .Where(x => x.SchoolId == schoolId)
+                .OrderByDescending(x => x.Year_Start)
+                .Select(x => new AcademicSessionDto
+                {
+                    Id = x.Id,
+                    YearStart = x.Year_Start,
+                    YearEnd = x.Year_End,
+                    IsActive = x.IsActive,
+                    CreatedAt = x.Created_At
+                })
+                .ToListAsync();
+
+            return new ApiResponse<List<AcademicSessionDto>>
+            {
+                Success = true,
+                Message = "Academic sessions fetched successfully",
+                Data = sessions
+            };
+        }
+
         public async Task<List<StaffAttendanceDto>> GetStaffAttendanceBySchoolAsync(int schoolId)
         {
             var result = await (
@@ -502,6 +525,75 @@ namespace SchoolManagement.Repository
             ).ToListAsync();
 
             return result;
+        }
+
+        public async Task<(List<ParentListDto> Data, int TotalRecords)> GetParentsBySchoolAsync(
+            int schoolId, int page, int pageSize, string? search)
+        {
+            var query = _context.ParentDetails
+                .AsNoTracking()
+                .Where(parent => _context.Students.Any(student =>
+                    student.ParentId == parent.Id && student.SchoolId == schoolId));
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var term = search.Trim();
+                query = query.Where(parent =>
+                    parent.Name.Contains(term) ||
+                    parent.Email.Contains(term) ||
+                    parent.PhoneNumber.Contains(term));
+            }
+
+            var total = await query.CountAsync();
+            var parents = await query
+                .OrderBy(parent => parent.Name)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            var parentIds = parents.Select(parent => parent.Id).ToList();
+            var students = await (
+                from student in _context.Students.AsNoTracking()
+                join enrollment in _context.StudentEnrollment.AsNoTracking()
+                    on student.Id equals enrollment.StudentId into enrollmentGroup
+                from enrollment in enrollmentGroup.DefaultIfEmpty()
+                join schoolClass in _context.Classes.AsNoTracking()
+                    on enrollment.ClassId equals schoolClass.Id into classGroup
+                from schoolClass in classGroup.DefaultIfEmpty()
+                join section in _context.SectionDetails.AsNoTracking()
+                    on enrollment.SectionId equals section.Id into sectionGroup
+                from section in sectionGroup.DefaultIfEmpty()
+                where student.SchoolId == schoolId && parentIds.Contains(student.ParentId)
+                select new
+                {
+                    student.ParentId,
+                    Student = new ParentStudentDto
+                    {
+                        Id = student.Id,
+                        StudentName = student.StudentName,
+                        RollNumber = student.Rollnumber,
+                        ClassName = schoolClass != null ? schoolClass.ClassName : null,
+                        SectionName = section != null ? section.SectionName : null
+                    }
+                }).ToListAsync();
+
+            var studentsByParent = students
+                .GroupBy(item => item.ParentId)
+                .ToDictionary(group => group.Key, group => group.Select(item => item.Student).ToList());
+
+            var data = parents.Select(parent => new ParentListDto
+            {
+                Id = parent.Id,
+                Name = parent.Name,
+                Email = parent.Email,
+                PhoneNumber = parent.PhoneNumber,
+                Address = parent.Address,
+                Relationship = parent.Relationship,
+                IsActive = parent.IsActive,
+                Students = studentsByParent.GetValueOrDefault(parent.Id) ?? new List<ParentStudentDto>()
+            }).ToList();
+
+            return (data, total);
         }
 
         public async Task<List<StaffAttendanceHistoryByDateDto>> GetAttendanceHistoryAsync(

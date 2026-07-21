@@ -102,6 +102,19 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Never return the React application for a missing API route. Clients must
+// receive a real JSON error instead of HTTP 200 with index.html.
+app.MapFallback("/api/{**path}", (HttpContext context) =>
+{
+    context.Response.StatusCode = StatusCodes.Status404NotFound;
+    return context.Response.WriteAsJsonAsync(new
+    {
+        success = false,
+        message = "API endpoint was not found. Verify that the latest API is deployed.",
+        path = context.Request.Path.Value
+    });
+});
 app.MapFallbackToFile("index.html");
 
 app.Run();

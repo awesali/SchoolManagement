@@ -21,6 +21,8 @@ namespace SchoolManagement.Interfaces
 
         Task<ApiResponse<List<RoleDto>>> GetRolesBySchoolIdAsync();
         Task<ApiResponse<string>> CreateAcademicSessionAsync(CreateSessionDto dto);
+        Task<ApiResponse<List<AcademicSessionDto>>> GetAcademicSessionsAsync(int schoolId);
+        Task<(List<ParentListDto> Data, int TotalRecords)> GetParentsBySchoolAsync(int schoolId, int page, int pageSize, string? search);
         Task<List<StaffAttendanceDto>> GetStaffAttendanceBySchoolAsync(int schoolId);
         Task<List<StaffAttendanceHistoryByDateDto>> GetAttendanceHistoryAsync(int schoolId,DateTime fromDate,DateTime toDate);
     }

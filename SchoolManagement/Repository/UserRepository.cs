@@ -49,15 +49,18 @@ namespace SchoolManagement.Repository
 
         public async Task<string> Login(LoginDto dto)
         {
+            var email = dto.Email?.Trim();
+            if (string.IsNullOrWhiteSpace(email) || string.IsNullOrEmpty(dto.Password))
+                throw new Exception("Email and password are required");
+
             var user = await _context.Users
-                .FirstOrDefaultAsync(x => x.Email == dto.Email);
-            var staffId = await _context.Staff
-    .Where(x => x.usersid == user.Id)
-    .Select(x => x.Id)
-    .FirstOrDefaultAsync();
+                .FirstOrDefaultAsync(x => x.Email == email);
 
             if (user == null)
                 throw new Exception("Invalid Email");
+
+            if (!user.IsActive || !user.Status)
+                throw new Exception("User account is inactive");
 
             bool valid = BCrypt.Net.BCrypt.Verify(dto.Password, user.Password_Hash);
 

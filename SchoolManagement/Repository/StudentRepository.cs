@@ -273,7 +273,7 @@ namespace SchoolManagement.Repository
                         from c in cGroup.DefaultIfEmpty()
                         join sd in _context.SectionDetails on se.SectionId equals sd.Id into sdGroup
                         from sd in sdGroup.DefaultIfEmpty()
-                        join ac in _context.AcademicSessions on s.SchoolId equals ac.SchoolId into acGroup
+                        join ac in _context.AcademicSessions on se.SessionId equals ac.Id into acGroup
                         from ac in acGroup.DefaultIfEmpty()
                         where s.SchoolId == schoolId
                         orderby s.Id descending

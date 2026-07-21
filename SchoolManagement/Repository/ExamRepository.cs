@@ -341,7 +341,10 @@ namespace SchoolManagement.Repository
                         SchoolId = e.SchoolId,
                         StartDate = e.StartDate,
                         EndDate = e.EndDate,
-                        IsPublished = e.IsPublished
+                        IsPublished = e.IsPublished,
+                        ResultPublished = e.ResultPublished,
+                        CreatedDate = e.CreatedDate,
+                        IsActive = e.IsActive
                     })
                     .ToListAsync();
 
