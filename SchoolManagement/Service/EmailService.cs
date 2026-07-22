@@ -18,21 +18,30 @@ namespace SchoolManagement.Service
 
         public async Task SendEmailAsync(string toEmail, string subject, string body)
         {
-            var fromEmail = _config["EmailSettings:FromEmail"];
-            var password = _config["EmailSettings:Password"];
-            var smtpHost = _config["EmailSettings:SmtpHost"];
-            var port = int.Parse(_config["EmailSettings:Port"]);
+            var fromEmail = _config["EmailSettings:FromEmail"]?.Trim();
+            var password = _config["EmailSettings:Password"]?
+                .Replace(" ", "")
+                .Trim();
 
-            var smtpClient = new SmtpClient(smtpHost)
+            var smtpHost = _config["EmailSettings:SmtpHost"]?.Trim();
+            var port = int.Parse(_config["EmailSettings:Port"]!);
+
+            Console.WriteLine($"SMTP Host: {smtpHost}");
+            Console.WriteLine($"SMTP Port: {port}");
+            Console.WriteLine($"From Email: {fromEmail}");
+            Console.WriteLine($"Password Length: {password?.Length}");
+
+            using var smtpClient = new SmtpClient(smtpHost, port)
             {
-                Port = port,
+                EnableSsl = true,
+                UseDefaultCredentials = false,
                 Credentials = new NetworkCredential(fromEmail, password),
-                EnableSsl = true
+                DeliveryMethod = SmtpDeliveryMethod.Network
             };
 
-            var mail = new MailMessage
+            using var mail = new MailMessage
             {
-                From = new MailAddress(fromEmail),
+                From = new MailAddress(fromEmail!),
                 Subject = subject,
                 Body = body,
                 IsBodyHtml = true
