@@ -162,13 +162,16 @@ namespace SchoolManagement.Controllers
         [HttpPost("allocations")]
         public async Task<IActionResult> SaveAllocation(StudentTransportAllocation item)
         {
+            var enrollment = await _context.StudentEnrollment.FirstOrDefaultAsync(x => (item.EnrollmentId > 0 ? x.Id == item.EnrollmentId : x.StudentId == item.StudentId) && x.StudentId == item.StudentId && x.SchoolId == item.SchoolId && x.SessionId == item.AcademicSessionId && x.IsActive);
+            if (enrollment == null) return BadRequest(new { success = false, message = "A valid active enrollment is required for transport allocation." });
+            item.EnrollmentId = enrollment.Id;
             var assignment = await _context.TransportVehicleAssignments.FindAsync(item.VehicleAssignmentId);
             if (assignment == null) return BadRequest(new { success = false, message = "Assignment not found." });
             var vehicle = await _context.TransportVehicles.FindAsync(assignment.VehicleId);
             var occupied = await _context.StudentTransportAllocations.CountAsync(x => x.VehicleAssignmentId == item.VehicleAssignmentId && x.IsActive);
             if (vehicle == null || occupied >= vehicle.Capacity)
                 return Conflict(new { success = false, message = "Vehicle has no available seats." });
-            if (await _context.StudentTransportAllocations.AnyAsync(x => x.StudentId == item.StudentId && x.AcademicSessionId == item.AcademicSessionId && x.IsActive))
+            if (await _context.StudentTransportAllocations.AnyAsync(x => x.EnrollmentId == item.EnrollmentId && x.IsActive))
                 return Conflict(new { success = false, message = "Student already has an active transport allocation." });
             _context.StudentTransportAllocations.Add(item); await _context.SaveChangesAsync();
             return Success(item, "Student allocated.");

@@ -7,6 +7,7 @@
         public int ExamTypeId { get; set; }
 
         public int SchoolId { get; set; }
+        public int AcademicSessionId { get; set; }
 
         public DateTime StartDate { get; set; }
 

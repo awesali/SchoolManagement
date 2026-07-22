@@ -29,7 +29,7 @@ namespace SchoolManagement.Interfaces
 
         Task<IEnumerable<object>> GetStudentFeesAsync(int studentId);
 
-        Task<IEnumerable<object>> GetPendingFeesAsync(int schoolId,int? classId, int? sectionId);
+        Task<IEnumerable<object>> GetPendingFeesAsync(int schoolId,int? classId, int? sectionId, int? sessionId);
 
         Task<bool> PayFeeAsync(FeePaymentDto dto);
 

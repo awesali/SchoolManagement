@@ -38,6 +38,7 @@ namespace SchoolManagement.Data
         public DbSet<StudentAttendance> StudentAttendance { get; set; }
         public DbSet<Classes> Classes { get; set; }
         public DbSet<StudentEnrollment> StudentEnrollment { get; set; }
+        public DbSet<StudentPromotion> StudentPromotions { get; set; }
         public DbSet<SectionDetails> SectionDetails { get; set; }
         public DbSet<ParentDetails> ParentDetails { get; set; }
         public DbSet<AcademicSessions> AcademicSessions { get; set; }
@@ -117,6 +118,12 @@ namespace SchoolManagement.Data
             modelBuilder.Entity<RolePermission>().HasIndex(x => new { x.RoleId, x.PermissionId }).IsUnique();
             modelBuilder.Entity<EmployeeRole>().HasIndex(x => new { x.UserId, x.RoleId }).IsUnique();
             modelBuilder.Entity<PermissionOverride>().HasIndex(x => new { x.UserId, x.PermissionId }).IsUnique();
+            modelBuilder.Entity<StudentEnrollment>().HasIndex(x => new { x.StudentId, x.SessionId }).IsUnique();
+            modelBuilder.Entity<StudentEnrollment>().HasIndex(x => new { x.SchoolId, x.SessionId, x.ClassId, x.SectionId, x.IsActive });
+            modelBuilder.Entity<StudentAttendance>().HasIndex(x => new { x.EnrollmentId, x.Attendance_Date }).IsUnique();
+            modelBuilder.Entity<ExamMarks>().HasIndex(x => new { x.EnrollmentId, x.ExamScheduleId }).IsUnique();
+            modelBuilder.Entity<ExamResults>().HasIndex(x => new { x.EnrollmentId, x.ExamId }).IsUnique();
+            modelBuilder.Entity<StudentFee>().HasIndex(x => new { x.EnrollmentId, x.FeeTypeId }).IsUnique();
         }
     }
 }

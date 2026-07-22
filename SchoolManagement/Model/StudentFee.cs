@@ -5,6 +5,7 @@
         public int Id { get; set; }
 
         public int StudentId { get; set; }
+        public int EnrollmentId { get; set; }
 
         public int FeeTypeId { get; set; }
 

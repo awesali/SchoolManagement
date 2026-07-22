@@ -9,8 +9,13 @@
         public int SectionId { get; set; }
         public int SessionId { get; set; }
         public int SchoolId { get; set; }
+        public string? RollNumber { get; set; }
+        public string AdmissionType { get; set; } = "New";
+        public DateTime EnrollmentDate { get; set; } = DateTime.UtcNow;
+        public string PromotionStatus { get; set; } = "NotProcessed";
+        public string EnrollmentStatus { get; set; } = "Active";
 
-        public DateTime Created_At { get; set; } = DateTime.Now;
+        public DateTime Created_At { get; set; } = DateTime.UtcNow;
         public DateTime? Updated_Date { get; set; }
 
         public int Created_By { get; set; }

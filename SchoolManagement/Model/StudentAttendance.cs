@@ -5,6 +5,7 @@
         public int Id { get; set; }
 
         public int Student_Id { get; set; }
+        public int EnrollmentId { get; set; }
 
         public DateTime Attendance_Date { get; set; }
 

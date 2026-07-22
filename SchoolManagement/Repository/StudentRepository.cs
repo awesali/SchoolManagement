@@ -79,22 +79,28 @@ namespace SchoolManagement.Repository
                 student.Modified_Date = DateTime.Now;
                 await _context.SaveChangesAsync();
 
-                // 4️⃣ Update StudentEnrollment (if provided)
+                // Academic placement is immutable here. A class/session change must go
+                // through the promotion/enrollment workflow so history is preserved.
                 if (dto.ClassId.HasValue || dto.SectionId.HasValue || dto.SessionId.HasValue)
                 {
                     var enrollment = await _context.StudentEnrollment
-                        .FirstOrDefaultAsync(e => e.StudentId == student.Id);
+                        .Where(e => e.StudentId == student.Id && e.IsActive)
+                        .OrderByDescending(e => e.EnrollmentDate)
+                        .FirstOrDefaultAsync();
 
                     if (enrollment != null)
                     {
-                        if (dto.ClassId.HasValue)
-                            enrollment.ClassId = dto.ClassId.Value;
-                        if (dto.SectionId.HasValue)
-                            enrollment.SectionId = dto.SectionId.Value;
-                        if (dto.SessionId.HasValue)
-                            enrollment.SessionId = dto.SessionId.Value;
+                        var placementChanged =
+                            (dto.ClassId.HasValue && dto.ClassId.Value != enrollment.ClassId) ||
+                            (dto.SectionId.HasValue && dto.SectionId.Value != enrollment.SectionId) ||
+                            (dto.SessionId.HasValue && dto.SessionId.Value != enrollment.SessionId);
+                        if (placementChanged)
+                            return new ApiResponse<string> { Success = false, Message = "Class, section, or session cannot be changed from Edit Student. Use Student Promotion to create a new enrollment." };
+
+                        if (!string.IsNullOrWhiteSpace(dto.Rollnumber))
+                            enrollment.RollNumber = dto.Rollnumber;
                         enrollment.Updated_By = 1;
-                        enrollment.Updated_Date = DateTime.Now;
+                        enrollment.Updated_Date = DateTime.UtcNow;
                     }
                 }
 
@@ -275,18 +281,19 @@ namespace SchoolManagement.Repository
                         from sd in sdGroup.DefaultIfEmpty()
                         join ac in _context.AcademicSessions on se.SessionId equals ac.Id into acGroup
                         from ac in acGroup.DefaultIfEmpty()
-                        where s.SchoolId == schoolId
+                        where s.SchoolId == schoolId && (se == null || se.IsActive)
                         orderby s.Id descending
                         select new StudentDto
                         {
-                            Id = s.Id,
+                             Id = s.Id,
+                             EnrollmentId = se != null ? se.Id : null,
                             StudentName = s.StudentName,
                             DOB = s.DOB,
                             Email = s.Email,
                             PhoneNumber = s.PhoneNumber,
                             ParentId = s.ParentId,
                             SchoolId = s.SchoolId,
-                            RollNumber = s.Rollnumber,
+                            RollNumber = se != null ? (se.RollNumber ?? s.Rollnumber) : s.Rollnumber,
                             ClassName = c != null ? c.ClassName : null,
                             SectionName = sd != null ? sd.SectionName : null,
                             AcademicSession = ac != null ? ac.Year_Start : (DateTime?)null,
@@ -327,11 +334,12 @@ namespace SchoolManagement.Repository
                     on se.SessionId equals ac.Id into acGroup  // <-- Join by SessionId, not SchoolId
                 from ac in acGroup.DefaultIfEmpty()
 
-                where s.Id == studentId
+                where s.Id == studentId && (se == null || se.IsActive)
 
                 select new StudentDto
                 {
-                    Id = s.Id,
+                     Id = s.Id,
+                     EnrollmentId = se != null ? se.Id : null,
                     StudentName = s.StudentName,
                     DOB = s.DOB,
                     Email = s.Email,
@@ -346,6 +354,7 @@ namespace SchoolManagement.Repository
                     ClassName = c != null ? c.ClassName : null,
                     SectionName = sd != null ? sd.SectionName : null,
                     AcademicSession = ac != null ? ac.Year_Start : (DateTime?)null,
+                    RollNumber = se != null ? (se.RollNumber ?? s.Rollnumber) : s.Rollnumber,
                     IsActive = s.IsActive,
 
                     Documents = _context.Student_Documents
@@ -541,14 +550,14 @@ namespace SchoolManagement.Repository
             int schoolId = section.SchoolId;
 
             // ✅ Step 2: Check if attendance already exists for this section & date
+            var enrollmentIds = dto.Students.Select(x => x.EnrollmentId).Where(x => x > 0).ToList();
             var alreadyMarked = await _context.StudentAttendance
                 .AnyAsync(a =>
                     a.Attendance_Date.Date == dto.AttendanceDate.Date &&
                     a.School_Id == schoolId &&
-                    _context.StudentEnrollment
-                        .Where(se => se.SectionId == dto.SectionId)
-                        .Select(se => se.StudentId)
-                        .Contains(a.Student_Id)
+                    (enrollmentIds.Contains(a.EnrollmentId) ||
+                     _context.StudentEnrollment.Where(se => se.SectionId == dto.SectionId && se.IsActive)
+                        .Select(se => se.StudentId).Contains(a.Student_Id))
                 );
 
             if (alreadyMarked)
@@ -561,20 +570,21 @@ namespace SchoolManagement.Repository
             }
 
             // ✅ Step 3: Get valid students
-            var validStudentIds = await _context.StudentEnrollment
-                .Where(se => se.SectionId == dto.SectionId)
-                .Select(se => se.StudentId)
-                .ToListAsync();
+            var validEnrollments = await _context.StudentEnrollment
+                .Where(se => se.SectionId == dto.SectionId && se.IsActive)
+                .ToDictionaryAsync(se => se.StudentId, se => se.Id);
 
             // ✅ Step 4: Insert ONLY (no update)
             foreach (var item in dto.Students)
             {
-                if (!validStudentIds.Contains(item.StudentId))
+                if (!validEnrollments.TryGetValue(item.StudentId, out var enrollmentId) ||
+                    (item.EnrollmentId > 0 && item.EnrollmentId != enrollmentId))
                     continue;
 
                 var attendance = new StudentAttendance
                 {
                     Student_Id = item.StudentId,
+                    EnrollmentId = enrollmentId,
                     Attendance_Date = dto.AttendanceDate,
                     Status = item.Status,
                     School_Id = schoolId,
@@ -610,7 +620,7 @@ namespace SchoolManagement.Repository
                     on a.Student_Id equals s.Id
 
                 join se in _context.StudentEnrollment
-                    on s.Id equals se.StudentId
+                    on a.EnrollmentId equals se.Id
 
                 join c in _context.Classes
                     on se.ClassId equals c.Id
@@ -690,9 +700,14 @@ namespace SchoolManagement.Repository
                     SectionId = dto.SectionId,
                     SessionId = dto.SessionId,
                     SchoolId = dto.SchoolId,
+                    RollNumber = dto.Rollnumber,
+                    AdmissionType = "New",
+                    EnrollmentStatus = "Active",
+                    PromotionStatus = "NotProcessed",
+                    EnrollmentDate = DateTime.UtcNow,
                     Created_By = 1,
                     Updated_By = 1,
-                    Created_At = DateTime.Now,
+                    Created_At = DateTime.UtcNow,
                     IsActive = true
                 };
 
@@ -904,6 +919,7 @@ namespace SchoolManagement.Repository
                     select new
                     {
                         StudentId = s.Id,
+                        EnrollmentId = se.Id,
                         StudentName = s.StudentName,
                         ClassName = c.ClassName,
                         SectionName = sec.SectionName
@@ -921,11 +937,14 @@ namespace SchoolManagement.Repository
         {
             try
             {
-                foreach (var studentId in dto.StudentIds)
+                var enrollments = dto.EnrollmentIds.Count > 0
+                    ? await _context.StudentEnrollment.Where(x => dto.EnrollmentIds.Contains(x.Id) && x.IsActive).ToListAsync()
+                    : await _context.StudentEnrollment.Where(x => dto.StudentIds.Contains(x.StudentId) && x.SessionId == dto.SessionId && x.IsActive).ToListAsync();
+                foreach (var enrollment in enrollments)
                 {
                     var alreadyExists = await _context.StudentFees
                         .AnyAsync(x =>
-                            x.StudentId == studentId
+                            x.EnrollmentId == enrollment.Id
                             && x.FeeTypeId == dto.FeeTypeId
                             && x.SessionId == dto.SessionId
                             && x.IsActive);
@@ -934,7 +953,8 @@ namespace SchoolManagement.Repository
                     {
                         var fee = new StudentFee
                         {
-                            StudentId = studentId,
+                            StudentId = enrollment.StudentId,
+                            EnrollmentId = enrollment.Id,
                             FeeTypeId = dto.FeeTypeId,
                             Amount = dto.Amount,
                             SessionId = dto.SessionId,
@@ -1003,7 +1023,8 @@ namespace SchoolManagement.Repository
         public async Task<IEnumerable<object>> GetPendingFeesAsync(
     int schoolId,
     int? classId,
-    int? sectionId)
+    int? sectionId,
+    int? sessionId)
         {
             try
             {
@@ -1015,7 +1036,7 @@ namespace SchoolManagement.Repository
                         on sf.StudentId equals s.Id
 
                     join se in _context.StudentEnrollment
-                        on s.Id equals se.StudentId
+                        on sf.EnrollmentId equals se.Id
 
                     join c in _context.Classes
                         on se.ClassId equals c.Id
@@ -1047,6 +1068,8 @@ namespace SchoolManagement.Repository
                         SectionId = sec.Id,
 
                         SectionName = sec.SectionName,
+
+                        SessionId = se.SessionId,
 
                         FeeTypeId = sf.FeeTypeId,
 
@@ -1088,6 +1111,11 @@ namespace SchoolManagement.Repository
                     query = query.Where(x => x.SectionId == sectionId.Value);
                 }
 
+                if (sessionId.HasValue)
+                {
+                    query = query.Where(x => x.SessionId == sessionId.Value);
+                }
+
                 return await query.ToListAsync();
             }
             catch (Exception)
@@ -1099,6 +1127,11 @@ namespace SchoolManagement.Repository
         {
             try
             {
+                var fee = await _context.StudentFees.FirstOrDefaultAsync(x => x.Id == dto.StudentFeeId && x.SchoolId == dto.SchoolId && x.IsActive);
+                if (fee == null) throw new InvalidOperationException("Fee assignment was not found.");
+                if (dto.AmountPaid <= 0) throw new InvalidOperationException("Payment amount must be greater than zero.");
+                var paidBefore = await _context.FeePayments.Where(x => x.StudentFeeId == dto.StudentFeeId && x.IsActive).SumAsync(x => (decimal?)x.AmountPaid) ?? 0;
+                if (dto.AmountPaid > fee.Amount - paidBefore) throw new InvalidOperationException("Payment cannot exceed the outstanding balance.");
                 var payment = new FeePayments
                 {
                     StudentFeeId = dto.StudentFeeId,
@@ -1112,15 +1145,14 @@ namespace SchoolManagement.Repository
                     Receipt_Number =
                         "RCPT-" + Guid.NewGuid().ToString().Substring(0, 6),
 
-                    SchoolId = dto.SchoolId
+                    SchoolId = dto.SchoolId,
+                    Created_Date = DateTime.UtcNow,
+                    IsActive = true
                 };
 
                 _context.FeePayments.Add(payment);
 
                 await _context.SaveChangesAsync();
-
-                var fee = await _context.StudentFees
-                    .FirstOrDefaultAsync(x => x.Id == dto.StudentFeeId);
 
                 var totalPaid = await _context.FeePayments
                     .Where(x => x.StudentFeeId == dto.StudentFeeId)

@@ -294,6 +294,7 @@ namespace SchoolManagement.Repository
                     Name = dto.Name,
                     ExamTypeId = dto.ExamTypeId,
                     SchoolId = dto.SchoolId,
+                    AcademicSessionId = dto.AcademicSessionId,
                     StartDate = dto.StartDate,
                     EndDate = dto.EndDate,
                     IsPublished = false,
@@ -665,6 +666,7 @@ select new ExamSubjectResponseDto
                 .FirstOrDefaultAsync();
             try
             {
+                var examSessionId = await _context.Exams.Where(x => x.Id == examId && x.SchoolId == schoolId).Select(x => x.AcademicSessionId).FirstOrDefaultAsync();
                 var isAllowed =
                     await _context.SectionSubjectTeachers
                     .AnyAsync(x =>
@@ -692,24 +694,26 @@ select new ExamSubjectResponseDto
 
                     where se.SectionId == sectionId
                     && se.SchoolId == schoolId
+                    && se.SessionId == examSessionId
                     && se.IsActive
 
                     select new MarksEntrySheetDto
                     {
                         StudentId = st.Id,
+                        EnrollmentId = se.Id,
                         StudentName = st.StudentName,
-                        RollNumber = st.Rollnumber,
+                        RollNumber = se.RollNumber ?? st.Rollnumber,
 
                         Marks = _context.ExamMarks
                             .Where(m =>
-                                m.StudentId == st.Id &&
+                                m.EnrollmentId == se.Id &&
                                 m.ExamId == examId)
                             .Select(m => (decimal?)m.ObtainedMarks)
                             .FirstOrDefault(),
 
                         Remarks = _context.ExamMarks
                             .Where(m =>
-                                m.StudentId == st.Id &&
+                                m.EnrollmentId == se.Id &&
                                 m.ExamId == examId)
                             .Select(m => m.Remarks)
                             .FirstOrDefault()
@@ -782,13 +786,13 @@ select new ExamSubjectResponseDto
                     };
                 }
                 // Get all existing marks for this exam + schedule + students
-                var studentIds = dto.Marks.Select(m => m.StudentId).ToList();
+                var enrollmentIds = dto.Marks.Select(m => m.EnrollmentId).Where(x => x > 0).ToList();
 
                 var existingMarks = await _context.ExamMarks
                     .Where(x =>
                         x.ExamId == dto.ExamId &&
                         x.ExamScheduleId == scheduleId &&
-                        studentIds.Contains(x.StudentId))
+                        enrollmentIds.Contains(x.EnrollmentId))
                     .ToListAsync();
 
                 // Check if any are locked
@@ -808,7 +812,7 @@ select new ExamSubjectResponseDto
                 foreach (var mark in dto.Marks)
                 {
                     var existing = existingMarks
-                        .FirstOrDefault(x => x.StudentId == mark.StudentId);
+                        .FirstOrDefault(x => x.EnrollmentId == mark.EnrollmentId);
 
                     if (existing != null)
                     {
@@ -823,6 +827,7 @@ select new ExamSubjectResponseDto
                             ExamId = dto.ExamId,
                             ExamScheduleId = scheduleId,
                             StudentId = mark.StudentId,
+                            EnrollmentId = mark.EnrollmentId,
                             ObtainedMarks = mark.ObtainedMarks,
                             Remarks = mark.Remarks,
                             EnteredBy = teacherId,
@@ -891,13 +896,13 @@ select new ExamSubjectResponseDto
         {
             try
             {
-                var students = await _context.ExamMarks
+                var enrollments = await _context.ExamMarks
                     .Where(x => x.ExamId == dto.ExamId && x.SchoolId == dto.SchoolId)
-                    .Select(x => x.StudentId)
+                    .Select(x => new { x.EnrollmentId, x.StudentId })
                     .Distinct()
                     .ToListAsync();
 
-                foreach (var studentId in students)
+                foreach (var enrollment in enrollments)
                 {
                     var marks = await (
                         from em in _context.ExamMarks
@@ -905,7 +910,7 @@ select new ExamSubjectResponseDto
                             on em.ExamScheduleId equals es.Id
                         join sub in _context.Subjects
                             on es.SubjectId equals sub.Id
-                        where em.StudentId == studentId
+                        where em.EnrollmentId == enrollment.EnrollmentId
                               && em.ExamId == dto.ExamId
                         select new
                         {
@@ -932,7 +937,7 @@ select new ExamSubjectResponseDto
                     var existing = await _context.ExamResults
                         .FirstOrDefaultAsync(x =>
                             x.ExamId == dto.ExamId &&
-                            x.StudentId == studentId);
+                            x.EnrollmentId == enrollment.EnrollmentId);
 
                     if (existing != null)
                     {
@@ -948,7 +953,8 @@ select new ExamSubjectResponseDto
                         {
                             SchoolId = dto.SchoolId,
                             ExamId = dto.ExamId,
-                            StudentId = studentId,
+                            StudentId = enrollment.StudentId,
+                            EnrollmentId = enrollment.EnrollmentId,
                             TotalMarks = total,
                             ObtainedMarks = obtained,
                             Percentage = percentage,

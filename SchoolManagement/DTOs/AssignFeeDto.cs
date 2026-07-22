@@ -3,6 +3,7 @@
     public class AssignFeeDto
     {
         public List<int> StudentIds { get; set; }
+        public List<int> EnrollmentIds { get; set; } = new();
 
         public int FeeTypeId { get; set; }
 

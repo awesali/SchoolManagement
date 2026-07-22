@@ -20,6 +20,7 @@ namespace SchoolManagement.Repository
         }
 
         public async Task<Users> Register(RegisterDto dto)
+        
         {
             var exist = await _context.Users
                 .FirstOrDefaultAsync(x => x.Email == dto.Email);

@@ -3,6 +3,7 @@
     public class AttendanceHistoryDto
     {
         public int StudentId { get; set; }
+        public int EnrollmentId { get; set; }
         public string StudentName { get; set; }
         public int SectionId { get; set; }
         public string SectionName { get; set; }

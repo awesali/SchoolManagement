@@ -3,6 +3,7 @@
     public class MarksEntrySheetDto
     {
         public int StudentId { get; set; }
+        public int EnrollmentId { get; set; }
 
         public string StudentName { get; set; }
 

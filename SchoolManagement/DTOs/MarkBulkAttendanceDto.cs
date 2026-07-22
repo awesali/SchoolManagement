@@ -10,6 +10,7 @@
     public class StudentAttendanceItemDto
     {
         public int StudentId { get; set; }
+        public int EnrollmentId { get; set; }
         public string Status { get; set; } // Present / Absent / Leave
     }
 }

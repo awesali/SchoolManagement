@@ -86,7 +86,9 @@ namespace SchoolManagement.Controllers
             if(!request.Items.Any()) return BadRequest(new{success=false,message="Order has no items."});
             await using var tx=await _db.Database.BeginTransactionAsync(); decimal total=0;
             foreach(var x in request.Items){var p=await _db.InventoryProducts.FindAsync(x.ProductId); if(p==null||p.CurrentStock-p.ReservedStock<x.Quantity)return Conflict(new{success=false,message=$"Insufficient stock for product {x.ProductId}."}); p.ReservedStock+=x.Quantity; total+=x.Quantity*(x.UnitPrice??p.SellingPrice)-x.Discount;}
-            var order=new InventoryStudentOrder{SchoolId=request.SchoolId,AcademicSessionId=request.AcademicSessionId,StudentId=request.StudentId,OrderNumber=$"SO{DateTime.Now:yyyyMMddHHmmss}",Status="Approved",TotalAmount=total}; _db.Add(order);await _db.SaveChangesAsync();
+            var enrollment=await _db.StudentEnrollment.FirstOrDefaultAsync(x=>(request.EnrollmentId>0?x.Id==request.EnrollmentId:x.StudentId==request.StudentId)&&x.StudentId==request.StudentId&&x.SchoolId==request.SchoolId&&x.SessionId==request.AcademicSessionId&&x.IsActive);
+            if(enrollment==null)return BadRequest(new{success=false,message="A valid active enrollment is required for this order."});
+            var order=new InventoryStudentOrder{SchoolId=request.SchoolId,AcademicSessionId=request.AcademicSessionId,StudentId=request.StudentId,EnrollmentId=enrollment.Id,OrderNumber=$"SO{DateTime.Now:yyyyMMddHHmmss}",Status="Approved",TotalAmount=total}; _db.Add(order);await _db.SaveChangesAsync();
             foreach(var x in request.Items){var p=await _db.InventoryProducts.FindAsync(x.ProductId);_db.Add(new InventoryStudentOrderItem{StudentOrderId=order.Id,ProductId=x.ProductId,ProductVariantId=x.ProductVariantId,Quantity=x.Quantity,UnitPrice=x.UnitPrice??p!.SellingPrice,GstPercent=p!.GstPercent,Discount=x.Discount});}
             await _db.SaveChangesAsync();await tx.CommitAsync();return Success(order,"Order approved and stock reserved.");
         }

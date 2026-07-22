@@ -166,10 +166,10 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpGet("GetPendingFees")]
-        public async Task<IActionResult> PendingFees(int schoolId,int? classId,int? sectionId)
+        public async Task<IActionResult> PendingFees(int schoolId,int? classId,int? sectionId,int? sessionId)
         {
             var result =
-                await _repo.GetPendingFeesAsync( schoolId,classId, sectionId);
+                await _repo.GetPendingFeesAsync( schoolId,classId, sectionId, sessionId);
             return Ok(result);
         }
 

@@ -9,6 +9,7 @@
         public int ExamId { get; set; }
 
         public int StudentId { get; set; }
+        public int EnrollmentId { get; set; }
 
         public decimal TotalMarks { get; set; }
 
