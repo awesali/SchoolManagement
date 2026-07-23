@@ -9,7 +9,7 @@
         public int SchoolId { get; set; }
         public int ClassId { get; set; }
         public int SectionId { get; set; }
-        public int SessionId { get; set; }
+        public int? SessionId { get; set; }
         public string Rollnumber { get; set; }
 
         public ParentDto Parent { get; set; }

@@ -397,11 +397,14 @@ namespace SchoolManagement.Repository
 
             var sessions = await _context.AcademicSessions
                 .Where(s => s.SchoolId == schoolId)
+                .OrderByDescending(s => s.IsActive)
+                .ThenByDescending(s => s.Year_Start)
                 .Select(s => new SessionDto
                 {
                     Id = s.Id,
                     YearStart = s.Year_Start,
-                    YearEnd = s.Year_End
+                    YearEnd = s.Year_End,
+                    IsActive = s.IsActive
                 }).ToListAsync();
 
             return new ApiResponse<EnrollmentInfoDto>
@@ -653,6 +656,71 @@ namespace SchoolManagement.Repository
 
         public async Task<ApiResponse<string>> AddStudentAsync(StudentCreateDto dto)
         {
+            if (!dto.SessionId.HasValue || dto.SessionId.Value <= 0)
+            {
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "An active academic session is required."
+                };
+            }
+
+            var sessionIsValid = await _context.AcademicSessions
+                .AnyAsync(session => session.Id == dto.SessionId.Value
+                    && session.SchoolId == dto.SchoolId
+                    && session.IsActive);
+
+            if (!sessionIsValid)
+            {
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "The selected academic session is not active for this school."
+                };
+            }
+
+            var studentEmail = dto.Email.Trim().ToLowerInvariant();
+            var parentEmail = dto.Parent.Email.Trim().ToLowerInvariant();
+
+            if (studentEmail == parentEmail)
+            {
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Student and parent must use different email addresses."
+                };
+            }
+
+            var existingCredentials = await _context.Students_Parents_Creds
+                .Where(credential => credential.Email == studentEmail || credential.Email == parentEmail)
+                .ToListAsync();
+
+            if (existingCredentials.Any(credential => credential.Email == studentEmail))
+            {
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "A student or parent login already exists with the student's email address."
+                };
+            }
+
+            var existingParentCredential = existingCredentials
+                .FirstOrDefault(credential => credential.Email == parentEmail);
+
+            if (existingParentCredential != null
+                && (!string.Equals(existingParentCredential.RoleName, "Parent", StringComparison.OrdinalIgnoreCase)
+                    || existingParentCredential.School_Id != dto.SchoolId))
+            {
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "The parent email is already used by another account or school."
+                };
+            }
+
+            dto.Email = studentEmail;
+            dto.Parent.Email = parentEmail;
+
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
@@ -698,7 +766,7 @@ namespace SchoolManagement.Repository
                     StudentId = student.Id,
                     ClassId = dto.ClassId,
                     SectionId = dto.SectionId,
-                    SessionId = dto.SessionId,
+                    SessionId = dto.SessionId.Value,
                     SchoolId = dto.SchoolId,
                     RollNumber = dto.Rollnumber,
                     AdmissionType = "New",
@@ -734,21 +802,24 @@ namespace SchoolManagement.Repository
 
                 _context.Students_Parents_Creds.Add(studentCred);
 
-                // ✅ Create Parent Credential
-                var parentCred = new Students_Parents_Creds
+                // Reuse an existing parent login for siblings in the same school.
+                if (existingParentCredential == null)
                 {
-                    Name = dto.Parent.Name,
-                    Email = dto.Parent.Email,
-                    Phone = dto.Parent.PhoneNumber,
-                    Password_Hash = BCrypt.Net.BCrypt.HashPassword(parentPassword),
-                    RoleName = "Parent",
-                    School_Id = dto.SchoolId,
-                    Status = "Active",
-                    Created_At = DateTime.Now,
-                    IsActive = true
-                };
+                    var parentCred = new Students_Parents_Creds
+                    {
+                        Name = dto.Parent.Name,
+                        Email = dto.Parent.Email,
+                        Phone = dto.Parent.PhoneNumber,
+                        Password_Hash = BCrypt.Net.BCrypt.HashPassword(parentPassword),
+                        RoleName = "Parent",
+                        School_Id = dto.SchoolId,
+                        Status = "Active",
+                        Created_At = DateTime.Now,
+                        IsActive = true
+                    };
 
-                _context.Students_Parents_Creds.Add(parentCred);
+                    _context.Students_Parents_Creds.Add(parentCred);
+                }
                 await _context.SaveChangesAsync();
 
                 // 4. Handle Student Documents
@@ -852,27 +923,30 @@ namespace SchoolManagement.Repository
                     // Log error but don't fail the operation
                 }
 
-                // Send email to parent
-                var parentPlaceholders = new Dictionary<string, string>
+                // Only send credentials when a new parent login was created.
+                if (existingParentCredential == null)
                 {
-                    { "ParentName", dto.Parent.Name },
-                    { "StudentName", dto.StudentName },
-                    { "Email", dto.Parent.Email },
-                    { "Password", parentPassword },
-                    { "SchoolName", "Blue Berry School" },
-                    { "ClassName", $"Class {dto.ClassId}" }
-                };
+                    var parentPlaceholders = new Dictionary<string, string>
+                    {
+                        { "ParentName", dto.Parent.Name },
+                        { "StudentName", dto.StudentName },
+                        { "Email", dto.Parent.Email },
+                        { "Password", parentPassword },
+                        { "SchoolName", "Blue Berry School" },
+                        { "ClassName", $"Class {dto.ClassId}" }
+                    };
 
-                try
-                {
-                    var (parentSubject, parentBody) = await _emailService
-                        .GetEmailTemplateAsync("STUDENT_WELCOME", parentPlaceholders);
+                    try
+                    {
+                        var (parentSubject, parentBody) = await _emailService
+                            .GetEmailTemplateAsync("STUDENT_WELCOME", parentPlaceholders);
 
-                    await _emailService.SendEmailAsync(dto.Parent.Email, parentSubject, parentBody);
-                }
-                catch
-                {
-                    // Log error but don't fail the operation
+                        await _emailService.SendEmailAsync(dto.Parent.Email, parentSubject, parentBody);
+                    }
+                    catch
+                    {
+                        // Log error but don't fail the operation
+                    }
                 }
 
                 // Commit transaction
