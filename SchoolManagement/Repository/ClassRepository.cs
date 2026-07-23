@@ -185,6 +185,7 @@ namespace SchoolManagement.Repository
                         await _context.SectionDetails.AddAsync(new SectionDetails
                         {
                             ClassId = dto.ClassId,
+                            SchoolId = existingClass.SchoolId,
                             SectionName = sec.SectionName,
                             StaffId = sec.StaffId,
                             Created_Date = DateTime.UtcNow,

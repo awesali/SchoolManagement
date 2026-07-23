@@ -379,7 +379,7 @@ namespace SchoolManagement.Repository
         public async Task<ApiResponse<EnrollmentInfoDto>> GetEnrollmentInfoBySchoolAsync(int schoolId)
         {
             var classes = await _context.Classes
-                .Where(c => c.SchoolId == schoolId)
+                .Where(c => c.SchoolId == schoolId && c.IsActive)
                 .Select(c => new ClassDto
                 {
                     Id = c.Id,
@@ -387,7 +387,8 @@ namespace SchoolManagement.Repository
                 }).ToListAsync();
 
             var sections = await _context.SectionDetails
-                .Where(s => s.SchoolId == schoolId)
+                .Where(s => s.IsActive && _context.Classes.Any(c =>
+                    c.Id == s.ClassId && c.SchoolId == schoolId && c.IsActive))
                 .Select(s => new SectionDetailsDto
                 {
                     Id = s.Id,
