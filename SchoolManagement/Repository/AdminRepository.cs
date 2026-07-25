@@ -123,10 +123,12 @@ namespace SchoolManagement.Repository
                         select new StaffListDto
                         {
                             Id = s.Id,
+                            EmployeeNumber = s.usersid,
                             Name = s.Name,
                             Email = s.Email,
                             Phone = s.Phone,
                             DOB = s.DOB,
+                            GenderCode = s.GenderCode,
                             DOJ = s.DOJ,
                             RoleId = r.Id,
                             RoleName = r.RoleName,
@@ -177,6 +179,10 @@ namespace SchoolManagement.Repository
 
         public async Task<ApiResponse<Staff>> AddStaffAsync(AddStaffDto dto)
         {
+            dto.GenderCode = dto.GenderCode?.Trim().ToUpperInvariant();
+            if (!GenderCodes.IsValid(dto.GenderCode))
+                return new ApiResponse<Staff> { Success = false, Message = "A valid gender is required." };
+
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
@@ -229,6 +235,7 @@ namespace SchoolManagement.Repository
                 {
                     Name = dto.Name,
                     DOB = dto.DOB,
+                    GenderCode = dto.GenderCode,
                     DOJ = dto.DOJ,
                     RoleId = dto.RoleId,
                     SchoolId = dto.SchoolId,
@@ -333,6 +340,10 @@ namespace SchoolManagement.Repository
         }
         public async Task<ApiResponse<string>> UpdateStaffAsync(UpdateStaffDto dto)
         {
+            dto.GenderCode = dto.GenderCode?.Trim().ToUpperInvariant();
+            if (!GenderCodes.IsValid(dto.GenderCode))
+                return new ApiResponse<string> { Success = false, Message = "A valid gender is required." };
+
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
@@ -342,6 +353,7 @@ namespace SchoolManagement.Repository
 
                 staff.Name = dto.Name;
                 staff.DOB = dto.DOB;
+                staff.GenderCode = dto.GenderCode;
                 staff.DOJ = dto.DOJ;
                 staff.RoleId = dto.RoleId;
                 staff.Email = dto.Email;
@@ -555,6 +567,7 @@ namespace SchoolManagement.Repository
             var students = await (
                 from student in _context.Students.AsNoTracking()
                 join enrollment in _context.StudentEnrollment.AsNoTracking()
+                        .Where(item => item.IsActive && item.EnrollmentStatus == "Active")
                     on student.Id equals enrollment.StudentId into enrollmentGroup
                 from enrollment in enrollmentGroup.DefaultIfEmpty()
                 join schoolClass in _context.Classes.AsNoTracking()
@@ -567,11 +580,16 @@ namespace SchoolManagement.Repository
                 select new
                 {
                     student.ParentId,
+                    EnrollmentDate = enrollment != null
+                        ? enrollment.EnrollmentDate
+                        : DateTime.MinValue,
                     Student = new ParentStudentDto
                     {
                         Id = student.Id,
                         StudentName = student.StudentName,
-                        RollNumber = student.Rollnumber,
+                        RollNumber = enrollment != null
+                            ? (enrollment.RollNumber ?? student.Rollnumber)
+                            : student.Rollnumber,
                         ClassName = schoolClass != null ? schoolClass.ClassName : null,
                         SectionName = section != null ? section.SectionName : null
                     }
@@ -579,7 +597,18 @@ namespace SchoolManagement.Repository
 
             var studentsByParent = students
                 .GroupBy(item => item.ParentId)
-                .ToDictionary(group => group.Key, group => group.Select(item => item.Student).ToList());
+                .ToDictionary(
+                    group => group.Key,
+                    group => group
+                        .GroupBy(item => item.Student.Id)
+                        .Select(studentGroup => studentGroup
+                            .OrderByDescending(item => item.EnrollmentDate)
+                            .First().Student)
+                        .OrderBy(student => string.IsNullOrWhiteSpace(student.RollNumber) ? 1 : 0)
+                        .ThenBy(student => student.RollNumber?.Length ?? int.MaxValue)
+                        .ThenBy(student => student.RollNumber)
+                        .ThenBy(student => student.StudentName)
+                        .ToList());
 
             var data = parents.Select(parent => new ParentListDto
             {

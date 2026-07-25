@@ -4,6 +4,7 @@
     {
         public string Name { get; set; }
         public DateTime DOB { get; set; }
+        public string GenderCode { get; set; }
         public DateTime DOJ { get; set; }
 
         public int RoleId { get; set; }

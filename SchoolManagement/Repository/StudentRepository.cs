@@ -30,6 +30,13 @@ namespace SchoolManagement.Repository
         }
         public async Task<ApiResponse<string>> UpdateStudentAsync(StudentUpdateDto dto)
         {
+            if (dto.GenderCode != null)
+            {
+                dto.GenderCode = dto.GenderCode.Trim().ToUpperInvariant();
+                if (!GenderCodes.IsValid(dto.GenderCode))
+                    return new ApiResponse<string> { Success = false, Message = "Invalid gender code." };
+            }
+
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
@@ -60,6 +67,8 @@ namespace SchoolManagement.Repository
                     student.StudentName = dto.StudentName;
                 if (dto.DOB.HasValue)
                     student.DOB = dto.DOB.Value;
+                if (dto.GenderCode != null)
+                    student.GenderCode = dto.GenderCode;
                 if (!string.IsNullOrEmpty(dto.Email))
                     student.Email = dto.Email;
                 if (!string.IsNullOrEmpty(dto.PhoneNumber))
@@ -282,18 +291,23 @@ namespace SchoolManagement.Repository
                         join ac in _context.AcademicSessions on se.SessionId equals ac.Id into acGroup
                         from ac in acGroup.DefaultIfEmpty()
                         where s.SchoolId == schoolId && (se == null || se.IsActive)
-                        orderby s.Id descending
+                        let currentRollNumber = se != null ? (se.RollNumber ?? s.Rollnumber) : s.Rollnumber
+                        orderby string.IsNullOrEmpty(currentRollNumber) ? 1 : 0,
+                            currentRollNumber.Length,
+                            currentRollNumber,
+                            s.StudentName
                         select new StudentDto
                         {
                              Id = s.Id,
                              EnrollmentId = se != null ? se.Id : null,
                             StudentName = s.StudentName,
                             DOB = s.DOB,
+                            GenderCode = s.GenderCode,
                             Email = s.Email,
                             PhoneNumber = s.PhoneNumber,
                             ParentId = s.ParentId,
                             SchoolId = s.SchoolId,
-                            RollNumber = se != null ? (se.RollNumber ?? s.Rollnumber) : s.Rollnumber,
+                            RollNumber = currentRollNumber,
                             ClassName = c != null ? c.ClassName : null,
                             SectionName = sd != null ? sd.SectionName : null,
                             AcademicSession = ac != null ? ac.Year_Start : (DateTime?)null,
@@ -342,6 +356,7 @@ namespace SchoolManagement.Repository
                      EnrollmentId = se != null ? se.Id : null,
                     StudentName = s.StudentName,
                     DOB = s.DOB,
+                    GenderCode = s.GenderCode,
                     Email = s.Email,
                     PhoneNumber = s.PhoneNumber,
                     ParentId = s.ParentId,
@@ -435,6 +450,7 @@ namespace SchoolManagement.Repository
                             Id = s.Id,
                             StudentName = s.StudentName,
                             DOB = s.DOB,
+                            GenderCode = s.GenderCode,
                             Email = s.Email,
                             PhoneNumber = s.PhoneNumber,
                             ParentId = s.ParentId,
@@ -657,6 +673,10 @@ namespace SchoolManagement.Repository
 
         public async Task<ApiResponse<string>> AddStudentAsync(StudentCreateDto dto)
         {
+            dto.GenderCode = dto.GenderCode?.Trim().ToUpperInvariant();
+            if (!GenderCodes.IsValid(dto.GenderCode))
+                return new ApiResponse<string> { Success = false, Message = "A valid gender is required." };
+
             if (!dto.SessionId.HasValue || dto.SessionId.Value <= 0)
             {
                 return new ApiResponse<string>
@@ -747,6 +767,7 @@ namespace SchoolManagement.Repository
                 {
                     StudentName = dto.StudentName,
                     DOB = dto.DOB,
+                    GenderCode = dto.GenderCode,
                     Email = dto.Email,
                     PhoneNumber = dto.PhoneNumber,
                     ParentId = parent.Id,

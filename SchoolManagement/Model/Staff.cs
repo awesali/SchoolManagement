@@ -8,6 +8,8 @@
 
         public DateTime DOB { get; set; }
 
+        public string? GenderCode { get; set; }
+
         public int RoleId { get; set; }
         public int usersid { get; set; }
 

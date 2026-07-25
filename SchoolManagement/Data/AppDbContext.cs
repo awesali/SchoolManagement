@@ -124,6 +124,12 @@ namespace SchoolManagement.Data
             modelBuilder.Entity<ExamMarks>().HasIndex(x => new { x.EnrollmentId, x.ExamScheduleId }).IsUnique();
             modelBuilder.Entity<ExamResults>().HasIndex(x => new { x.EnrollmentId, x.ExamId }).IsUnique();
             modelBuilder.Entity<StudentFee>().HasIndex(x => new { x.EnrollmentId, x.FeeTypeId }).IsUnique();
+            modelBuilder.Entity<Students>().Property(x => x.GenderCode).HasMaxLength(1);
+            modelBuilder.Entity<Students>().ToTable(t => t.HasCheckConstraint(
+                "CK_Students_GenderCode", "[GenderCode] IS NULL OR [GenderCode] IN ('M','F','O','N')"));
+            modelBuilder.Entity<Staff>().Property(x => x.GenderCode).HasMaxLength(1);
+            modelBuilder.Entity<Staff>().ToTable(t => t.HasCheckConstraint(
+                "CK_Staff_GenderCode", "[GenderCode] IS NULL OR [GenderCode] IN ('M','F','O','N')"));
         }
     }
 }

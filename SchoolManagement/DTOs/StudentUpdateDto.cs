@@ -7,6 +7,7 @@ namespace SchoolManagement.DTOs
         public int Id { get; set; }
         public string? StudentName { get; set; }
         public DateTime? DOB { get; set; }
+        public string? GenderCode { get; set; }
         public string? Email { get; set; }
         public string? PhoneNumber { get; set; }
         public bool? IsActive { get; set; }

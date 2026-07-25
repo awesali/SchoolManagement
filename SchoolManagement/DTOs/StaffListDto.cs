@@ -3,10 +3,12 @@
     public class StaffListDto
     {
         public int Id { get; set; }
+        public int EmployeeNumber { get; set; }
         public string Name { get; set; }
         public string Email { get; set; }
         public string Phone { get; set; }
         public DateTime DOB { get; set; }
+        public string? GenderCode { get; set; }
         public DateTime DOJ { get; set; }
 
         public int RoleId { get; set; }
