@@ -12,6 +12,7 @@ namespace SchoolManagement.Interfaces
         Task<ApiResponse<List<Schools>>> GetSchoolsBySuperAdminIdAsync(int superAdminId);
 
         Task<(List<StaffListDto> Data, int TotalRecords)> GetStaffFullAsync(int schoolId, int page, int pageSize);
+        Task<List<string>> GetStaffEmailsAsync(int schoolId);
 
         Task<ApiResponse<string>> DeleteDocumentAsync(int documentId);
 

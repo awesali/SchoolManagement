@@ -123,7 +123,8 @@ namespace SchoolManagement.Repository
                         select new StaffListDto
                         {
                             Id = s.Id,
-                            EmployeeNumber = s.usersid,
+                            // Legacy staff rows may not have a linked user yet.
+                            EmployeeNumber = EF.Property<int?>(s, nameof(Staff.usersid)) ?? 0,
                             Name = s.Name,
                             Email = s.Email,
                             Phone = s.Phone,
@@ -148,6 +149,16 @@ namespace SchoolManagement.Repository
             var total = await query.CountAsync();
             var data = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
             return (data, total);
+        }
+
+        public async Task<List<string>> GetStaffEmailsAsync(int schoolId)
+        {
+            return await _context.Staff
+                .AsNoTracking()
+                .Where(s => s.SchoolId == schoolId && s.Email != null)
+                .Select(s => s.Email)
+                .Distinct()
+                .ToListAsync();
         }
 
         public async Task<ApiResponse<string>> DeleteDocumentAsync(int documentId)

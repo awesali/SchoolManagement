@@ -154,8 +154,7 @@ namespace SchoolManagement.Controllers
         public async Task<IActionResult> AssignFees( AssignFeeDto dto)
         {
             var result = await _repo.AssignFeesAsync(dto);
-
-            return Ok(result);
+            return result.Success ? Ok(result) : Conflict(result);
         }
 
         [HttpGet("GetStudentFees")]

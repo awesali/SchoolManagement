@@ -1005,18 +1005,20 @@ namespace SchoolManagement.Repository
                     where se.SchoolId == schoolId
                           && s.SchoolId == schoolId
                           && c.SchoolId == schoolId
-                          && sec.SchoolId == schoolId
-
                           && se.ClassId == classId
                           && se.SectionId == sectionId
                           && se.SessionId == sessionId
                           && se.IsActive == true
+                          && s.IsActive == true
+                          && c.IsActive == true
+                          && sec.IsActive == true
 
                     select new
                     {
                         StudentId = s.Id,
                         EnrollmentId = se.Id,
                         StudentName = s.StudentName,
+                        RollNumber = se.RollNumber ?? s.Rollnumber,
                         ClassName = c.ClassName,
                         SectionName = sec.SectionName
                     }
@@ -1029,47 +1031,58 @@ namespace SchoolManagement.Repository
             }
         }
 
-        public async Task<bool> AssignFeesAsync(AssignFeeDto dto)
+        public async Task<ApiResponse<string>> AssignFeesAsync(AssignFeeDto dto)
         {
-            try
+            if (dto.Amount <= 0)
+                return new ApiResponse<string> { Success = false, Message = "Fee amount must be greater than zero." };
+
+            var enrollments = dto.EnrollmentIds.Count > 0
+                ? await _context.StudentEnrollment.Where(x => dto.EnrollmentIds.Contains(x.Id) && x.SchoolId == dto.SchoolId && x.IsActive).ToListAsync()
+                : await _context.StudentEnrollment.Where(x => dto.StudentIds.Contains(x.StudentId) && x.SchoolId == dto.SchoolId && x.SessionId == dto.SessionId && x.IsActive).ToListAsync();
+
+            if (enrollments.Count == 0)
+                return new ApiResponse<string> { Success = false, Message = "No active student enrollments were found." };
+
+            var enrollmentIds = enrollments.Select(x => x.Id).ToList();
+            var duplicateStudentIds = await _context.StudentFees
+                .Where(x => enrollmentIds.Contains(x.EnrollmentId)
+                    && x.FeeTypeId == dto.FeeTypeId
+                    && x.IsActive)
+                .Select(x => x.StudentId)
+                .Distinct()
+                .ToListAsync();
+
+            if (duplicateStudentIds.Count > 0)
             {
-                var enrollments = dto.EnrollmentIds.Count > 0
-                    ? await _context.StudentEnrollment.Where(x => dto.EnrollmentIds.Contains(x.Id) && x.IsActive).ToListAsync()
-                    : await _context.StudentEnrollment.Where(x => dto.StudentIds.Contains(x.StudentId) && x.SessionId == dto.SessionId && x.IsActive).ToListAsync();
-                foreach (var enrollment in enrollments)
+                var names = await _context.Students
+                    .Where(x => duplicateStudentIds.Contains(x.Id))
+                    .Select(x => x.StudentName)
+                    .ToListAsync();
+                return new ApiResponse<string>
                 {
-                    var alreadyExists = await _context.StudentFees
-                        .AnyAsync(x =>
-                            x.EnrollmentId == enrollment.Id
-                            && x.FeeTypeId == dto.FeeTypeId
-                            && x.SessionId == dto.SessionId
-                            && x.IsActive);
-
-                    if (!alreadyExists)
-                    {
-                        var fee = new StudentFee
-                        {
-                            StudentId = enrollment.StudentId,
-                            EnrollmentId = enrollment.Id,
-                            FeeTypeId = dto.FeeTypeId,
-                            Amount = dto.Amount,
-                            SessionId = dto.SessionId,
-                            SchoolId = dto.SchoolId,
-                            Status = "Pending",
-                            Created_Date = DateTime.Now,
-                            IsActive = true
-                        };
-
-                        _context.StudentFees.Add(fee);
-                    }
-                }
-
-                return await _context.SaveChangesAsync() > 0;
+                    Success = false,
+                    Message = $"The selected fee type is already assigned to: {string.Join(", ", names)}. Existing amounts were not changed."
+                };
             }
-            catch (Exception)
+
+            foreach (var enrollment in enrollments)
             {
-                throw;
+                _context.StudentFees.Add(new StudentFee
+                {
+                    StudentId = enrollment.StudentId,
+                    EnrollmentId = enrollment.Id,
+                    FeeTypeId = dto.FeeTypeId,
+                    Amount = dto.Amount,
+                    SessionId = enrollment.SessionId,
+                    SchoolId = dto.SchoolId,
+                    Status = "Pending",
+                    Created_Date = DateTime.Now,
+                    IsActive = true
+                });
             }
+
+            await _context.SaveChangesAsync();
+            return new ApiResponse<string> { Success = true, Message = $"Fees assigned to {enrollments.Count} student(s)." };
         }
 
         public async Task<IEnumerable<object>> GetStudentFeesAsync(int studentId)
@@ -1156,6 +1169,7 @@ namespace SchoolManagement.Repository
                         StudentId = s.Id,
 
                         StudentName = s.StudentName,
+                        RollNumber = se.RollNumber ?? s.Rollnumber,
 
                         ClassId = c.Id,
 
@@ -1168,6 +1182,7 @@ namespace SchoolManagement.Repository
                         SessionId = se.SessionId,
 
                         FeeTypeId = sf.FeeTypeId,
+                        FeeType = _context.FeeTypes.Where(x => x.Id == sf.FeeTypeId).Select(x => x.Name).FirstOrDefault(),
 
                         Amount = sf.Amount,
 
@@ -1226,6 +1241,10 @@ namespace SchoolManagement.Repository
                 var fee = await _context.StudentFees.FirstOrDefaultAsync(x => x.Id == dto.StudentFeeId && x.SchoolId == dto.SchoolId && x.IsActive);
                 if (fee == null) throw new InvalidOperationException("Fee assignment was not found.");
                 if (dto.AmountPaid <= 0) throw new InvalidOperationException("Payment amount must be greater than zero.");
+                if ((string.Equals(dto.PaymentMode, "Online", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(dto.PaymentMode, "Cheque", StringComparison.OrdinalIgnoreCase))
+                    && string.IsNullOrWhiteSpace(dto.AcknowledgementId))
+                    throw new InvalidOperationException("Acknowledgement ID is required for online and cheque payments.");
                 var paidBefore = await _context.FeePayments.Where(x => x.StudentFeeId == dto.StudentFeeId && x.IsActive).SumAsync(x => (decimal?)x.AmountPaid) ?? 0;
                 if (dto.AmountPaid > fee.Amount - paidBefore) throw new InvalidOperationException("Payment cannot exceed the outstanding balance.");
                 var payment = new FeePayments
@@ -1235,6 +1254,7 @@ namespace SchoolManagement.Repository
                     AmountPaid = dto.AmountPaid,
 
                     Payment_Mode = dto.PaymentMode,
+                    AcknowledgementId = dto.AcknowledgementId,
 
                     Payment_Date = DateTime.Now,
 
@@ -1301,6 +1321,7 @@ namespace SchoolManagement.Repository
                         PaymentDate = fp.Payment_Date,
 
                         PaymentMode = fp.Payment_Mode,
+                        AcknowledgementId = fp.AcknowledgementId,
 
                         ReceiptNumber = fp.Receipt_Number
                     }
@@ -1358,6 +1379,7 @@ namespace SchoolManagement.Repository
                         AmountPaid = fp.AmountPaid,
 
                         PaymentMode = fp.Payment_Mode
+                        ,AcknowledgementId = fp.AcknowledgementId
                     }
 
                 ).FirstOrDefaultAsync();
@@ -1390,7 +1412,8 @@ namespace SchoolManagement.Repository
                     .Select(x => new
                     {
                         x.Id,
-                        x.Name
+                        x.Name,
+                        x.IsActive
                     })
                     .ToListAsync();
             }

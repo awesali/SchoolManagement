@@ -8,6 +8,8 @@
 
         public string PaymentMode { get; set; }
 
+        public string? AcknowledgementId { get; set; }
+
         public int SchoolId { get; set; }
     }
 }

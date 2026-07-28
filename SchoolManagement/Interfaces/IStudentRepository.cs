@@ -25,7 +25,7 @@ namespace SchoolManagement.Interfaces
 
         Task<IEnumerable<object>> GetStudentsForFees(int schoolId, int classId, int sectionId,int sessionId);
 
-        Task<bool> AssignFeesAsync(AssignFeeDto dto);
+        Task<ApiResponse<string>> AssignFeesAsync(AssignFeeDto dto);
 
         Task<IEnumerable<object>> GetStudentFeesAsync(int studentId);
 

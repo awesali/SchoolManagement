@@ -14,6 +14,8 @@
 
         public string Receipt_Number { get; set; }
 
+        public string? AcknowledgementId { get; set; }
+
         public DateTime? Created_Date { get; set; }
 
         public DateTime? Modified_Date { get; set; }

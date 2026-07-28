@@ -46,36 +46,76 @@ namespace SchoolManagement.Controllers
         [HttpGet("Staff-by-school")]
         public async Task<IActionResult> GetStaffFull([FromQuery] int schoolId, int page = 1, int pageSize = 10)
         {
-            var superAdminId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
-
-            if (page == -1)
+            try
             {
-                var (_, tempTotal) = await _repo.GetStaffFullAsync(schoolId, 1, pageSize);
-                page = (int)Math.Ceiling((double)tempTotal / pageSize);
+                var superAdminId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+
+                if (page == -1)
+                {
+                    var (_, tempTotal) = await _repo.GetStaffFullAsync(schoolId, 1, pageSize);
+                    page = (int)Math.Ceiling((double)tempTotal / pageSize);
+                }
+
+                var (data, total) = await _repo.GetStaffFullAsync(schoolId, page, pageSize);
+                var totalPages = (int)Math.Ceiling((double)total / pageSize);
+
+                return Ok(new PagedResponse<List<StaffListDto>>
+                {
+                    Success = true,
+                    Message = "Staff fetched successfully",
+                    Data = data,
+                    CurrentPage = page,
+                    TotalPages = totalPages,
+                    TotalRecords = total,
+                    PageSize = pageSize
+                });
             }
-
-            var (data, total) = await _repo.GetStaffFullAsync(schoolId, page, pageSize);
-            var totalPages = (int)Math.Ceiling((double)total / pageSize);
-
-            return Ok(new PagedResponse<List<StaffListDto>>
+            catch (Exception ex)
             {
-                Success = true,
-                Message = "Staff fetched successfully",
-                Data = data,
-                CurrentPage = page,
-                TotalPages = totalPages,
-                TotalRecords = total,
-                PageSize = pageSize
-            });
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    Success = false,
+                    Message = $"Unable to load staff: {ex.Message}"
+                });
+            }
+        }
+
+        [HttpGet("staff-emails")]
+        public async Task<IActionResult> GetStaffEmails([FromQuery] int schoolId)
+        {
+            try
+            {
+                var emails = await _repo.GetStaffEmailsAsync(schoolId);
+                return Ok(new { Success = true, Data = emails });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    Success = false,
+                    Message = $"Unable to load existing staff emails: {ex.Message}"
+                });
+            }
         }
 
         [HttpPost("add-staff")]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> AddStaff([FromForm] AddStaffDto dto)
         {
-            var superAdminId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
-            var result = await _repo.AddStaffAsync(dto);
-            return result.Success ? Ok(result) : BadRequest(result);
+            try
+            {
+                var superAdminId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+                var result = await _repo.AddStaffAsync(dto);
+                return result.Success ? Ok(result) : BadRequest(result);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    Success = false,
+                    Message = $"Unable to add staff: {ex.Message}"
+                });
+            }
         }
 
         [HttpPut("update-staff")]
