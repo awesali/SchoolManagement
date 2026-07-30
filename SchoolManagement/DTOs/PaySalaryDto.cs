@@ -19,6 +19,8 @@
 
         public string PaymentMethod { get; set; } = string.Empty;
 
+        public string? PaymentReference { get; set; }
+
         public string? Remarks { get; set; }
     }
 }

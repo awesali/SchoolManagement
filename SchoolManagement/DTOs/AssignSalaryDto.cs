@@ -7,5 +7,7 @@
         public decimal BasicSalary { get; set; }
 
         public string SalaryType { get; set; } = string.Empty;
+
+        public bool IsUpdate { get; set; }
     }
 }

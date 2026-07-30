@@ -219,10 +219,41 @@ namespace SchoolManagement.Repository
         }
         public async Task<object> AssignSalary(AssignSalaryDto dto)
         {
+            if (dto.BasicSalary <= 0)
+            {
+                return new
+                {
+                    Success = false,
+                    Message = "Basic salary must be greater than zero."
+                };
+            }
+
+            var staff = await _context.Staff
+                .FirstOrDefaultAsync(x => x.Id == dto.StaffId && x.IsActive);
+
+            if (staff == null)
+            {
+                return new
+                {
+                    Success = false,
+                    Message = "Active employee not found."
+                };
+            }
+
             var salary = await _context.StaffSalaryStructure
                 .FirstOrDefaultAsync(x =>
                     x.StaffId == dto.StaffId &&
                     x.IsActive);
+
+            if (salary != null && !dto.IsUpdate)
+            {
+                return new
+                {
+                    Success = false,
+                    AlreadyAssigned = true,
+                    Message = "Salary is already assigned to this employee. Use Edit Salary to make changes."
+                };
+            }
 
             if (salary != null)
             {
@@ -232,6 +263,7 @@ namespace SchoolManagement.Repository
             var newSalary = new StaffSalaryStructure
             {
                 StaffId = dto.StaffId,
+                schoolId = staff.SchoolId,
                 BasicSalary = dto.BasicSalary,
                 SalaryType = dto.SalaryType,
                 EffectiveFrom = DateTime.Now.Date,
@@ -245,13 +277,46 @@ namespace SchoolManagement.Repository
             return new
             {
                 Success = true,
-                Message = "Salary Assigned Successfully"
+                Message = salary == null
+                    ? "Salary assigned successfully."
+                    : "Salary updated successfully."
             };
         }
-        public async Task<object> GenerateMonthlySalary(int month, int year)
+
+        public async Task<object> GetAssignedSalary(int staffId)
         {
-            var salaries = await _context.StaffSalaryStructure
-                .Where(x => x.IsActive)
+            var salary = await _context.StaffSalaryStructure
+                .AsNoTracking()
+                .Where(x => x.StaffId == staffId && x.IsActive)
+                .Select(x => new
+                {
+                    x.Id,
+                    x.StaffId,
+                    x.BasicSalary,
+                    x.SalaryType,
+                    x.EffectiveFrom
+                })
+                .FirstOrDefaultAsync();
+
+            return new
+            {
+                Success = true,
+                IsAssigned = salary != null,
+                Data = salary,
+                Message = salary == null
+                    ? "Salary has not been assigned."
+                    : "Salary is already assigned."
+            };
+        }
+        public async Task<object> GenerateMonthlySalary(int month, int year, int schoolId)
+        {
+            var salaries = await (
+                from salary in _context.StaffSalaryStructure
+                join staff in _context.Staff on salary.StaffId equals staff.Id
+                where salary.IsActive &&
+                      staff.IsActive &&
+                      staff.SchoolId == schoolId
+                select salary)
                 .ToListAsync();
 
             foreach (var salary in salaries)
@@ -268,6 +333,7 @@ namespace SchoolManagement.Repository
                 _context.SalaryPayment.Add(new SalaryPayment
                 {
                     StaffId = salary.StaffId,
+                    schoolId = schoolId,
                     SalaryMonth = month,
                     SalaryYear = year,
                     BasicSalary = salary.BasicSalary,
@@ -307,7 +373,7 @@ namespace SchoolManagement.Repository
                 if (salary.Status == "Paid")
                 {
                     failedRecords.Add(
-                        $"StaffId {item.StaffId} - Salary Already Paid");
+                        $"StaffId {item.StaffId} - Salary already paid for {item.Month}/{item.Year}");
                     continue;
                 }
 
@@ -321,7 +387,13 @@ namespace SchoolManagement.Repository
 
                 salary.PaymentMethod = item.PaymentMethod;
                 salary.PaymentDate = DateTime.Now;
-                salary.Remarks = item.Remarks;
+                var reference = string.IsNullOrWhiteSpace(item.PaymentReference)
+                    ? null
+                    : $"Payment reference: {item.PaymentReference.Trim()}";
+                salary.Remarks = string.Join(
+                    Environment.NewLine,
+                    new[] { reference, item.Remarks?.Trim() }
+                        .Where(x => !string.IsNullOrWhiteSpace(x)));
                 salary.Status = "Paid";
 
                 paidCount++;
@@ -331,27 +403,37 @@ namespace SchoolManagement.Repository
 
             return new
             {
-                Success = true,
+                Success = failedRecords.Count == 0,
                 PaidCount = paidCount,
                 FailedCount = failedRecords.Count,
                 FailedRecords = failedRecords,
                 Message = $"{paidCount} Salary Paid Successfully"
             };
         }
-        public async Task<object> GetPendingSalary()
+        public async Task<object> GetPendingSalary(int schoolId)
         {
-            return await _context.SalaryPayment
-                .Include(x => x.Staff)
-                .Where(x => x.Status == "Pending")
-                .Select(x => new
+            return await (
+                from salary in _context.SalaryPayment
+                join staff in _context.Staff on salary.StaffId equals staff.Id
+                join role in _context.Roles on staff.RoleId equals role.Id
+                where salary.Status == "Pending" &&
+                      staff.SchoolId == schoolId &&
+                      staff.IsActive
+                select new
                 {
-                    x.Id,
-                    x.StaffId,
-                    StaffName = x.Staff.Name,
-                    x.SalaryMonth,
-                    x.SalaryYear,
-                    x.NetSalary
+                    salary.Id,
+                    salary.StaffId,
+                    EmployeeNumber = EF.Property<int?>(staff, nameof(Staff.usersid)) ?? 0,
+                    StaffName = staff.Name,
+                    Department = role.RoleName,
+                    salary.SalaryMonth,
+                    salary.SalaryYear,
+                    salary.BasicSalary,
+                    salary.NetSalary,
+                    salary.Status,
+                    salary.CreatedDate
                 })
+                .OrderBy(x => x.StaffName)
                 .ToListAsync();
         }
         public async Task<object> GetPendingSalaryByStaff(int staffId)
@@ -371,24 +453,63 @@ namespace SchoolManagement.Repository
                 .OrderByDescending(x => x.PaymentDate)
                 .ToListAsync();
         }
+
+        public async Task<object> GetSalaryHistoryByPeriod(int schoolId, int month, int year)
+        {
+            if (month < 1 || month > 12)
+                return Array.Empty<object>();
+
+            return await (
+                from payment in _context.SalaryPayment.AsNoTracking()
+                join staff in _context.Staff.AsNoTracking() on payment.StaffId equals staff.Id
+                join role in _context.Roles.AsNoTracking() on staff.RoleId equals role.Id
+                where staff.SchoolId == schoolId &&
+                      payment.Status == "Paid" &&
+                      payment.SalaryMonth == month &&
+                      payment.SalaryYear == year
+                orderby staff.Name
+                select new
+                {
+                    payment.Id,
+                    payment.StaffId,
+                    EmployeeNumber = EF.Property<int?>(staff, nameof(Staff.usersid)) ?? 0,
+                    StaffName = staff.Name,
+                    Department = role.RoleName,
+                    payment.SalaryMonth,
+                    payment.SalaryYear,
+                    payment.BasicSalary,
+                    payment.Bonus,
+                    payment.Deduction,
+                    payment.NetSalary,
+                    payment.Status,
+                    payment.PaymentDate,
+                    payment.PaymentMethod,
+                    payment.Remarks
+                }).ToListAsync();
+        }
         public async Task<object> GetDashboard(int schoolId)
         {
             var totalStaff = await _context.Staff
-                .CountAsync(x => x.SchoolId == schoolId);
+                .CountAsync(x => x.SchoolId == schoolId && x.IsActive);
 
-            var paidSalary =
-                await _context.SalaryPayment
-                .Where(x => x.Status == "Paid" && x.schoolId == schoolId)
+            // Use the staff record as the source of school ownership. Legacy salary
+            // payments were created without SchoolId and otherwise disappear here.
+            var schoolPayments =
+                from payment in _context.SalaryPayment
+                join staff in _context.Staff on payment.StaffId equals staff.Id
+                where staff.SchoolId == schoolId && staff.IsActive
+                select payment;
+
+            var paidSalary = await schoolPayments
+                .Where(x => x.Status == "Paid")
                 .SumAsync(x => (decimal?)x.NetSalary) ?? 0;
 
-            var pendingSalary =
-                await _context.SalaryPayment
-                .Where(x => x.Status == "Pending" && x.schoolId == schoolId)
+            var pendingSalary = await schoolPayments
+                .Where(x => x.Status == "Pending")
                 .SumAsync(x => (decimal?)x.NetSalary) ?? 0;
 
-            var pendingEmployees =
-                await _context.SalaryPayment
-                .Where(x => x.Status == "Pending" && x.schoolId == schoolId)
+            var pendingEmployees = await schoolPayments
+                .Where(x => x.Status == "Pending")
                 .Select(x => x.StaffId)
                 .Distinct()
                 .CountAsync();

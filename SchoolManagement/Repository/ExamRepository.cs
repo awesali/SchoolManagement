@@ -289,6 +289,15 @@ namespace SchoolManagement.Repository
         {
             try
             {
+                if (dto.EndDate.Date < dto.StartDate.Date)
+                {
+                    return new ApiResponse<Exams>
+                    {
+                        Success = false,
+                        Message = "Exam end date must be the same as or later than the start date."
+                    };
+                }
+
                 var exam = new Exams
                 {
                     Name = dto.Name,
@@ -458,6 +467,12 @@ namespace SchoolManagement.Repository
         {
             try
             {
+                if (dto.MaxMarks <= 0)
+                    return new ApiResponse<ExamSubjects> { Success = false, Message = "Total marks must be greater than zero." };
+
+                if (dto.PassingMarks < 0 || dto.PassingMarks >= dto.MaxMarks)
+                    return new ApiResponse<ExamSubjects> { Success = false, Message = "Passing marks must be less than total marks." };
+
                 var exists = await _context.ExamSubjects
                     .AnyAsync(x =>
                         x.ExamId == dto.ExamId &&
@@ -575,43 +590,105 @@ select new ExamSubjectResponseDto
         {
             try
             {
+                var exam = await _context.Exams
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(x =>
+                        x.Id == dto.ExamId &&
+                        x.SchoolId == dto.SchoolId &&
+                        x.IsActive);
+
+                if (exam == null)
+                {
+                    return new ApiResponse<ExamSchedules>
+                    {
+                        Success = false,
+                        Message = "Exam not found for the selected school."
+                    };
+                }
+
+                if (!exam.StartDate.HasValue || !exam.EndDate.HasValue)
+                {
+                    return new ApiResponse<ExamSchedules>
+                    {
+                        Success = false,
+                        Message = "The selected exam does not have a valid duration."
+                    };
+                }
+
+                var examDate = dto.ExamDate.Date;
+                if (examDate < exam.StartDate.Value.Date || examDate > exam.EndDate.Value.Date)
+                {
+                    return new ApiResponse<ExamSchedules>
+                    {
+                        Success = false,
+                        Message = $"Exam date must be between {exam.StartDate.Value:dd MMM yyyy} and {exam.EndDate.Value:dd MMM yyyy}."
+                    };
+                }
+
+                if (dto.StartTime >= dto.EndTime)
+                {
+                    return new ApiResponse<ExamSchedules>
+                    {
+                        Success = false,
+                        Message = "Exam end time must be later than the start time."
+                    };
+                }
+
+                var existingSchedule = await _context.ExamSchedules
+                    .FirstOrDefaultAsync(x =>
+                        x.IsActive &&
+                        x.ExamId == dto.ExamId &&
+                        x.SchoolId == dto.SchoolId &&
+                        x.ClassId == dto.ClassId &&
+                        x.SectionId == dto.SectionId &&
+                        x.SubjectId == dto.SubjectId);
+
                 var conflict = await _context.ExamSchedules
                     .AnyAsync(x =>
+                        x.IsActive &&
+                        (existingSchedule == null || x.Id != existingSchedule.Id) &&
+                        x.SchoolId == dto.SchoolId &&
+                        x.ClassId == dto.ClassId &&
                         x.SectionId == dto.SectionId &&
-                        x.ExamDate == dto.ExamDate &&
-                        x.StartTime == dto.StartTime);
+                        x.ExamDate.Date == examDate);
 
                 if (conflict)
                 {
                     return new ApiResponse<ExamSchedules>
                     {
                         Success = false,
-                        Message = "Schedule conflict exists"
+                        Message = "Another subject is already scheduled for this class and section on the selected date."
                     };
                 }
 
-                var schedule = new ExamSchedules
+                var schedule = existingSchedule ?? new ExamSchedules
                 {
                     ExamId = dto.ExamId,
                     SchoolId = dto.SchoolId,
                     ClassId = dto.ClassId,
                     SectionId = dto.SectionId,
                     SubjectId = dto.SubjectId,
-                    ExamDate = dto.ExamDate,
-                    StartTime = dto.StartTime,
-                    EndTime = dto.EndTime,
                     Status = "Scheduled",
                     IsActive = true
                 };
 
-                _context.ExamSchedules.Add(schedule);
+                schedule.ExamDate = examDate;
+                schedule.StartTime = dto.StartTime;
+                schedule.EndTime = dto.EndTime;
+
+                if (existingSchedule == null)
+                {
+                    _context.ExamSchedules.Add(schedule);
+                }
 
                 await _context.SaveChangesAsync();
 
                 return new ApiResponse<ExamSchedules>
                 {
                     Success = true,
-                    Message = "Schedule Created",
+                    Message = existingSchedule == null
+                        ? "Schedule created successfully."
+                        : "Schedule updated successfully.",
                     Data = schedule
                 };
             }

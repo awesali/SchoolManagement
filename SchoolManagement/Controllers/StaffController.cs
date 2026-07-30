@@ -43,11 +43,17 @@ namespace SchoolManagement.Controllers
             return Ok(await _repo.AssignSalary(dto));
         }
 
+        [HttpGet("assigned-salary/{staffId}")]
+        public async Task<IActionResult> GetAssignedSalary(int staffId)
+        {
+            return Ok(await _repo.GetAssignedSalary(staffId));
+        }
+
         [HttpPost("generate")]
-        public async Task<IActionResult> Generate(int month, int year)
+        public async Task<IActionResult> Generate(int month, int year, int schoolId)
         {
             return Ok(
-                await _repo.GenerateMonthlySalary(month, year));
+                await _repo.GenerateMonthlySalary(month, year, schoolId));
         }
 
         [HttpPost("pay")]
@@ -63,10 +69,16 @@ namespace SchoolManagement.Controllers
                 await _repo.GetSalaryHistory(staffId));
         }
 
-        [HttpGet("pending")]
-        public async Task<IActionResult> Pending()
+        [HttpGet("history")]
+        public async Task<IActionResult> HistoryByPeriod(int schoolId, int month, int year)
         {
-            return Ok(await _repo.GetPendingSalary());
+            return Ok(await _repo.GetSalaryHistoryByPeriod(schoolId, month, year));
+        }
+
+        [HttpGet("pending")]
+        public async Task<IActionResult> Pending(int schoolId)
+        {
+            return Ok(await _repo.GetPendingSalary(schoolId));
         }
 
         [HttpGet("pending/{staffId}")]

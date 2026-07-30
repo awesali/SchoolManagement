@@ -12,7 +12,7 @@ namespace SchoolManagement.Controllers;
 public class StudentPromotionController : ControllerBase
 {
     private static readonly HashSet<string> Actions = new(StringComparer.OrdinalIgnoreCase)
-        { "Promote", "Repeat", "Transfer", "Left" };
+        { "Promote", "Repeat", "Transfer", "Left", "PassedOut" };
     private readonly AppDbContext _db;
     public StudentPromotionController(AppDbContext db) => _db = db;
     private int UserId => int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : 0;
@@ -58,20 +58,25 @@ public class StudentPromotionController : ControllerBase
     public async Task<IActionResult> Promote(PromoteStudentsRequest request)
     {
         if (!CanAccessSchool(request.SchoolId)) return Forbid();
-        if (request.CurrentSessionId == request.NextSessionId)
-            return BadRequest(new { success = false, message = "Current and next sessions must be different." });
         if (request.Students.Count == 0)
             return BadRequest(new { success = false, message = "Select at least one student." });
         if (request.Students.Any(x => !Actions.Contains(x.Action)))
-            return BadRequest(new { success = false, message = "Action must be Promote, Repeat, Transfer, or Left." });
+            return BadRequest(new { success = false, message = "Action must be Promote, Repeat, Transfer, Left, or PassedOut." });
+        var hasContinuingStudents = request.Students.Any(x =>
+            x.Action.Equals("Promote", StringComparison.OrdinalIgnoreCase) ||
+            x.Action.Equals("Repeat", StringComparison.OrdinalIgnoreCase));
+        if (hasContinuingStudents && request.CurrentSessionId == request.NextSessionId)
+            return BadRequest(new { success = false, message = "Current and next sessions must be different." });
+        if (hasContinuingStudents && request.NextSessionId <= 0)
+            return BadRequest(new { success = false, message = "Next session is required for Promote or Repeat." });
 
         var sessions = await _db.AcademicSessions.Where(x => x.SchoolId == request.SchoolId &&
-            (x.Id == request.CurrentSessionId || x.Id == request.NextSessionId)).ToListAsync();
+            (x.Id == request.CurrentSessionId || (request.NextSessionId > 0 && x.Id == request.NextSessionId))).ToListAsync();
         var currentSession = sessions.FirstOrDefault(x => x.Id == request.CurrentSessionId);
         var nextSession = sessions.FirstOrDefault(x => x.Id == request.NextSessionId);
-        if (currentSession == null || nextSession == null)
-            return BadRequest(new { success = false, message = "Both academic sessions must exist in the selected school." });
-        if (nextSession.Year_Start <= currentSession.Year_Start)
+        if (currentSession == null || (hasContinuingStudents && nextSession == null))
+            return BadRequest(new { success = false, message = "The required academic sessions must exist in the selected school." });
+        if (hasContinuingStudents && nextSession!.Year_Start <= currentSession.Year_Start)
             return BadRequest(new { success = false, message = "Next session must start after the current session." });
 
         var requestedIds = request.Students.Select(x => x.EnrollmentId).Distinct().ToList();
@@ -83,7 +88,7 @@ public class StudentPromotionController : ControllerBase
         await using var transaction = await _db.Database.BeginTransactionAsync();
         try
         {
-            var created = 0; var transferred = 0; var left = 0; var repeated = 0;
+            var created = 0; var transferred = 0; var left = 0; var repeated = 0; var passedOut = 0;
             foreach (var item in request.Students)
             {
                 if (!sources.TryGetValue(item.EnrollmentId, out var source) || source.SchoolId != request.SchoolId ||
@@ -91,14 +96,36 @@ public class StudentPromotionController : ControllerBase
                     throw new InvalidOperationException($"Enrollment {item.EnrollmentId} is not an active enrollment in the current session.");
 
                 var action = char.ToUpperInvariant(item.Action[0]) + item.Action[1..].ToLowerInvariant();
-                if (action is "Transfer" or "Left")
+                if (action is "Transfer" or "Left" or "Passedout")
                 {
+                    var normalizedAction = action == "Passedout" ? "PassedOut" : action;
                     source.IsActive = false;
-                    source.EnrollmentStatus = action == "Transfer" ? "Transferred" : "Left";
-                    source.PromotionStatus = action;
+                    source.EnrollmentStatus = normalizedAction == "Transfer" ? "Transferred"
+                        : normalizedAction == "PassedOut" ? "PassedOut" : "Left";
+                    source.PromotionStatus = normalizedAction;
                     source.Updated_By = UserId; source.Updated_Date = DateTime.UtcNow;
-                    AddHistory(source, null, action, item.Remarks);
-                    if (action == "Transfer") transferred++; else left++;
+                    AddHistory(source, null, normalizedAction, item.Remarks);
+                    if (normalizedAction == "PassedOut")
+                    {
+                        var student = await _db.Students.FirstAsync(x => x.Id == source.StudentId);
+                        student.IsActive = false;
+                        student.Modified_Date = DateTime.UtcNow;
+                        student.Updated_By = UserId;
+                        var credentials = await _db.Students_Parents_Creds
+                            .Where(x => x.School_Id == source.SchoolId &&
+                                        x.RoleName == "Student" &&
+                                        x.Email == student.Email &&
+                                        x.IsActive)
+                            .ToListAsync();
+                        foreach (var credential in credentials)
+                        {
+                            credential.IsActive = false;
+                            credential.Status = "PassedOut";
+                        }
+                        passedOut++;
+                    }
+                    else if (normalizedAction == "Transfer") transferred++;
+                    else left++;
                     continue;
                 }
 
@@ -140,7 +167,7 @@ public class StudentPromotionController : ControllerBase
             }
             await _db.SaveChangesAsync();
             await transaction.CommitAsync();
-            return Ok(new { success = true, message = "Student promotion completed successfully.", data = new { processed = request.Students.Count, newEnrollments = created, repeated, transferred, left, warnings = warnings.Distinct() } });
+            return Ok(new { success = true, message = "Student promotion completed successfully.", data = new { processed = request.Students.Count, newEnrollments = created, repeated, transferred, left, passedOut, warnings = warnings.Distinct() } });
         }
         catch (Exception ex)
         {
@@ -169,6 +196,37 @@ public class StudentPromotionController : ControllerBase
                         fromClass = fromClass.ClassName, toClass = toClass == null ? "-" : toClass.ClassName,
                         type = promotion.PromotionType, promotion.PromotionDate, promotion.Remarks };
         return Ok(new { success = true, data = await query.ToListAsync() });
+    }
+
+    [HttpGet("passed-out")]
+    public async Task<IActionResult> PassedOutStudents(int schoolId)
+    {
+        if (!CanAccessSchool(schoolId)) return Forbid();
+
+        var data = await (
+            from promotion in _db.StudentPromotions.AsNoTracking()
+            join student in _db.Students.AsNoTracking() on promotion.StudentId equals student.Id
+            join enrollment in _db.StudentEnrollment.AsNoTracking() on promotion.FromEnrollmentId equals enrollment.Id
+            join session in _db.AcademicSessions.AsNoTracking() on promotion.FromSessionId equals session.Id
+            join schoolClass in _db.Classes.AsNoTracking() on promotion.FromClassId equals schoolClass.Id
+            join section in _db.SectionDetails.AsNoTracking() on promotion.FromSectionId equals section.Id
+            where promotion.SchoolId == schoolId && promotion.PromotionType == "PassedOut"
+            orderby promotion.PromotionDate descending
+            select new
+            {
+                promotion.Id,
+                promotion.StudentId,
+                SessionId = promotion.FromSessionId,
+                AdmissionNo = enrollment.RollNumber ?? student.Rollnumber ?? $"STU{student.Id:D5}",
+                student.StudentName,
+                ClassName = schoolClass.ClassName,
+                SectionName = section.SectionName,
+                Session = session.Year_Start.Year + "-" + session.Year_End.Year,
+                PassedOutDate = promotion.PromotionDate,
+                promotion.Remarks
+            }).ToListAsync();
+
+        return Ok(new { success = true, data });
     }
 
     private void AddHistory(StudentEnrollment source, StudentEnrollment? destination, string action, string? remarks) =>
