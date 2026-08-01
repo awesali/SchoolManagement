@@ -17,6 +17,7 @@
         public string SchoolName { get; set; }
         public string? Address { get; set; }
         public bool IsActive { get; set; }
+        public string? ProfilePictureUrl { get; set; }
 
         public List<StaffDocumentDto> Documents { get; set; }
     }

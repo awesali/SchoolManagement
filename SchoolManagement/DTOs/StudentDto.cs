@@ -19,6 +19,7 @@
         public string RollNumber  { get; set; }
         public DateTime? AcademicSession { get; set; }
         public bool IsActive { get; set; }
+        public string? ProfilePictureUrl { get; set; }
 
         public List<StudentDocumentDto> Documents { get; set; }
     }

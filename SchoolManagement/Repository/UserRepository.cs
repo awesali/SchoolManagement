@@ -68,6 +68,25 @@ namespace SchoolManagement.Repository
             if (!valid)
                 throw new Exception("Invalid Password");
 
+            var normalizedEmail = email.ToLower();
+            var teacherStaff = await (
+                from staff in _context.Staff
+                join role in _context.Roles on staff.RoleId equals role.Id
+                where (staff.usersid == user.Id || staff.Email.ToLower() == normalizedEmail)
+                      && role.IsActive
+                      && role.RoleName.Trim().ToLower() == "teacher"
+                select new { staff.DOJ, staff.IsActive }
+            ).FirstOrDefaultAsync();
+
+            if (teacherStaff != null && !teacherStaff.IsActive)
+                throw new Exception("Teacher account is inactive.");
+
+            if (teacherStaff != null && teacherStaff.DOJ.Date > DateTime.Today)
+            {
+                throw new Exception(
+                    $"You cannot login before your joining date ({teacherStaff.DOJ:dd MMM yyyy}).");
+            }
+
             user.Last_Login = DateTime.Now;
 
             await _context.SaveChangesAsync();

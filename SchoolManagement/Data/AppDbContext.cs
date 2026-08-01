@@ -43,6 +43,7 @@ namespace SchoolManagement.Data
         public DbSet<ParentDetails> ParentDetails { get; set; }
         public DbSet<AcademicSessions> AcademicSessions { get; set; }
         public DbSet<StaffDocument> StaffDocuments { get; set; }
+        public DbSet<ProfilePicture> ProfilePictures { get; set; }
         public DbSet<EmailTemplate> EmailTemplates { get; set; }
         public DbSet<Student_Documents> Student_Documents { get; set; }
         public DbSet<Students_Parents_Creds> Students_Parents_Creds { get; set; }

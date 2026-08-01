@@ -136,6 +136,10 @@ namespace SchoolManagement.Repository
                             SchoolName = sc.SchoolName,
                             Address = s.Adress,
                             IsActive = s.IsActive,
+                            ProfilePictureUrl = _context.ProfilePictures
+                                .Where(p => p.PersonType == "Staff" && p.PersonId == s.Id && p.IsActive)
+                                .Select(p => p.FileUrl)
+                                .FirstOrDefault(),
                             Documents = _context.StaffDocuments
                                 .Where(d => d.StaffId == s.Id)
                                 .Select(d => new StaffDocumentDto
@@ -190,6 +194,22 @@ namespace SchoolManagement.Repository
 
         public async Task<ApiResponse<Staff>> AddStaffAsync(AddStaffDto dto)
         {
+            var profilePictureIndex = dto.DocumentNames?
+                .FindIndex(name => string.Equals(name?.Trim(), "Profile Picture", StringComparison.OrdinalIgnoreCase))
+                ?? -1;
+            if (profilePictureIndex < 0 || dto.Files == null
+                || dto.Files.Count <= profilePictureIndex
+                || dto.Files[profilePictureIndex] == null
+                || dto.Files[profilePictureIndex].Length == 0)
+                return new ApiResponse<Staff> { Success = false, Message = "Profile picture is required." };
+
+            var profilePicture = dto.Files[profilePictureIndex];
+            var allowedImageTypes = new[] { "image/jpeg", "image/png", "image/webp" };
+            if (!allowedImageTypes.Contains(profilePicture.ContentType.ToLowerInvariant()))
+                return new ApiResponse<Staff> { Success = false, Message = "Profile picture must be a JPG, PNG, or WebP image." };
+            if (profilePicture.Length > 5 * 1024 * 1024)
+                return new ApiResponse<Staff> { Success = false, Message = "Profile picture size cannot exceed 5 MB." };
+
             dto.GenderCode = dto.GenderCode?.Trim().ToUpperInvariant();
             if (!GenderCodes.IsValid(dto.GenderCode))
                 return new ApiResponse<Staff> { Success = false, Message = "A valid gender is required." };
@@ -262,6 +282,26 @@ namespace SchoolManagement.Repository
 
                 await _context.SaveChangesAsync();
 
+                var profileExtension = Path.GetExtension(profilePicture.FileName);
+                var profileFileName = Guid.NewGuid() + profileExtension;
+                var profileFolder = Path.Combine(_env.WebRootPath, "profilepictures", "staff", staff.Id.ToString());
+                Directory.CreateDirectory(profileFolder);
+                using (var stream = new FileStream(Path.Combine(profileFolder, profileFileName), FileMode.Create))
+                {
+                    await profilePicture.CopyToAsync(stream);
+                }
+                _context.ProfilePictures.Add(new ProfilePicture
+                {
+                    PersonType = "Staff",
+                    PersonId = staff.Id,
+                    FileName = profilePicture.FileName,
+                    FileUrl = $"/profilepictures/staff/{staff.Id}/{profileFileName}",
+                    ContentType = profilePicture.ContentType,
+                    CreatedDate = DateTime.UtcNow,
+                    IsActive = true
+                });
+                await _context.SaveChangesAsync();
+
                 // ✅ Send Email
                 var placeholders = new Dictionary<string, string>
                     {
@@ -286,6 +326,9 @@ namespace SchoolManagement.Repository
                 {
                     for (int i = 0; i < dto.Files.Count; i++)
                     {
+                        if (i == profilePictureIndex)
+                            continue;
+
                         var file = dto.Files[i];
 
                         if (file == null || file.Length == 0)

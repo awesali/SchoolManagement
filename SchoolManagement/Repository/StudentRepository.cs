@@ -312,6 +312,10 @@ namespace SchoolManagement.Repository
                             SectionName = sd != null ? sd.SectionName : null,
                             AcademicSession = ac != null ? ac.Year_Start : (DateTime?)null,
                             IsActive = s.IsActive,
+                            ProfilePictureUrl = _context.ProfilePictures
+                                .Where(p => p.PersonType == "Student" && p.PersonId == s.Id && p.IsActive)
+                                .Select(p => p.FileUrl)
+                                .FirstOrDefault(),
                             Documents = _context.Student_Documents
                                 .Where(d => d.StudentId == s.Id)
                                 .Select(d => new StudentDocumentDto
@@ -371,6 +375,10 @@ namespace SchoolManagement.Repository
                     AcademicSession = ac != null ? ac.Year_Start : (DateTime?)null,
                     RollNumber = se != null ? (se.RollNumber ?? s.Rollnumber) : s.Rollnumber,
                     IsActive = s.IsActive,
+                    ProfilePictureUrl = _context.ProfilePictures
+                        .Where(p => p.PersonType == "Student" && p.PersonId == s.Id && p.IsActive)
+                        .Select(p => p.FileUrl)
+                        .FirstOrDefault(),
 
                     Documents = _context.Student_Documents
                         .Where(d => d.StudentId == s.Id)
@@ -462,6 +470,10 @@ namespace SchoolManagement.Repository
                             SectionName = sd.SectionName,
                             AcademicSession = ac.Year_Start,
                             IsActive = s.IsActive,
+                            ProfilePictureUrl = _context.ProfilePictures
+                                .Where(p => p.PersonType == "Student" && p.PersonId == s.Id && p.IsActive)
+                                .Select(p => p.FileUrl)
+                                .FirstOrDefault(),
                             Documents = _context.Student_Documents
                                 .Where(d => d.StudentId == s.Id)
                                 .Select(d => new StudentDocumentDto
@@ -673,6 +685,22 @@ namespace SchoolManagement.Repository
 
         public async Task<ApiResponse<string>> AddStudentAsync(StudentCreateDto dto)
         {
+            var profilePictureIndex = dto.DocumentNames?
+                .FindIndex(name => string.Equals(name?.Trim(), "Profile Picture", StringComparison.OrdinalIgnoreCase))
+                ?? -1;
+            if (profilePictureIndex < 0 || dto.Files == null
+                || dto.Files.Count <= profilePictureIndex
+                || dto.Files[profilePictureIndex] == null
+                || dto.Files[profilePictureIndex].Length == 0)
+                return new ApiResponse<string> { Success = false, Message = "Profile picture is required." };
+
+            var profilePicture = dto.Files[profilePictureIndex];
+            var allowedImageTypes = new[] { "image/jpeg", "image/png", "image/webp" };
+            if (!allowedImageTypes.Contains(profilePicture.ContentType.ToLowerInvariant()))
+                return new ApiResponse<string> { Success = false, Message = "Profile picture must be a JPG, PNG, or WebP image." };
+            if (profilePicture.Length > 5 * 1024 * 1024)
+                return new ApiResponse<string> { Success = false, Message = "Profile picture size cannot exceed 5 MB." };
+
             dto.GenderCode = dto.GenderCode?.Trim().ToUpperInvariant();
             if (!GenderCodes.IsValid(dto.GenderCode))
                 return new ApiResponse<string> { Success = false, Message = "A valid gender is required." };
@@ -700,6 +728,28 @@ namespace SchoolManagement.Repository
                 };
             }
 
+            var normalizedRollNumber = dto.Rollnumber?.Trim();
+            dto.Rollnumber = normalizedRollNumber;
+            var assignedStudentName = await (
+                from enrollment in _context.StudentEnrollment
+                join existingStudent in _context.Students on enrollment.StudentId equals existingStudent.Id
+                where enrollment.SchoolId == dto.SchoolId
+                      && enrollment.ClassId == dto.ClassId
+                      && enrollment.IsActive
+                      && enrollment.RollNumber != null
+                      && enrollment.RollNumber.Trim() == normalizedRollNumber
+                select existingStudent.StudentName
+            ).FirstOrDefaultAsync();
+
+            if (!string.IsNullOrEmpty(assignedStudentName))
+            {
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = $"This roll number is already assigned to {assignedStudentName}."
+                };
+            }
+
             var studentEmail = dto.Email.Trim().ToLowerInvariant();
             var parentEmail = dto.Parent.Email.Trim().ToLowerInvariant();
 
@@ -713,29 +763,39 @@ namespace SchoolManagement.Repository
             }
 
             var existingCredentials = await _context.Students_Parents_Creds
-                .Where(credential => credential.Email == studentEmail || credential.Email == parentEmail)
+                .Where(credential =>
+                    credential.Email.ToLower() == studentEmail
+                    || credential.Email.ToLower() == parentEmail)
                 .ToListAsync();
 
-            if (existingCredentials.Any(credential => credential.Email == studentEmail))
+            var studentEmailExists = existingCredentials.Any(credential =>
+                    credential.Email.Equals(studentEmail, StringComparison.OrdinalIgnoreCase))
+                || await _context.Students.AnyAsync(student =>
+                    student.Email.ToLower() == studentEmail);
+
+            if (studentEmailExists)
             {
                 return new ApiResponse<string>
                 {
                     Success = false,
-                    Message = "A student or parent login already exists with the student's email address."
+                    Message = "A student already exists with this email address."
                 };
             }
 
             var existingParentCredential = existingCredentials
-                .FirstOrDefault(credential => credential.Email == parentEmail);
+                .FirstOrDefault(credential =>
+                    credential.Email.Equals(parentEmail, StringComparison.OrdinalIgnoreCase));
 
             if (existingParentCredential != null
-                && (!string.Equals(existingParentCredential.RoleName, "Parent", StringComparison.OrdinalIgnoreCase)
-                    || existingParentCredential.School_Id != dto.SchoolId))
+                && !string.Equals(
+                    existingParentCredential.RoleName?.Trim(),
+                    "Parent",
+                    StringComparison.OrdinalIgnoreCase))
             {
                 return new ApiResponse<string>
                 {
                     Success = false,
-                    Message = "The parent email is already used by another account or school."
+                    Message = "The parent email is already used by a non-parent account."
                 };
             }
 
@@ -745,22 +805,32 @@ namespace SchoolManagement.Repository
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                // 1. Add Parent
-                var parent = new ParentDetails
-                {
-                    Name = dto.Parent.Name,
-                    PhoneNumber = dto.Parent.PhoneNumber,
-                    Address = dto.Parent.Address,
-                    Email = dto.Parent.Email,
-                    Relationship = dto.Parent.Relationship,
-                    Created_By = 1,
-                    Updated_By = 1,
-                    Created_Date = DateTime.Now,
-                    IsActive = true
-                };
+                // Reuse the same parent profile when adding siblings.
+                var parent = existingParentCredential == null
+                    ? null
+                    : await _context.ParentDetails
+                        .FirstOrDefaultAsync(existingParent =>
+                            existingParent.IsActive
+                            && existingParent.Email.ToLower() == parentEmail);
 
-                _context.ParentDetails.Add(parent);
-                await _context.SaveChangesAsync();
+                if (parent == null)
+                {
+                    parent = new ParentDetails
+                    {
+                        Name = dto.Parent.Name,
+                        PhoneNumber = dto.Parent.PhoneNumber,
+                        Address = dto.Parent.Address,
+                        Email = dto.Parent.Email,
+                        Relationship = dto.Parent.Relationship,
+                        Created_By = 1,
+                        Updated_By = 1,
+                        Created_Date = DateTime.Now,
+                        IsActive = true
+                    };
+
+                    _context.ParentDetails.Add(parent);
+                    await _context.SaveChangesAsync();
+                }
 
                 // 2. Add Student
                 var student = new Students
@@ -780,6 +850,26 @@ namespace SchoolManagement.Repository
                 };
 
                 _context.Students.Add(student);
+                await _context.SaveChangesAsync();
+
+                var profileExtension = Path.GetExtension(profilePicture.FileName);
+                var profileFileName = Guid.NewGuid() + profileExtension;
+                var profileFolder = Path.Combine(_env.WebRootPath, "profilepictures", "student", student.Id.ToString());
+                Directory.CreateDirectory(profileFolder);
+                using (var stream = new FileStream(Path.Combine(profileFolder, profileFileName), FileMode.Create))
+                {
+                    await profilePicture.CopyToAsync(stream);
+                }
+                _context.ProfilePictures.Add(new ProfilePicture
+                {
+                    PersonType = "Student",
+                    PersonId = student.Id,
+                    FileName = profilePicture.FileName,
+                    FileUrl = $"/profilepictures/student/{student.Id}/{profileFileName}",
+                    ContentType = profilePicture.ContentType,
+                    CreatedDate = DateTime.UtcNow,
+                    IsActive = true
+                });
                 await _context.SaveChangesAsync();
 
                 // 3. Add StudentEnrollment
@@ -858,6 +948,9 @@ namespace SchoolManagement.Repository
 
                     for (int i = 0; i < dto.Files.Count; i++)
                     {
+                        if (i == profilePictureIndex)
+                            continue;
+
                         var file = dto.Files[i];
                         if (file == null || file.Length == 0) continue;
 

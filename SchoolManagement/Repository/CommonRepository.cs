@@ -38,14 +38,20 @@
             }
             public async Task<List<StaffDropdownDto>> GetStaffBySchoolIdAsync(int schoolId)
             {
-                return await _context.Staff
-                    .Where(s => s.SchoolId == schoolId && s.IsActive)
-                    .Select(s => new StaffDropdownDto
+                return await (
+                    from staff in _context.Staff
+                    join role in _context.Roles on staff.RoleId equals role.Id
+                    where staff.SchoolId == schoolId
+                          && staff.IsActive
+                          && role.IsActive
+                          && role.RoleName.Trim().ToLower() == "teacher"
+                    orderby staff.Name
+                    select new StaffDropdownDto
                     {
-                        Id = s.Id,
-                        Name = s.Name
-                    })
-                    .ToListAsync();
+                        Id = staff.Id,
+                        Name = staff.Name
+                    }
+                ).ToListAsync();
             }
 
             public async Task<List<SubjectPicklistDto>> GetSubjectsBySchoolIdAsync(int schoolId)
