@@ -6,4 +6,5 @@ namespace SchoolManagement.DTOs
     public class StudentOrderItemRequest { public int ProductId { get; set; } public int? ProductVariantId { get; set; } public decimal Quantity { get; set; } public decimal? UnitPrice { get; set; } public decimal Discount { get; set; } }
     public class InventoryReturnRequest { public int SchoolId { get; set; } public int StudentOrderId { get; set; } public string Reason { get; set; } = ""; public List<InventoryReturnItemRequest> Items { get; set; } = new(); }
     public class InventoryReturnItemRequest { public int ProductId { get; set; } public int? ProductVariantId { get; set; } public decimal Quantity { get; set; } public string Condition { get; set; } = "Good"; public bool Restock { get; set; } = true; }
+    public class InventoryStockAdjustmentRequest { public int SchoolId { get; set; } public int ProductId { get; set; } public int? ProductVariantId { get; set; } public string TransactionType { get; set; } = "IN"; public decimal Quantity { get; set; } public string? Remarks { get; set; } }
 }

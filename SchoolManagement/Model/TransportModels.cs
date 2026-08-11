@@ -97,7 +97,7 @@ namespace SchoolManagement.Model
         public int SchoolId { get; set; }
         public int AcademicSessionId { get; set; }
         public int StudentId { get; set; }
-        public int EnrollmentId { get; set; }
+        public int? EnrollmentId { get; set; }
         public int VehicleAssignmentId { get; set; }
         public int PickupStopId { get; set; }
         public int DropStopId { get; set; }
