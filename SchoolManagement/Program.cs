@@ -9,7 +9,7 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 // Controllers
-builder.Services.AddControllers();
+builder.Services.AddControllers(options => options.Filters.Add<CrudPermissionFilter>());
 
 // Swagger
 builder.Services.AddEndpointsApiExplorer();
