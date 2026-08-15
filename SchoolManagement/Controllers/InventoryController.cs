@@ -32,6 +32,17 @@ namespace SchoolManagement.Controllers
             });
         }
 
+        [HttpGet("study-materials-dashboard")]
+        public async Task<IActionResult> StudyMaterialsDashboard(int schoolId) => Success(new {
+            totalBooks = await _db.InventoryBooks.CountAsync(x => x.SchoolId == schoolId),
+            totalBookKits = await _db.InventoryKits.CountAsync(x => x.SchoolId == schoolId && x.KitType == "Book" && x.IsActive),
+            totalUniformKits = await _db.InventoryKits.CountAsync(x => x.SchoolId == schoolId && x.KitType == "Uniform" && x.IsActive),
+            classesCovered = await _db.InventoryBooks.Where(x => x.SchoolId == schoolId && x.ClassId != null).Select(x => x.ClassId).Distinct().CountAsync(),
+            averageBookPrice = await _db.InventoryBooks.Where(x => x.SchoolId == schoolId).Select(x => (decimal?)(x.SellingPrice - x.DiscountAmount)).AverageAsync() ?? 0,
+            totalBookValue = await _db.InventoryBooks.Where(x => x.SchoolId == schoolId).SumAsync(x => x.SellingPrice - x.DiscountAmount),
+            totalKitValue = await _db.InventoryKits.Where(x => x.SchoolId == schoolId && x.IsActive).SumAsync(x => x.SellingPrice - x.DiscountAmount)
+        });
+
         [HttpGet("categories")]
         public async Task<IActionResult> Categories(int schoolId) => Success(await _db.InventoryCategories.Where(x => x.SchoolId == schoolId).OrderBy(x => x.Name).ToListAsync());
         [HttpPost("categories")]
@@ -53,14 +64,30 @@ namespace SchoolManagement.Controllers
         public async Task<IActionResult> Variant(InventoryProductVariant item) { _db.Add(item); await _db.SaveChangesAsync(); return Success(item,"Variant created."); }
 
         [HttpGet("books")]
-        public async Task<IActionResult> Books(int schoolId) => Success(await (from b in _db.InventoryBooks join p in _db.InventoryProducts on b.ProductId equals p.Id where b.SchoolId == schoolId select new {b.Id,b.ProductId,bookName=p.ProductName,b.AcademicSessionId,b.ClassId,b.SectionId,b.SubjectId,b.Publisher,b.Edition,b.Isbn,p.SellingPrice}).ToListAsync());
+        public async Task<IActionResult> Books(int schoolId) => Success(await (from b in _db.InventoryBooks join s in _db.AcademicSessions on b.AcademicSessionId equals s.Id where b.SchoolId == schoolId orderby b.BookName select new { b.Id, b.BookName, b.AcademicSessionId, AcademicSession = s.Year_Start.Year + "-" + s.Year_End.Year, b.ClassId, b.SectionId, b.SubjectId, b.Publisher, b.Edition, b.Isbn, b.Mrp, b.SellingPrice, b.DiscountAmount, FinalPrice = b.SellingPrice - b.DiscountAmount }).ToListAsync());
         [HttpPost("books")]
-        public async Task<IActionResult> Book(InventoryBook item) { _db.Add(item); await _db.SaveChangesAsync(); return Success(item,"Book mapping created."); }
+        public async Task<IActionResult> Book(InventoryBook item) { item.BookName = item.BookName.Trim(); item.ProductId = null; if (string.IsNullOrWhiteSpace(item.BookName)) return BadRequest(new { success=false, message="Book name is required." }); if (item.Mrp < 0 || item.SellingPrice < 0 || item.DiscountAmount < 0) return BadRequest(new { success=false, message="Prices and discount cannot be negative." }); if (item.SellingPrice > item.Mrp) return BadRequest(new { success=false, message="Selling price cannot be greater than MRP." }); if (item.DiscountAmount > item.SellingPrice) return BadRequest(new { success=false, message="Discount cannot be greater than selling price." }); if (await _db.InventoryBooks.AnyAsync(x => x.SchoolId == item.SchoolId && x.AcademicSessionId == item.AcademicSessionId && x.BookName == item.BookName && x.ClassId == item.ClassId && x.SubjectId == item.SubjectId)) return Conflict(new { success=false, message="This book already exists for the selected class and subject." }); _db.Add(item); await _db.SaveChangesAsync(); return Success(new { item.Id, item.BookName, item.Mrp, item.SellingPrice, item.DiscountAmount, FinalPrice = item.SellingPrice - item.DiscountAmount },"Book created."); }
+        [HttpPut("books/{id:int}")]
+        public async Task<IActionResult> UpdateBook(int id, InventoryBook input) { var item=await _db.InventoryBooks.FirstOrDefaultAsync(x=>x.Id==id&&x.SchoolId==input.SchoolId);if(item==null)return NotFound(new{success=false,message="Book not found."});input.BookName=input.BookName.Trim();if(string.IsNullOrWhiteSpace(input.BookName)||input.Mrp<0||input.SellingPrice<0||input.DiscountAmount<0||input.SellingPrice>input.Mrp||input.DiscountAmount>input.SellingPrice)return BadRequest(new{success=false,message="Enter valid book name and pricing."});item.BookName=input.BookName;item.AcademicSessionId=input.AcademicSessionId;item.ClassId=input.ClassId;item.SectionId=input.SectionId;item.SubjectId=input.SubjectId;item.Publisher=input.Publisher;item.Edition=input.Edition;item.Isbn=input.Isbn;item.Mrp=input.Mrp;item.SellingPrice=input.SellingPrice;item.DiscountAmount=input.DiscountAmount;await _db.SaveChangesAsync();return Success(item,"Book updated.");}
 
         [HttpGet("kits")]
         public async Task<IActionResult> Kits(int schoolId) => Success(await _db.InventoryKits.Where(x => x.SchoolId == schoolId).OrderBy(x => x.KitName).ToListAsync());
         [HttpPost("kits")]
         public async Task<IActionResult> Kit(InventoryKit item) { _db.Add(item); await _db.SaveChangesAsync(); return Success(item,"Kit created."); }
+
+        [HttpGet("book-kits")]
+        public async Task<IActionResult> BookKits(int schoolId) => Success(await (from x in _db.InventoryKits join s in _db.AcademicSessions on x.AcademicSessionId equals s.Id where x.SchoolId == schoolId && x.KitType == "Book" orderby x.KitName select new { x.Id, x.KitName, x.AcademicSessionId, AcademicSession = s.Year_Start.Year + "-" + s.Year_End.Year, x.ClassId, x.Mrp, x.SellingPrice, x.DiscountAmount, FinalPrice = x.SellingPrice - x.DiscountAmount, x.IsActive }).ToListAsync());
+        [HttpPost("book-kits")]
+        public async Task<IActionResult> BookKit(InventoryKit item) { item.KitType = "Book"; return await SavePricedKit(item); }
+        [HttpPut("book-kits/{id:int}")]
+        public async Task<IActionResult> UpdateBookKit(int id, InventoryKit input) => await UpdatePricedKit(id,input,"Book");
+
+        [HttpGet("uniform-kits")]
+        public async Task<IActionResult> UniformKits(int schoolId) => Success(await (from x in _db.InventoryKits join s in _db.AcademicSessions on x.AcademicSessionId equals s.Id where x.SchoolId == schoolId && x.KitType == "Uniform" orderby x.KitName select new { x.Id, x.KitName, x.AcademicSessionId, AcademicSession = s.Year_Start.Year + "-" + s.Year_End.Year, x.ClassId, x.Mrp, x.SellingPrice, x.DiscountAmount, FinalPrice = x.SellingPrice - x.DiscountAmount, x.IsActive }).ToListAsync());
+        [HttpPost("uniform-kits")]
+        public async Task<IActionResult> UniformKit(InventoryKit item) { item.KitType = "Uniform"; return await SavePricedKit(item); }
+        [HttpPut("uniform-kits/{id:int}")]
+        public async Task<IActionResult> UpdateUniformKit(int id, InventoryKit input) => await UpdatePricedKit(id,input,"Uniform");
 
         [HttpGet("purchase-orders")]
         public async Task<IActionResult> PurchaseOrders(int schoolId) => Success(await (from po in _db.InventoryPurchaseOrders join v in _db.InventoryVendors on po.VendorId equals v.Id where po.SchoolId == schoolId orderby po.PurchaseDate descending select new {po.Id,po.PoNumber,vendorName=v.VendorName,po.PurchaseDate,po.InvoiceNumber,po.Status,po.TotalAmount}).ToListAsync());
@@ -116,6 +143,8 @@ namespace SchoolManagement.Controllers
         public async Task<IActionResult> Reports(int schoolId)=>Success(new{inventoryValue=await _db.InventoryProducts.Where(x=>x.SchoolId==schoolId).SumAsync(x=>x.CurrentStock*x.PurchasePrice),salesValue=await _db.InventoryStudentOrders.Where(x=>x.SchoolId==schoolId).SumAsync(x=>x.TotalAmount),collected=await _db.InventoryStudentOrders.Where(x=>x.SchoolId==schoolId).SumAsync(x=>x.PaidAmount),lowStock=await _db.InventoryProducts.CountAsync(x=>x.SchoolId==schoolId&&x.CurrentStock-x.ReservedStock<=x.MinimumStock)});
 
         private async Task<int> CountCategory(IQueryable<InventoryProduct> products,int schoolId,string term){var ids=await _db.InventoryCategories.Where(x=>x.SchoolId==schoolId&&x.Name.Contains(term)).Select(x=>x.Id).ToListAsync();return await products.CountAsync(x=>ids.Contains(x.CategoryId));}
+        private async Task<IActionResult> SavePricedKit(InventoryKit item){item.KitName=item.KitName.Trim();if(string.IsNullOrWhiteSpace(item.KitName))return BadRequest(new{success=false,message="Kit name is required."});if(item.Mrp<0||item.SellingPrice<0||item.DiscountAmount<0)return BadRequest(new{success=false,message="MRP, price and discount cannot be negative."});if(item.SellingPrice>item.Mrp)return BadRequest(new{success=false,message="Selling price cannot be greater than MRP."});if(item.DiscountAmount>item.SellingPrice)return BadRequest(new{success=false,message="Discount cannot be greater than selling price."});if(await _db.InventoryKits.AnyAsync(x=>x.SchoolId==item.SchoolId&&x.AcademicSessionId==item.AcademicSessionId&&x.KitType==item.KitType&&x.KitName==item.KitName))return Conflict(new{success=false,message="This kit already exists for the selected session."});_db.Add(item);await _db.SaveChangesAsync();return Success(new{item.Id,item.KitName,item.KitType,item.Mrp,item.SellingPrice,item.DiscountAmount,FinalPrice=item.SellingPrice-item.DiscountAmount},"Kit created.");}
+        private async Task<IActionResult> UpdatePricedKit(int id,InventoryKit input,string type){var item=await _db.InventoryKits.FirstOrDefaultAsync(x=>x.Id==id&&x.SchoolId==input.SchoolId&&x.KitType==type);if(item==null)return NotFound(new{success=false,message="Kit not found."});input.KitName=input.KitName.Trim();if(string.IsNullOrWhiteSpace(input.KitName)||input.Mrp<0||input.SellingPrice<0||input.DiscountAmount<0||input.SellingPrice>input.Mrp||input.DiscountAmount>input.SellingPrice)return BadRequest(new{success=false,message="Enter valid kit name and pricing."});item.KitName=input.KitName;item.AcademicSessionId=input.AcademicSessionId;item.ClassId=input.ClassId;item.Mrp=input.Mrp;item.SellingPrice=input.SellingPrice;item.DiscountAmount=input.DiscountAmount;await _db.SaveChangesAsync();return Success(item,"Kit updated.");}
         private async Task AddStock(int schoolId,int productId,int? variantId,decimal qty,string reference,int referenceId){var p=await _db.InventoryProducts.FindAsync(productId)??throw new InvalidOperationException("Product not found.");p.CurrentStock+=qty;if(variantId.HasValue){var v=await _db.InventoryProductVariants.FindAsync(variantId.Value)??throw new InvalidOperationException("Variant not found.");v.CurrentStock+=qty;}_db.Add(new InventoryStockTransaction{SchoolId=schoolId,ProductId=productId,ProductVariantId=variantId,TransactionType="IN",Quantity=qty,ReferenceType=reference,ReferenceId=referenceId});}
     }
 }

@@ -82,13 +82,13 @@ public class PermissionsController : ControllerBase
     public async Task<IActionResult> Copy(int sourceId, int targetId) { if (!IsSuperAdmin) return Forbid(); var ids = await _db.RolePermissions.Where(x => x.RoleId == sourceId && x.IsAllowed).Select(x => x.PermissionId).ToListAsync(); return await SavePermissions(targetId, new(ids)); }
 
     [HttpGet("employees")]
-    public async Task<IActionResult> Employees(int? roleId = null, string? search = null)
+    public async Task<IActionResult> Employees(int? roleId = null, string? search = null, int? schoolId = null)
     {
         if (!IsSuperAdmin) return Forbid();
         var query = from u in _db.Users.AsNoTracking()
                     join r in _db.Roles.AsNoTracking() on u.RoleId equals r.Id into roles
                     from r in roles.DefaultIfEmpty()
-                    where u.Id != UserId && (SchoolId == null || u.School_Id == SchoolId)
+                    where u.Id != UserId && u.RoleId != 1 && (!schoolId.HasValue || u.School_Id == schoolId.Value)
                     select new { u.Id, u.Name, u.Email, u.RoleId, RoleName = r == null ? null : r.RoleName, u.IsActive };
         if (roleId.HasValue) query = query.Where(x => x.RoleId == roleId.Value);
         if (!string.IsNullOrWhiteSpace(search)) { var term = search.Trim().ToLower(); query = query.Where(x => x.Name.ToLower().Contains(term) || x.Email.ToLower().Contains(term)); }
@@ -96,10 +96,10 @@ public class PermissionsController : ControllerBase
     }
 
     [HttpGet("employees/{userId:int}")]
-    public async Task<IActionResult> EmployeeAccess(int userId)
+    public async Task<IActionResult> EmployeeAccess(int userId, int? schoolId = null)
     {
         if (!IsSuperAdmin) return Forbid();
-        var employee = await _db.Users.AsNoTracking().Where(x => x.Id == userId && (SchoolId == null || x.School_Id == SchoolId))
+        var employee = await _db.Users.AsNoTracking().Where(x => x.Id == userId && x.RoleId != 1 && (!schoolId.HasValue || x.School_Id == schoolId.Value))
             .Select(x => new { x.Id, x.Name, x.Email, x.RoleId, x.IsActive }).FirstOrDefaultAsync();
         if (employee == null) return NotFound();
         var roleIds = await _db.EmployeeRoles.Where(x => x.UserId == userId && x.IsActive).Select(x => x.RoleId).ToListAsync();
@@ -108,10 +108,10 @@ public class PermissionsController : ControllerBase
     }
 
     [HttpPut("employees/{userId:int}")]
-    public async Task<IActionResult> SaveEmployeeAccess(int userId, EmployeeAccessRequest request)
+    public async Task<IActionResult> SaveEmployeeAccess(int userId, EmployeeAccessRequest request, int? schoolId = null)
     {
         if (!IsSuperAdmin) return Forbid();
-        var employee = await _db.Users.FirstOrDefaultAsync(x => x.Id == userId && x.Id != UserId && x.RoleId != 1 && (SchoolId == null || x.School_Id == SchoolId));
+        var employee = await _db.Users.FirstOrDefaultAsync(x => x.Id == userId && x.Id != UserId && x.RoleId != 1 && (!schoolId.HasValue || x.School_Id == schoolId.Value));
         if (employee == null) return BadRequest(new { message = "Employee was not found or is protected." });
         if (!await _db.Roles.AnyAsync(x => x.Id == request.PrimaryRoleId && x.IsActive && (x.School_Id == employee.School_Id || x.School_Id == null))) return BadRequest(new { message = "Primary role is invalid." });
         var allowedRoleIds = await _db.Roles.Where(x => request.AdditionalRoleIds.Contains(x.Id) && x.Id != 1 && x.IsActive && (x.School_Id == employee.School_Id || x.School_Id == null)).Select(x => x.Id).ToListAsync();
