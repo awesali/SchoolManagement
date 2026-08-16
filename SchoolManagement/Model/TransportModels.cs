@@ -99,15 +99,35 @@ namespace SchoolManagement.Model
         public int StudentId { get; set; }
         public int? EnrollmentId { get; set; }
         public int VehicleAssignmentId { get; set; }
-        public int PickupStopId { get; set; }
-        public int DropStopId { get; set; }
+        public int? PickupStopId { get; set; }
+        public int? DropStopId { get; set; }
+        public string? PickupStop { get; set; }
+        public string? DropStop { get; set; }
         public string? PickupShift { get; set; }
         public string? DropShift { get; set; }
         public string? SeatNumber { get; set; }
         public decimal MonthlyFee { get; set; }
+        public string FeeType { get; set; } = "Monthly";
+        public DateTime? DueDate { get; set; }
         public DateTime StartDate { get; set; }
         public DateTime? EndDate { get; set; }
         public bool IsActive { get; set; } = true;
+    }
+
+    public class BulkStudentTransportAllocationRequest
+    {
+        public int SchoolId { get; set; }
+        public int AcademicSessionId { get; set; }
+        public List<int> StudentIds { get; set; } = new();
+        public int VehicleAssignmentId { get; set; }
+        public string PickupStop { get; set; } = string.Empty;
+        public string DropStop { get; set; } = string.Empty;
+        public string? PickupShift { get; set; }
+        public string? DropShift { get; set; }
+        public decimal MonthlyFee { get; set; }
+        public string FeeType { get; set; } = "Monthly";
+        public DateTime StartDate { get; set; }
+        public DateTime? DueDate { get; set; }
     }
 
     public class TransportFee
@@ -143,6 +163,8 @@ namespace SchoolManagement.Model
         public decimal Litres { get; set; }
         public decimal Amount { get; set; }
         public decimal? OdometerReading { get; set; }
+        public string? PaymentMode { get; set; }
+        public string? PaidTo { get; set; }
     }
 
     public class TransportVehicleMaintenance
@@ -155,6 +177,7 @@ namespace SchoolManagement.Model
         public decimal Cost { get; set; }
         public string? Workshop { get; set; }
         public string? Remarks { get; set; }
+        public string? BillAttachmentUrl { get; set; }
     }
 
     public class TransportDriverAttendance
