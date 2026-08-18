@@ -114,11 +114,32 @@ namespace SchoolManagement.Model
         public bool IsActive { get; set; } = true;
     }
 
+    public class VehicleSetupRequest
+    {
+        public int SchoolId { get; set; }
+        public int? VehicleTypeId { get; set; }
+        public string VehicleTypeName { get; set; } = string.Empty;
+        public int DefaultCapacity { get; set; }
+        public string? Description { get; set; }
+        public string VehicleNumber { get; set; } = string.Empty;
+        public string VehicleName { get; set; } = string.Empty;
+        public string RegistrationNumber { get; set; } = string.Empty;
+        public DateTime? InsuranceExpiry { get; set; }
+        public DateTime? FitnessExpiry { get; set; }
+        public DateTime? PollutionExpiry { get; set; }
+        public bool IsActive { get; set; } = true;
+    }
+
     public class BulkStudentTransportAllocationRequest
     {
         public int SchoolId { get; set; }
+        public List<StudentTransportAllocationRequest> Items { get; set; } = new();
+    }
+
+    public class StudentTransportAllocationRequest
+    {
         public int AcademicSessionId { get; set; }
-        public List<int> StudentIds { get; set; } = new();
+        public int StudentId { get; set; }
         public int VehicleAssignmentId { get; set; }
         public string PickupStop { get; set; } = string.Empty;
         public string DropStop { get; set; } = string.Empty;
@@ -127,7 +148,7 @@ namespace SchoolManagement.Model
         public decimal MonthlyFee { get; set; }
         public string FeeType { get; set; } = "Monthly";
         public DateTime StartDate { get; set; }
-        public DateTime? DueDate { get; set; }
+        public string? SeatNumber { get; set; }
     }
 
     public class TransportFee

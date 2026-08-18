@@ -76,6 +76,59 @@ namespace SchoolManagement.Controllers
         [HttpPut("vehicles/{id:int}")]
         public Task<IActionResult> UpdateVehicle(int id, TransportVehicle item) => Update(_context.TransportVehicles, id, item, "Vehicle");
 
+        [HttpGet("vehicle-setup")]
+        public async Task<IActionResult> VehicleSetup(int schoolId) => Success(await (
+            from type in _context.VehicleTypes
+            join vehicle in _context.TransportVehicles on type.Id equals vehicle.VehicleTypeId into vehicles
+            from vehicle in vehicles.DefaultIfEmpty()
+            where type.SchoolId == schoolId
+            orderby type.VehicleTypeName, vehicle.VehicleName
+            select new { vehicleId = vehicle != null ? (int?)vehicle.Id : null, vehicleTypeId = type.Id,
+                type.VehicleTypeName, type.DefaultCapacity, type.Description,
+                vehicleName = vehicle != null ? vehicle.VehicleName : null,
+                vehicleNumber = vehicle != null ? vehicle.VehicleNumber : null,
+                registrationNumber = vehicle != null ? vehicle.RegistrationNumber : null,
+                insuranceExpiry = vehicle != null ? vehicle.InsuranceExpiry : null,
+                fitnessExpiry = vehicle != null ? vehicle.FitnessExpiry : null,
+                pollutionExpiry = vehicle != null ? vehicle.PollutionExpiry : null,
+                isActive = vehicle != null ? vehicle.IsActive : type.IsActive }).ToListAsync());
+
+        [HttpPost("vehicle-setup")]
+        public async Task<IActionResult> SaveVehicleSetup(VehicleSetupRequest request)
+        {
+            var validation = ValidateVehicleSetup(request); if (validation != null) return validation;
+            if (await _context.TransportVehicles.AnyAsync(x => x.SchoolId == request.SchoolId && x.VehicleNumber == request.VehicleNumber))
+                return Conflict(new { success=false, message="Vehicle number already exists." });
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            var normalizedName = request.VehicleTypeName.Trim().ToLower();
+            var type = await _context.VehicleTypes.FirstOrDefaultAsync(x => x.SchoolId == request.SchoolId && x.VehicleTypeName.ToLower() == normalizedName);
+            if (type == null) { type = new VehicleType { SchoolId=request.SchoolId, VehicleTypeName=request.VehicleTypeName.Trim(), DefaultCapacity=request.DefaultCapacity, Description=request.Description, IsActive=true }; _context.VehicleTypes.Add(type); await _context.SaveChangesAsync(); }
+            var vehicle = CreateVehicle(request,type.Id); _context.TransportVehicles.Add(vehicle);
+            await _context.SaveChangesAsync(); await transaction.CommitAsync();
+            return Success(vehicle,"Vehicle type and vehicle saved.");
+        }
+
+        [HttpPut("vehicle-setup/{vehicleId:int}")]
+        public async Task<IActionResult> UpdateVehicleSetup(int vehicleId, VehicleSetupRequest request)
+        {
+            var validation = ValidateVehicleSetup(request); if (validation != null) return validation;
+            var vehicle = await _context.TransportVehicles.FirstOrDefaultAsync(x=>x.Id==vehicleId&&x.SchoolId==request.SchoolId);
+            if(vehicle==null)return NotFound(new{success=false,message="Vehicle not found."});
+            if(await _context.TransportVehicles.AnyAsync(x=>x.Id!=vehicleId&&x.SchoolId==request.SchoolId&&x.VehicleNumber==request.VehicleNumber))return Conflict(new{success=false,message="Vehicle number already exists."});
+            var type=await _context.VehicleTypes.FirstOrDefaultAsync(x=>x.Id==vehicle.VehicleTypeId&&x.SchoolId==request.SchoolId);
+            if(type==null)return BadRequest(new{success=false,message="Vehicle type not found."});
+            await using var transaction=await _context.Database.BeginTransactionAsync();
+            type.VehicleTypeName=request.VehicleTypeName.Trim();type.DefaultCapacity=request.DefaultCapacity;type.Description=request.Description;
+            vehicle.VehicleName=request.VehicleName.Trim();vehicle.VehicleNumber=request.VehicleNumber.Trim();vehicle.RegistrationNumber=request.RegistrationNumber.Trim();vehicle.Capacity=request.DefaultCapacity;
+            vehicle.InsuranceExpiry=request.InsuranceExpiry;vehicle.FitnessExpiry=request.FitnessExpiry;vehicle.PollutionExpiry=request.PollutionExpiry;vehicle.IsActive=request.IsActive;
+            await _context.SaveChangesAsync();await transaction.CommitAsync();return Success(vehicle,"Vehicle type and vehicle updated.");
+        }
+
+        private IActionResult? ValidateVehicleSetup(VehicleSetupRequest request) =>
+            string.IsNullOrWhiteSpace(request.VehicleTypeName)||request.DefaultCapacity<=0||string.IsNullOrWhiteSpace(request.VehicleName)||string.IsNullOrWhiteSpace(request.VehicleNumber)||string.IsNullOrWhiteSpace(request.RegistrationNumber)
+                ? BadRequest(new{success=false,message="Vehicle type, capacity, vehicle name, vehicle number, and registration number are required."}) : null;
+        private static TransportVehicle CreateVehicle(VehicleSetupRequest request,int typeId)=>new(){SchoolId=request.SchoolId,VehicleTypeId=typeId,VehicleName=request.VehicleName.Trim(),VehicleNumber=request.VehicleNumber.Trim(),RegistrationNumber=request.RegistrationNumber.Trim(),Capacity=request.DefaultCapacity,InsuranceExpiry=request.InsuranceExpiry,FitnessExpiry=request.FitnessExpiry,PollutionExpiry=request.PollutionExpiry,IsActive=true};
+
         [HttpGet("drivers")]
         public async Task<IActionResult> Drivers(int schoolId) =>
             Success(await _context.TransportDrivers.Where(x => x.SchoolId == schoolId).OrderBy(x => x.Name).ToListAsync());
@@ -156,9 +209,10 @@ namespace SchoolManagement.Controllers
         [HttpPost("assignments")]
         public async Task<IActionResult> SaveAssignment(TransportVehicleAssignment item)
         {
-            var conflict = await _context.TransportVehicleAssignments.AnyAsync(x => x.IsActive &&
-                (x.VehicleId == item.VehicleId || x.DriverId == item.DriverId || (item.ConductorId.HasValue && x.ConductorId == item.ConductorId)));
-            if (conflict) return Conflict(new { success = false, message = "Vehicle, driver, or conductor already has an active assignment." });
+            if (await _context.TransportVehicleAssignments.AnyAsync(x => x.SchoolId == item.SchoolId && x.IsActive && x.VehicleId == item.VehicleId))
+                return Conflict(new { success = false, message = "This vehicle is already assigned." });
+            if (await _context.TransportVehicleAssignments.AnyAsync(x => x.SchoolId == item.SchoolId && x.IsActive && (x.DriverId == item.DriverId || (item.ConductorId.HasValue && x.ConductorId == item.ConductorId))))
+                return Conflict(new { success = false, message = "Driver or conductor already has an active assignment." });
             _context.TransportVehicleAssignments.Add(item); await _context.SaveChangesAsync();
             return Success(item, "Vehicle assignment created.");
         }
@@ -167,9 +221,10 @@ namespace SchoolManagement.Controllers
         {
             var existing = await _context.TransportVehicleAssignments.FindAsync(id);
             if (existing == null) return NotFound(new { success = false, message = "Vehicle assignment not found." });
-            if (await _context.TransportVehicleAssignments.AnyAsync(x => x.Id != id && x.IsActive &&
-                (x.VehicleId == item.VehicleId || x.DriverId == item.DriverId || (item.ConductorId.HasValue && x.ConductorId == item.ConductorId))))
-                return Conflict(new { success = false, message = "Vehicle, driver, or conductor already has an active assignment." });
+            if (await _context.TransportVehicleAssignments.AnyAsync(x => x.Id != id && x.SchoolId == existing.SchoolId && x.IsActive && x.VehicleId == item.VehicleId))
+                return Conflict(new { success = false, message = "This vehicle is already assigned." });
+            if (await _context.TransportVehicleAssignments.AnyAsync(x => x.Id != id && x.SchoolId == existing.SchoolId && x.IsActive && (x.DriverId == item.DriverId || (item.ConductorId.HasValue && x.ConductorId == item.ConductorId))))
+                return Conflict(new { success = false, message = "Driver or conductor already has an active assignment." });
             item.Id = id; item.SchoolId = existing.SchoolId;
             _context.Entry(existing).CurrentValues.SetValues(item); await _context.SaveChangesAsync();
             return Success(existing, "Vehicle assignment updated.");
@@ -179,15 +234,37 @@ namespace SchoolManagement.Controllers
         public async Task<IActionResult> Allocations(int schoolId) => Success(await (
             from allocation in _context.StudentTransportAllocations
             join student in _context.Students on allocation.StudentId equals student.Id
+            join enrollment in _context.StudentEnrollment on allocation.EnrollmentId equals enrollment.Id
+            join schoolClass in _context.Classes on enrollment.ClassId equals schoolClass.Id
+            join section in _context.SectionDetails on enrollment.SectionId equals section.Id
             join assignment in _context.TransportVehicleAssignments on allocation.VehicleAssignmentId equals assignment.Id
             join vehicle in _context.TransportVehicles on assignment.VehicleId equals vehicle.Id
+            join driver in _context.TransportDrivers on assignment.DriverId equals driver.Id
             join route in _context.TransportRoutes on assignment.RouteId equals route.Id
             where allocation.SchoolId == schoolId
-            select new { studentName = student.StudentName, allocation.Id, allocation.StudentId, allocation.VehicleAssignmentId, allocation.AcademicSessionId,
+            select new { studentName = student.StudentName, className = schoolClass.ClassName, sectionName = section.SectionName,
+                allocation.Id, allocation.StudentId, allocation.VehicleAssignmentId, allocation.AcademicSessionId,
                 allocation.PickupStop, allocation.DropStop, allocation.PickupShift, allocation.DropShift,
                 allocation.SeatNumber, allocation.MonthlyFee, allocation.FeeType, allocation.StartDate, allocation.EndDate, allocation.DueDate, allocation.IsActive,
-                vehicleName = vehicle.VehicleName, routeName = route.RouteName,
+                vehicleName = vehicle.VehicleName, vehicleNumber = vehicle.VehicleNumber,
+                routeName = route.RouteName, driverName = driver.Name,
             }).ToListAsync());
+
+        [HttpGet("eligible-students")]
+        public async Task<IActionResult> EligibleStudents(int schoolId)
+        {
+            var assigned = _context.StudentTransportAllocations
+                .Where(x => x.SchoolId == schoolId && x.IsActive).Select(x => x.StudentId);
+            var students = await (from enrollment in _context.StudentEnrollment
+                join student in _context.Students on enrollment.StudentId equals student.Id
+                join schoolClass in _context.Classes on enrollment.ClassId equals schoolClass.Id
+                join section in _context.SectionDetails on enrollment.SectionId equals section.Id
+                where enrollment.SchoolId == schoolId && enrollment.IsActive && student.IsActive && !assigned.Contains(student.Id)
+                orderby student.StudentName
+                select new { id = student.Id, studentName = student.StudentName, className = schoolClass.ClassName,
+                    sectionName = section.SectionName, academicSessionId = enrollment.SessionId }).Distinct().ToListAsync();
+            return Success(students);
+        }
 
         [HttpPost("allocations")]
         public async Task<IActionResult> SaveAllocation(StudentTransportAllocation item)
@@ -204,7 +281,9 @@ namespace SchoolManagement.Controllers
             var vehicle = await _context.TransportVehicles.FindAsync(assignment.VehicleId);
             if (vehicle == null) return BadRequest(new { success = false, message = "Vehicle not found." });
             if (await _context.StudentTransportAllocations.AnyAsync(x => x.EnrollmentId == item.EnrollmentId && x.IsActive))
-                return Conflict(new { success = false, message = "Student already has an active transport allocation." });
+                return Conflict(new { success = false, message = "This student is already assigned to a transport route." });
+            if (!string.IsNullOrWhiteSpace(item.SeatNumber) && await _context.StudentTransportAllocations.AnyAsync(x => x.IsActive && x.VehicleAssignmentId == item.VehicleAssignmentId && x.SeatNumber == item.SeatNumber))
+                return Conflict(new { success = false, message = $"Seat No {item.SeatNumber} is already assigned to another student." });
             _context.StudentTransportAllocations.Add(item); await _context.SaveChangesAsync();
             return Success(item, "Student allocated.");
         }
@@ -214,7 +293,9 @@ namespace SchoolManagement.Controllers
             var existing = await _context.StudentTransportAllocations.FindAsync(id);
             if (existing == null) return NotFound(new { success = false, message = "Student transport allocation not found." });
             if (await _context.StudentTransportAllocations.AnyAsync(x => x.Id != id && x.StudentId == item.StudentId && x.SchoolId == existing.SchoolId && x.IsActive))
-                return Conflict(new { success = false, message = "Student already has an active transport allocation." });
+                return Conflict(new { success = false, message = "This student is already assigned to a transport route." });
+            if (!string.IsNullOrWhiteSpace(item.SeatNumber) && await _context.StudentTransportAllocations.AnyAsync(x => x.Id != id && x.IsActive && x.VehicleAssignmentId == item.VehicleAssignmentId && x.SeatNumber == item.SeatNumber))
+                return Conflict(new { success = false, message = $"Seat No {item.SeatNumber} is already assigned to another student." });
 
             var enrollment = await _context.StudentEnrollment.FirstOrDefaultAsync(x => x.StudentId == item.StudentId &&
                 x.SchoolId == existing.SchoolId && x.SessionId == item.AcademicSessionId && x.IsActive);
@@ -238,16 +319,38 @@ namespace SchoolManagement.Controllers
         [HttpPost("allocations/bulk")]
         public async Task<IActionResult> BulkAllocations(BulkStudentTransportAllocationRequest request)
         {
-            var studentIds=request.StudentIds.Distinct().ToList();
-            if(studentIds.Count==0 || string.IsNullOrWhiteSpace(request.PickupStop) || string.IsNullOrWhiteSpace(request.DropStop))
-                return BadRequest(new{success=false,message="Select at least one student and enter pickup and drop stops."});
-            var existing=await _context.StudentTransportAllocations.Where(x=>x.SchoolId==request.SchoolId&&x.IsActive&&studentIds.Contains(x.StudentId)).Select(x=>x.StudentId).ToListAsync();
-            if(existing.Count>0)return Conflict(new{success=false,message="One or more selected students already have an active transport allocation."});
-            var enrollments=await _context.StudentEnrollment.Where(x=>x.SchoolId==request.SchoolId&&x.SessionId==request.AcademicSessionId&&x.IsActive&&studentIds.Contains(x.StudentId)).ToListAsync();
-            if(enrollments.Select(x=>x.StudentId).Distinct().Count()!=studentIds.Count)return BadRequest(new{success=false,message="Every selected student must have an active enrollment in the selected session."});
-            var endDate=CalculateEndDate(request.StartDate,request.FeeType);
-            var allocations=studentIds.Select(studentId=>new StudentTransportAllocation{SchoolId=request.SchoolId,AcademicSessionId=request.AcademicSessionId,StudentId=studentId,EnrollmentId=enrollments.First(x=>x.StudentId==studentId).Id,VehicleAssignmentId=request.VehicleAssignmentId,PickupStop=request.PickupStop,DropStop=request.DropStop,PickupShift=request.PickupShift,DropShift=request.DropShift,MonthlyFee=request.MonthlyFee,FeeType=request.FeeType,StartDate=request.StartDate,EndDate=endDate,DueDate=request.DueDate}).ToList();
-            _context.StudentTransportAllocations.AddRange(allocations);await _context.SaveChangesAsync();return Success(new{created=allocations.Count},$"{allocations.Count} student transport assignment(s) created.");
+            if (request.Items.Count == 0) return BadRequest(new { success=false, message="Add at least one student assignment." });
+            var studentIds = request.Items.Select(x => x.StudentId).ToList();
+            if (studentIds.Any(x => x <= 0) || studentIds.Distinct().Count() != studentIds.Count)
+                return BadRequest(new { success=false, message="The same student cannot be selected more than once." });
+            var existing = await _context.StudentTransportAllocations.Where(x => x.SchoolId == request.SchoolId && x.IsActive && studentIds.Contains(x.StudentId)).Select(x => x.StudentId).ToListAsync();
+            if (existing.Count > 0) return Conflict(new { success=false, message="This student is already assigned to a transport route." });
+            foreach (var row in request.Items)
+            {
+                if (row.VehicleAssignmentId <= 0 || string.IsNullOrWhiteSpace(row.PickupStop) || string.IsNullOrWhiteSpace(row.DropStop) || row.MonthlyFee < 0)
+                    return BadRequest(new { success=false, message="Complete all required transport details for every student." });
+                if (!string.IsNullOrWhiteSpace(row.SeatNumber) && request.Items.Any(other => !ReferenceEquals(other, row) && other.VehicleAssignmentId == row.VehicleAssignmentId && other.SeatNumber == row.SeatNumber))
+                    return Conflict(new { success=false, message=$"Seat No {row.SeatNumber} is selected more than once." });
+                if (!string.IsNullOrWhiteSpace(row.SeatNumber) && await _context.StudentTransportAllocations.AnyAsync(x => x.IsActive && x.VehicleAssignmentId == row.VehicleAssignmentId && x.SeatNumber == row.SeatNumber))
+                    return Conflict(new { success=false, message=$"Seat No {row.SeatNumber} is already assigned to another student." });
+                if (!await _context.TransportVehicleAssignments.AnyAsync(x => x.Id == row.VehicleAssignmentId && x.SchoolId == request.SchoolId && x.IsActive))
+                    return BadRequest(new { success=false, message="Select a valid active vehicle / route assignment." });
+            }
+            var enrollments = await _context.StudentEnrollment.Where(x => x.SchoolId == request.SchoolId && x.IsActive && studentIds.Contains(x.StudentId)).ToListAsync();
+            var allocations = new List<StudentTransportAllocation>();
+            foreach (var row in request.Items)
+            {
+                var enrollment = enrollments.FirstOrDefault(x => x.StudentId == row.StudentId && x.SessionId == row.AcademicSessionId);
+                if (enrollment == null) return BadRequest(new { success=false, message="Every selected student must have an active enrollment in the selected session." });
+                allocations.Add(new StudentTransportAllocation { SchoolId=request.SchoolId, AcademicSessionId=row.AcademicSessionId, StudentId=row.StudentId,
+                    EnrollmentId=enrollment.Id, VehicleAssignmentId=row.VehicleAssignmentId, PickupStop=row.PickupStop, DropStop=row.DropStop,
+                    PickupShift=row.PickupShift, DropShift=row.DropShift, SeatNumber=row.SeatNumber, MonthlyFee=row.MonthlyFee,
+                    FeeType=row.FeeType, StartDate=row.StartDate, EndDate=CalculateEndDate(row.StartDate,row.FeeType), IsActive=true });
+            }
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            _context.StudentTransportAllocations.AddRange(allocations);
+            await _context.SaveChangesAsync(); await transaction.CommitAsync();
+            return Success(new { created=allocations.Count }, $"{allocations.Count} student transport assignment(s) created.");
         }
 
         [HttpGet("fees")]
@@ -259,6 +362,26 @@ namespace SchoolManagement.Controllers
             orderby fee.FeeYear descending, fee.FeeMonth descending
             select new { fee.Id, fee.StudentTransportAllocationId, fee.FeeMonth, fee.FeeYear, fee.Amount,
                 fee.PaidAmount, fee.Status, fee.DueDate, studentName = student.StudentName }).ToListAsync());
+
+        [HttpGet("fee-students")]
+        public async Task<IActionResult> FeeStudents(int schoolId)
+        {
+            var allocations = await (from allocation in _context.StudentTransportAllocations
+                join student in _context.Students on allocation.StudentId equals student.Id
+                where allocation.SchoolId == schoolId && allocation.IsActive
+                orderby student.StudentName
+                select new { allocation.Id, allocation.MonthlyFee, student.StudentName }).ToListAsync();
+            var allocationIds = allocations.Select(x => x.Id).ToList();
+            var fees = await _context.TransportFees.Where(x => x.SchoolId == schoolId && allocationIds.Contains(x.StudentTransportAllocationId)).ToListAsync();
+            var result = allocations.Select(allocation => {
+                var fee = fees.Where(x => x.StudentTransportAllocationId == allocation.Id && x.Amount > x.PaidAmount)
+                    .OrderBy(x => x.FeeYear).ThenBy(x => x.FeeMonth).FirstOrDefault();
+                return new { value = fee?.Id ?? -allocation.Id, allocationId = allocation.Id, studentName = allocation.StudentName,
+                    totalAmount = fee?.Amount ?? allocation.MonthlyFee, dueAmount = fee != null ? fee.Amount-fee.PaidAmount : allocation.MonthlyFee,
+                    dueDate = fee?.DueDate ?? DateTime.Today };
+            });
+            return Success(result);
+        }
 
         [HttpPost("fees")]
         public async Task<IActionResult> SaveFee(TransportFee item)
@@ -304,15 +427,26 @@ namespace SchoolManagement.Controllers
         public async Task<IActionResult> Pay(TransportFeePayment item)
         {
             if (!PaymentModes.Contains(item.PaymentMode)) return BadRequest(new { success = false, message = "Select a valid payment mode." });
-            var fee = await _context.TransportFees.FindAsync(item.TransportFeeId);
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            TransportFee? fee;
+            if (item.TransportFeeId < 0)
+            {
+                var allocationId = -item.TransportFeeId;
+                var allocation = await _context.StudentTransportAllocations.FirstOrDefaultAsync(x => x.Id == allocationId && x.IsActive);
+                if (allocation == null) return BadRequest(new { success=false, message="Active student transport allocation not found." });
+                fee = await _context.TransportFees.FirstOrDefaultAsync(x => x.StudentTransportAllocationId == allocationId && x.FeeMonth == item.PaymentDate.Month && x.FeeYear == item.PaymentDate.Year);
+                if (fee == null) { fee = new TransportFee { SchoolId=allocation.SchoolId, StudentTransportAllocationId=allocationId, FeeMonth=item.PaymentDate.Month, FeeYear=item.PaymentDate.Year, Amount=allocation.MonthlyFee, DueDate=item.PaymentDate.Date, Status="Pending" }; _context.TransportFees.Add(fee); await _context.SaveChangesAsync(); }
+                item.TransportFeeId = fee.Id;
+            }
+            else fee = await _context.TransportFees.FindAsync(item.TransportFeeId);
             if (fee == null) return NotFound(new { success = false, message = "Fee not found." });
             if (item.Amount <= 0 || item.Amount > fee.Amount - fee.PaidAmount)
-                return BadRequest(new { success = false, message = "Payment must be positive and cannot exceed the outstanding balance." });
+                return BadRequest(new { success = false, message = $"Paid Amount cannot exceed the available fee balance of {fee.Amount - fee.PaidAmount}." });
             item.ReceiptNumber = string.IsNullOrWhiteSpace(item.ReceiptNumber)
                 ? $"TR{DateTime.Now:yyyyMMddHHmmss}" : item.ReceiptNumber;
             fee.PaidAmount += item.Amount;
             fee.Status = fee.PaidAmount >= fee.Amount ? "Paid" : "Partial";
-            _context.TransportFeePayments.Add(item); await _context.SaveChangesAsync();
+            _context.TransportFeePayments.Add(item); await _context.SaveChangesAsync(); await transaction.CommitAsync();
             return Success(item, "Payment recorded.");
         }
 
@@ -324,7 +458,8 @@ namespace SchoolManagement.Controllers
             join student in _context.Students on allocation.StudentId equals student.Id
             where fee.SchoolId == schoolId orderby payment.PaymentDate descending
             select new { payment.Id, payment.ReceiptNumber, payment.Amount, payment.PaymentDate,
-                payment.PaymentMode, payment.ReferenceNumber, payment.TransportFeeId, studentName = student.StudentName }).ToListAsync());
+                payment.PaymentMode, payment.ReferenceNumber, payment.TransportFeeId, studentName = student.StudentName,
+                totalAmount = fee.Amount, dueAmount = fee.Amount - fee.PaidAmount, fee.DueDate }).ToListAsync());
 
         [HttpPut("payments/{id:int}")]
         public async Task<IActionResult> UpdatePayment(int id, TransportFeePayment item)
@@ -336,7 +471,7 @@ namespace SchoolManagement.Controllers
             if (oldFee == null || newFee == null) return BadRequest(new { success = false, message = "Related fee was not found." });
             var available = newFee.Amount - newFee.PaidAmount + (oldFee.Id == newFee.Id ? existing.Amount : 0);
             if (item.Amount <= 0 || item.Amount > available)
-                return BadRequest(new { success = false, message = "Payment must be positive and cannot exceed the outstanding balance." });
+                return BadRequest(new { success = false, message = $"Paid Amount cannot exceed the available fee balance of {available}." });
             oldFee.PaidAmount -= existing.Amount;
             existing.TransportFeeId = item.TransportFeeId; existing.Amount = item.Amount; existing.PaymentDate = item.PaymentDate;
             existing.PaymentMode = item.PaymentMode; existing.ReferenceNumber = item.ReferenceNumber; existing.ReceiptNumber = item.ReceiptNumber;
