@@ -32,6 +32,17 @@ namespace SchoolManagement.Controllers
             });
         }
 
+        [HttpGet("study-materials-dashboard")]
+        public async Task<IActionResult> StudyMaterialsDashboard(int schoolId) => Success(new {
+            totalBooks = await _db.InventoryBooks.CountAsync(x => x.SchoolId == schoolId),
+            totalBookKits = await _db.InventoryKits.CountAsync(x => x.SchoolId == schoolId && x.KitType == "Book" && x.IsActive),
+            totalUniformKits = await _db.InventoryKits.CountAsync(x => x.SchoolId == schoolId && x.KitType == "Uniform" && x.IsActive),
+            classesCovered = await _db.InventoryBooks.Where(x => x.SchoolId == schoolId && x.ClassId != null).Select(x => x.ClassId).Distinct().CountAsync(),
+            averageBookPrice = await _db.InventoryBooks.Where(x => x.SchoolId == schoolId).Select(x => (decimal?)(x.SellingPrice - x.DiscountAmount)).AverageAsync() ?? 0,
+            totalBookValue = await _db.InventoryBooks.Where(x => x.SchoolId == schoolId).SumAsync(x => x.SellingPrice - x.DiscountAmount),
+            totalKitValue = await _db.InventoryKits.Where(x => x.SchoolId == schoolId && x.IsActive).SumAsync(x => x.SellingPrice - x.DiscountAmount)
+        });
+
         [HttpGet("categories")]
         public async Task<IActionResult> Categories(int schoolId) => Success(await _db.InventoryCategories.Where(x => x.SchoolId == schoolId).OrderBy(x => x.Name).ToListAsync());
         [HttpPost("categories")]
@@ -61,7 +72,7 @@ namespace SchoolManagement.Controllers
         public Task<IActionResult> UpdateVariant(int id, InventoryProductVariant item) => UpdateMaster(_db.InventoryProductVariants,id,item,"Variant");
 
         [HttpGet("books")]
-        public async Task<IActionResult> Books(int schoolId) => Success(await (from b in _db.InventoryBooks join p in _db.InventoryProducts on b.ProductId equals p.Id where b.SchoolId == schoolId select new {b.Id,b.ProductId,bookName=p.ProductName,b.AcademicSessionId,b.ClassId,b.SectionId,b.SubjectId,b.Publisher,b.Edition,b.Isbn,p.SellingPrice}).ToListAsync());
+        public async Task<IActionResult> Books(int schoolId) => Success(await (from b in _db.InventoryBooks join s in _db.AcademicSessions on b.AcademicSessionId equals s.Id where b.SchoolId == schoolId orderby b.BookName select new { b.Id, b.BookName, b.AcademicSessionId, AcademicSession = s.Year_Start.Year + "-" + s.Year_End.Year, b.ClassId, b.SectionId, b.SubjectId, b.Publisher, b.Edition, b.Isbn, b.Mrp, b.SellingPrice, b.DiscountAmount, FinalPrice = b.SellingPrice - b.DiscountAmount }).ToListAsync());
         [HttpPost("books")]
         public async Task<IActionResult> Book(InventoryBook item) { _db.Add(item); await _db.SaveChangesAsync(); return Success(item,"Book mapping created."); }
         [HttpPut("books/{id:int}")]
@@ -73,6 +84,20 @@ namespace SchoolManagement.Controllers
         public async Task<IActionResult> Kit(InventoryKit item) { _db.Add(item); await _db.SaveChangesAsync(); return Success(item,"Kit created."); }
         [HttpPut("kits/{id:int}")]
         public Task<IActionResult> UpdateKit(int id, InventoryKit item) => UpdateMaster(_db.InventoryKits,id,item,"Kit");
+
+        [HttpGet("book-kits")]
+        public async Task<IActionResult> BookKits(int schoolId) => Success(await (from x in _db.InventoryKits join s in _db.AcademicSessions on x.AcademicSessionId equals s.Id where x.SchoolId == schoolId && x.KitType == "Book" orderby x.KitName select new { x.Id, x.KitName, x.AcademicSessionId, AcademicSession = s.Year_Start.Year + "-" + s.Year_End.Year, x.ClassId, x.Mrp, x.SellingPrice, x.DiscountAmount, FinalPrice = x.SellingPrice - x.DiscountAmount, x.IsActive }).ToListAsync());
+        [HttpPost("book-kits")]
+        public async Task<IActionResult> BookKit(InventoryKit item) { item.KitType = "Book"; return await SavePricedKit(item); }
+        [HttpPut("book-kits/{id:int}")]
+        public async Task<IActionResult> UpdateBookKit(int id, InventoryKit input) => await UpdatePricedKit(id,input,"Book");
+
+        [HttpGet("uniform-kits")]
+        public async Task<IActionResult> UniformKits(int schoolId) => Success(await (from x in _db.InventoryKits join s in _db.AcademicSessions on x.AcademicSessionId equals s.Id where x.SchoolId == schoolId && x.KitType == "Uniform" orderby x.KitName select new { x.Id, x.KitName, x.AcademicSessionId, AcademicSession = s.Year_Start.Year + "-" + s.Year_End.Year, x.ClassId, x.Mrp, x.SellingPrice, x.DiscountAmount, FinalPrice = x.SellingPrice - x.DiscountAmount, x.IsActive }).ToListAsync());
+        [HttpPost("uniform-kits")]
+        public async Task<IActionResult> UniformKit(InventoryKit item) { item.KitType = "Uniform"; return await SavePricedKit(item); }
+        [HttpPut("uniform-kits/{id:int}")]
+        public async Task<IActionResult> UpdateUniformKit(int id, InventoryKit input) => await UpdatePricedKit(id,input,"Uniform");
 
         [HttpGet("purchase-orders")]
         public async Task<IActionResult> PurchaseOrders(int schoolId) => Success(await (from po in _db.InventoryPurchaseOrders join v in _db.InventoryVendors on po.VendorId equals v.Id where po.SchoolId == schoolId orderby po.PurchaseDate descending select new {po.Id,po.PoNumber,vendorName=v.VendorName,po.PurchaseDate,po.InvoiceNumber,po.Status,po.TotalAmount}).ToListAsync());
