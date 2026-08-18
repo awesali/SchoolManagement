@@ -204,6 +204,30 @@ namespace SchoolManagement.Controllers
         public async Task<IActionResult> Reports(int schoolId)=>Success(new{inventoryValue=await _db.InventoryProducts.Where(x=>x.SchoolId==schoolId).SumAsync(x=>x.CurrentStock*x.PurchasePrice),salesValue=await _db.InventoryStudentOrders.Where(x=>x.SchoolId==schoolId).SumAsync(x=>x.TotalAmount),collected=await _db.InventoryStudentOrders.Where(x=>x.SchoolId==schoolId).SumAsync(x=>x.PaidAmount),lowStock=await _db.InventoryProducts.CountAsync(x=>x.SchoolId==schoolId&&x.CurrentStock-x.ReservedStock<=x.MinimumStock)});
 
         private async Task<int> CountCategory(IQueryable<InventoryProduct> products,int schoolId,string term){var ids=await _db.InventoryCategories.Where(x=>x.SchoolId==schoolId&&x.Name.Contains(term)).Select(x=>x.Id).ToListAsync();return await products.CountAsync(x=>ids.Contains(x.CategoryId));}
+        private async Task<IActionResult> SavePricedKit(InventoryKit item)
+        {
+            if (item.Mrp < 0 || item.SellingPrice < 0 || item.DiscountAmount < 0 || item.DiscountAmount > item.SellingPrice)
+                return BadRequest(new { success=false, message="Kit prices must be non-negative and the discount cannot exceed the selling price." });
+
+            _db.InventoryKits.Add(item);
+            await _db.SaveChangesAsync();
+            return Success(item, $"{item.KitType} kit created.");
+        }
+
+        private async Task<IActionResult> UpdatePricedKit(int id,InventoryKit input,string kitType)
+        {
+            if (input.Mrp < 0 || input.SellingPrice < 0 || input.DiscountAmount < 0 || input.DiscountAmount > input.SellingPrice)
+                return BadRequest(new { success=false, message="Kit prices must be non-negative and the discount cannot exceed the selling price." });
+
+            var existing=await _db.InventoryKits.FirstOrDefaultAsync(x=>x.Id==id&&x.KitType==kitType);
+            if(existing==null)return NotFound(new{success=false,message=$"{kitType} kit not found."});
+            input.Id=id;
+            input.SchoolId=existing.SchoolId;
+            input.KitType=kitType;
+            _db.Entry(existing).CurrentValues.SetValues(input);
+            await _db.SaveChangesAsync();
+            return Success(existing,$"{kitType} kit updated.");
+        }
         private async Task<IActionResult> UpdateMaster<TEntity>(DbSet<TEntity> set,int id,TEntity item,string label) where TEntity:class
         {
             var existing=await set.FindAsync(id);if(existing==null)return NotFound(new{success=false,message=$"{label} not found."});
