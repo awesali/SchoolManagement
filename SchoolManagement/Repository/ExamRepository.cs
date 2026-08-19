@@ -374,6 +374,62 @@ namespace SchoolManagement.Repository
             }
         }
 
+        public async Task<ApiResponse<Exams>> CreateTeacherUnitTest(CreateTeacherUnitTestDto dto, int userId)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Name))
+                return new ApiResponse<Exams> { Success = false, Message = "Unit test name is required" };
+            if (dto.MaxMarks <= 0 || dto.PassingMarks < 0 || dto.PassingMarks >= dto.MaxMarks)
+                return new ApiResponse<Exams> { Success = false, Message = "Passing marks must be less than total marks" };
+
+            var staff = await _context.Staff
+                .Where(s => EF.Property<int?>(s, nameof(Staff.usersid)) == userId)
+                .Select(s => new { s.Id, SchoolId = EF.Property<int?>(s, nameof(Staff.SchoolId)) })
+                .FirstOrDefaultAsync();
+            if (staff == null || !staff.SchoolId.HasValue)
+                return new ApiResponse<Exams> { Success = false, Message = "Teacher profile or school not found" };
+
+            var assigned = await _context.SectionDetails.AnyAsync(s => s.Id == dto.SectionId &&
+                s.ClassId == dto.ClassId && s.StaffId == staff.Id && s.SchoolId == staff.SchoolId.Value && s.IsActive);
+            var subjectAssigned = await _context.SectionSubjects.AnyAsync(s =>
+                s.SectionId == dto.SectionId && s.SubjectId == dto.SubjectId && s.IsActive);
+            if (!assigned || !subjectAssigned)
+                return new ApiResponse<Exams> { Success = false, Message = "You can add a unit test only for your assigned class, section and subject" };
+
+            var unitTestType = await _context.ExamTypes.FirstOrDefaultAsync(x =>
+                x.schoolId == staff.SchoolId.Value && x.IsActive && x.Name.ToLower() == "unit test");
+            if (unitTestType == null)
+            {
+                unitTestType = new ExamTypes { Name = "Unit Test", schoolId = staff.SchoolId.Value, IsActive = true };
+                _context.ExamTypes.Add(unitTestType);
+                await _context.SaveChangesAsync();
+            }
+
+            var session = await _context.AcademicSessions
+                .Where(x => x.SchoolId == staff.SchoolId.Value && x.IsActive)
+                .OrderByDescending(x => x.Year_Start).FirstOrDefaultAsync();
+            if (session == null)
+                return new ApiResponse<Exams> { Success = false, Message = "No active academic session found" };
+
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            var exam = new Exams
+            {
+                Name = dto.Name.Trim(), ExamTypeId = unitTestType.Id, SchoolId = staff.SchoolId.Value,
+                AcademicSessionId = session.Id, StartDate = dto.TestDate.Date, EndDate = dto.TestDate.Date,
+                IsPublished = true, ResultPublished = false, CreatedDate = DateTime.Now, CreatedBy = userId, IsActive = true
+            };
+            _context.Exams.Add(exam);
+            await _context.SaveChangesAsync();
+            _context.ExamSubjects.Add(new ExamSubjects
+            {
+                SchoolId = staff.SchoolId.Value, ExamId = exam.Id, ClassId = dto.ClassId,
+                SectionId = dto.SectionId, SubjectId = dto.SubjectId, MaxMarks = dto.MaxMarks,
+                PassingMarks = dto.PassingMarks, Created_Date = DateTime.Now, IsActive = true
+            });
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+            return new ApiResponse<Exams> { Success = true, Message = "Unit test created successfully", Data = exam };
+        }
+
         public async Task<ApiResponse<Exams>>PublishExam(int examId)
         {
             try

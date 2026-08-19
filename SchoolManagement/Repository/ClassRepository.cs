@@ -133,6 +133,50 @@ namespace SchoolManagement.Repository
             return (data, total);
         }
 
+        public async Task<List<ClassDetailDto>> GetTeacherClassesAsync(int userId)
+        {
+            var staffId = await _context.Staff
+                .Where(s => EF.Property<int?>(s, nameof(Staff.usersid)) == userId)
+                .Select(s => (int?)s.Id)
+                .FirstOrDefaultAsync();
+
+            if (!staffId.HasValue)
+                return new List<ClassDetailDto>();
+
+            return await _context.Classes
+                .Where(c => c.IsActive && _context.SectionDetails.Any(s =>
+                    s.ClassId == c.Id && s.StaffId == staffId.Value && s.IsActive))
+                .OrderBy(c => c.ClassName)
+                .Select(c => new ClassDetailDto
+                {
+                    Id = c.Id,
+                    ClassName = c.ClassName,
+                    SchoolId = c.SchoolId,
+                    CreatedDate = c.Created_Date,
+                    IsActive = c.IsActive,
+                    Sections = _context.SectionDetails
+                        .Where(s => s.ClassId == c.Id && s.StaffId == staffId.Value && s.IsActive)
+                        .Select(s => new GetSectionDto
+                        {
+                            Id = s.Id,
+                            SectionName = s.SectionName,
+                            StaffId = s.StaffId,
+                            MonitorStudentId = s.MonitorStudentId,
+                            Subjects = _context.SectionSubjects
+                                .Where(ss => ss.SectionId == s.Id && ss.IsActive)
+                                .Join(_context.Subjects, ss => ss.SubjectId, subject => subject.Id,
+                                    (ss, subject) => new SectionSubjectDto
+                                    {
+                                        SubjectId = subject.Id,
+                                        SubjectName = subject.SubjectName
+                                    }).ToList()
+                        }).ToList(),
+                    SectionCount = _context.SectionDetails.Count(s =>
+                        s.ClassId == c.Id && s.StaffId == staffId.Value && s.IsActive)
+                })
+                .ToListAsync();
+        }
+
         public async Task<ApiResponse<string>> UpdateClassWithSectionsAsync(UpdateClassWithSectionsDto dto)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();

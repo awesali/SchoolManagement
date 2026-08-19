@@ -20,7 +20,19 @@ public class PermissionsController : ControllerBase
     private int? SchoolId => int.TryParse(User.FindFirstValue("SchoolId"), out var id) ? id : null;
 
     [HttpGet("me")]
-    public async Task<IActionResult> Me() => Ok(new { permissions = await _service.EffectivePermissionsAsync(UserId), features = await _db.FeatureFlags.Where(x => x.SchoolId == null || x.SchoolId.ToString() == User.FindFirstValue("SchoolId")).ToDictionaryAsync(x => x.Key, x => x.IsEnabled) });
+    public async Task<IActionResult> Me()
+    {
+        var roleName = await (from user in _db.Users
+                              join role in _db.Roles on user.RoleId equals role.Id
+                              where user.Id == UserId
+                              select role.RoleName).FirstOrDefaultAsync();
+        return Ok(new
+        {
+            roleName,
+            permissions = await _service.EffectivePermissionsAsync(UserId),
+            features = await _db.FeatureFlags.Where(x => x.SchoolId == null || x.SchoolId.ToString() == User.FindFirstValue("SchoolId")).ToDictionaryAsync(x => x.Key, x => x.IsEnabled)
+        });
+    }
 
     [HttpGet("dashboard")]
     public async Task<IActionResult> Dashboard() => IsSuperAdmin ? Ok(new {
@@ -103,7 +115,7 @@ public class PermissionsController : ControllerBase
             .Select(x => new { x.Id, x.Name, x.Email, x.RoleId, x.IsActive }).FirstOrDefaultAsync();
         if (employee == null) return NotFound();
         var roleIds = await _db.EmployeeRoles.Where(x => x.UserId == userId && x.IsActive).Select(x => x.RoleId).ToListAsync();
-        var overrides = await _db.PermissionOverrides.Where(x => x.UserId == userId && x.IsAllowed != null).Select(x => new { x.PermissionId, x.IsAllowed }).ToListAsync();
+        var overrides = await _db.PermissionOverrides.Where(x => x.UserId == userId && x.IsAllowed == true).Select(x => new { x.PermissionId, x.IsAllowed }).ToListAsync();
         return Ok(new { employee, additionalRoleIds = roleIds, overrides, effectivePermissions = await _service.EffectivePermissionsAsync(userId) });
     }
 
@@ -121,7 +133,7 @@ public class PermissionsController : ControllerBase
         _db.EmployeeRoles.RemoveRange(await _db.EmployeeRoles.Where(x => x.UserId == userId).ToListAsync());
         _db.EmployeeRoles.AddRange(allowedRoleIds.Distinct().Where(x => x != request.PrimaryRoleId).Select(x => new EmployeeRole { UserId = userId, RoleId = x, IsActive = true }));
         _db.PermissionOverrides.RemoveRange(await _db.PermissionOverrides.Where(x => x.UserId == userId).ToListAsync());
-        _db.PermissionOverrides.AddRange(request.Overrides.Where(x => x.IsAllowed != null && validPermissionIds.Contains(x.PermissionId)).GroupBy(x => x.PermissionId).Select(x => x.Last()).Select(x => new PermissionOverride { UserId = userId, PermissionId = x.PermissionId, IsAllowed = x.IsAllowed, ModifiedAt = DateTime.UtcNow, ModifiedBy = UserId }));
+        _db.PermissionOverrides.AddRange(request.Overrides.Where(x => x.IsAllowed == true && validPermissionIds.Contains(x.PermissionId)).GroupBy(x => x.PermissionId).Select(x => x.Last()).Select(x => new PermissionOverride { UserId = userId, PermissionId = x.PermissionId, IsAllowed = true, ModifiedAt = DateTime.UtcNow, ModifiedBy = UserId }));
         await _db.SaveChangesAsync();
         await Audit("EmployeeAccess", userId.ToString(), "Update", old, request);
         return Ok(new { effectivePermissions = await _service.EffectivePermissionsAsync(userId) });

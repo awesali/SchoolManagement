@@ -58,6 +58,21 @@ namespace SchoolManagement.Controllers
             });
         }
 
+        [HttpGet("my-classes")]
+        public async Task<IActionResult> GetMyClasses()
+        {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+            if (userId == 0) return Unauthorized();
+
+            var data = await _repo.GetTeacherClassesAsync(userId);
+            return Ok(new ApiResponse<List<ClassDetailDto>>
+            {
+                Success = true,
+                Message = "Assigned classes fetched successfully",
+                Data = data
+            });
+        }
+
         [HttpPut("update-class-with-sections")]
         public async Task<IActionResult> UpdateClassWithSections(UpdateClassWithSectionsDto dto)
         {

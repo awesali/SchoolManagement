@@ -6,7 +6,7 @@ namespace SchoolManagement.Interfaces
     public interface IStaffRepository
     {
         Task<ApiResponse<string>> MarkStaffAttendanceAsync(MarkStaffAttendanceDto dto);
-        Task<List<StaffAttendanceHistoryDto>> GetStaffAttendanceHistoryAsync(DateTime fromDate, DateTime toDate, int schoolid);
+        Task<List<StaffAttendanceHistoryDto>> GetStaffAttendanceHistoryAsync(DateTime fromDate, DateTime toDate);
         Task<StaffAttendanceNotificationDto> CheckTodayAttendanceAsync();
         Task<object> AssignSalary(AssignSalaryDto dto);
         Task<object> GetAssignedSalary(int staffId);

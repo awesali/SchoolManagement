@@ -88,14 +88,26 @@ namespace SchoolManagement.Repository
             if (string.IsNullOrEmpty(staffIdClaim))
                 return new ApiResponse<string> { Success = false, Message = "Unauthorized" };
 
-            int staffId = int.Parse(staffIdClaim);
+            int userId = int.Parse(staffIdClaim);
 
             // ✅ Step 1: Validate staff
-            var staff = await _context.Staff.FirstOrDefaultAsync(u => u.Id == staffId);
+            // JWT NameIdentifier contains Users.Id, not Staff.Id. Project only
+            // the required nullable-safe columns so legacy NULL staff fields do
+            // not break attendance marking while EF materializes the entity.
+            var staff = await _context.Staff
+                .Where(u => EF.Property<int?>(u, nameof(Staff.usersid)) == userId)
+                .Select(u => new
+                {
+                    u.Id,
+                    SchoolId = EF.Property<int?>(u, nameof(Staff.SchoolId))
+                })
+                .FirstOrDefaultAsync();
             if (staff == null)
                 return new ApiResponse<string> { Success = false, Message = "Staff not found" };
+            if (!staff.SchoolId.HasValue)
+                return new ApiResponse<string> { Success = false, Message = "Staff school is not assigned" };
 
-            var schoolId = staff.SchoolId;
+            var schoolId = staff.SchoolId.Value;
 
             // ✅ Step 2: Normalize date (important 🔥)
             var attendanceDate = dto.AttendanceDate.Date;
@@ -126,7 +138,7 @@ namespace SchoolManagement.Repository
                 Status = dto.Status,
                 School_Id = schoolId,
                 Created_At = DateTime.Now,
-                Created_By = staffId,
+                Created_By = userId,
                 IsActive = true
             };
 
@@ -140,17 +152,30 @@ namespace SchoolManagement.Repository
             };
         }
 
-        public async Task<List<StaffAttendanceHistoryDto>> GetStaffAttendanceHistoryAsync(DateTime fromDate, DateTime toDate,int schoolid )
+        public async Task<List<StaffAttendanceHistoryDto>> GetStaffAttendanceHistoryAsync(DateTime fromDate, DateTime toDate)
         {
-            var staffId = int.Parse(_httpContextAccessor.HttpContext.User
+            var userId = int.Parse(_httpContextAccessor.HttpContext.User
                 .FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
 
-            if (staffId == 0)
+            if (userId == 0)
                 throw new Exception("Unauthorized");
+
+            var staff = await _context.Staff
+                .Where(s => EF.Property<int?>(s, nameof(Staff.usersid)) == userId)
+                .Select(s => new
+                {
+                    s.Id,
+                    SchoolId = EF.Property<int?>(s, nameof(Staff.SchoolId))
+                })
+                .FirstOrDefaultAsync();
+
+            if (staff == null || !staff.SchoolId.HasValue)
+                return new List<StaffAttendanceHistoryDto>();
 
             var history = await _context.StaffAttendance
                 .Where(a =>
-                    a.School_Id == schoolid &&
+                    a.Staff_Id == staff.Id &&
+                    a.School_Id == staff.SchoolId.Value &&
                     a.Attendance_Date.Date >= fromDate.Date &&
                     a.Attendance_Date.Date <= toDate.Date)
                 .OrderByDescending(a => a.Attendance_Date)
@@ -178,9 +203,12 @@ namespace SchoolManagement.Repository
                 };
             }
 
-            int staffId = int.Parse(staffIdClaim);
+            int userId = int.Parse(staffIdClaim);
 
-            var staff = await _context.Users.FirstOrDefaultAsync(u => u.Id == staffId);
+            var staff = await _context.Staff
+                .Where(u => EF.Property<int?>(u, nameof(Staff.usersid)) == userId)
+                .Select(u => new { u.Id, SchoolId = EF.Property<int?>(u, nameof(Staff.SchoolId)) })
+                .FirstOrDefaultAsync();
             if (staff == null)
             {
                 return new StaffAttendanceNotificationDto
@@ -190,13 +218,16 @@ namespace SchoolManagement.Repository
                 };
             }
 
-            var schoolId = staff.School_Id;
+            if (!staff.SchoolId.HasValue)
+                return new StaffAttendanceNotificationDto { ShouldMarkAttendance = false, Message = "Staff school is not assigned" };
+
+            var schoolId = staff.SchoolId.Value;
 
             var today = DateTime.Today;
 
             var alreadyMarked = await _context.StaffAttendance
                 .AnyAsync(a =>
-                    a.Staff_Id == staffId &&
+                    a.Staff_Id == staff.Id &&
                     a.School_Id == schoolId &&
                     a.Attendance_Date >= today &&
                     a.Attendance_Date < today.AddDays(1)

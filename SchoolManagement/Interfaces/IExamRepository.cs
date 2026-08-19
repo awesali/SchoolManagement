@@ -33,6 +33,8 @@ namespace SchoolManagement.Interfaces
         Task<ApiResponse<Exams>>
             CreateExam(CreateExamDto dto, int userId);
 
+        Task<ApiResponse<Exams>> CreateTeacherUnitTest(CreateTeacherUnitTestDto dto, int userId);
+
         Task<ApiResponse<List<Exams>>>
             GetExams(int schoolId);
 

@@ -25,9 +25,9 @@ namespace SchoolManagement.Controllers
         }
         [Authorize]
         [HttpGet("staff/attendance-history")]
-        public async Task<IActionResult> GetStaffAttendanceHistory(DateTime fromDate, DateTime toDate, int schoolid)
+        public async Task<IActionResult> GetStaffAttendanceHistory(DateTime fromDate, DateTime toDate)
         {
-            var result = await _repo.GetStaffAttendanceHistoryAsync(fromDate, toDate, schoolid);
+            var result = await _repo.GetStaffAttendanceHistoryAsync(fromDate, toDate);
             return Ok(result);
         }
 

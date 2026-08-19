@@ -152,6 +152,14 @@ namespace SchoolManagement.Controllers
                 : BadRequest(result);
         }
 
+        [HttpPost("teacher/unit-test")]
+        public async Task<IActionResult> CreateTeacherUnitTest(CreateTeacherUnitTestDto dto)
+        {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+            var result = await _repo.CreateTeacherUnitTest(dto, userId);
+            return result.Success ? Ok(result) : BadRequest(result);
+        }
+
         [HttpPut("PublishExam")]
         public async Task<IActionResult> PublishExam(int examId)
         {
