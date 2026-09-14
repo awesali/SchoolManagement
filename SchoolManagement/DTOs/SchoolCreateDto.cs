@@ -26,4 +26,9 @@
 
         public string Phone { get; set; }
     }
+
+    public class SchoolUpdateDto : SchoolCreateDto
+    {
+        public int Id { get; set; }
+    }
 }

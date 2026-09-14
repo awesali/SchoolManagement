@@ -571,6 +571,63 @@ namespace SchoolManagement.Repository
             };
         }
 
+        public async Task<ApiResponse<Schools>> UpdateSchoolAsync(SchoolUpdateDto dto, int userId)
+        {
+            var school = await _context.Schools
+                .FirstOrDefaultAsync(x => x.Id == dto.Id && x.SuperAdminId == userId && x.IsActive);
+
+            if (school == null)
+                return new ApiResponse<Schools> { Success = false, Message = "School not found" };
+
+            school.SchoolName = dto.SchoolName?.Trim() ?? string.Empty;
+            school.Address = string.IsNullOrWhiteSpace(dto.Address) ? BuildAddress(dto) : dto.Address;
+            school.Street = dto.Street;
+            school.City = dto.City;
+            school.PinCode = dto.PinCode;
+            school.Country = dto.Country;
+            school.State = dto.State;
+            school.Landmark = dto.Landmark;
+            school.Latitude = dto.Latitude;
+            school.Longitude = dto.Longitude;
+            school.Email = dto.Email?.Trim() ?? string.Empty;
+            school.Phone = dto.Phone?.Trim() ?? string.Empty;
+            school.Modified_Date = DateTime.Now;
+            school.Updated_By = userId;
+
+            await _context.SaveChangesAsync();
+            return new ApiResponse<Schools> { Success = true, Message = "School updated successfully", Data = school };
+        }
+
+        public async Task<ApiResponse<string>> UpdateAcademicSessionStatusAsync(UpdateAcademicSessionStatusDto dto)
+        {
+            var session = await _context.AcademicSessions
+                .FirstOrDefaultAsync(x => x.Id == dto.SessionId && x.SchoolId == dto.SchoolId);
+
+            if (session == null)
+                return new ApiResponse<string> { Success = false, Message = "Academic session not found" };
+
+            if (dto.IsActive)
+            {
+                var otherActiveSessions = await _context.AcademicSessions
+                    .Where(x => x.SchoolId == dto.SchoolId && x.Id != dto.SessionId && x.IsActive)
+                    .ToListAsync();
+
+                foreach (var otherSession in otherActiveSessions)
+                    otherSession.IsActive = false;
+            }
+
+            session.IsActive = dto.IsActive;
+            await _context.SaveChangesAsync();
+
+            return new ApiResponse<string>
+            {
+                Success = true,
+                Message = dto.IsActive
+                    ? "Academic session activated successfully"
+                    : "Academic session deactivated successfully"
+            };
+        }
+
         public async Task<List<StaffAttendanceDto>> GetStaffAttendanceBySchoolAsync(int schoolId)
         {
             var result = await (

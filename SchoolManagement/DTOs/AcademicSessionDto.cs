@@ -8,4 +8,11 @@ namespace SchoolManagement.DTOs
         public bool IsActive { get; set; }
         public DateTime CreatedAt { get; set; }
     }
+
+    public class UpdateAcademicSessionStatusDto
+    {
+        public int SchoolId { get; set; }
+        public int SessionId { get; set; }
+        public bool IsActive { get; set; }
+    }
 }

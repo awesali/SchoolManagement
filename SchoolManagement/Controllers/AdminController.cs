@@ -80,6 +80,14 @@ namespace SchoolManagement.Controllers
             }
         }
 
+        [HttpPut("update-school")]
+        public async Task<IActionResult> UpdateSchool(SchoolUpdateDto dto)
+        {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+            var result = await _repo.UpdateSchoolAsync(dto, userId);
+            return result.Success ? Ok(result) : NotFound(result);
+        }
+
         [HttpGet("staff-emails")]
         public async Task<IActionResult> GetStaffEmails([FromQuery] int schoolId)
         {
@@ -191,6 +199,16 @@ namespace SchoolManagement.Controllers
 
             var result = await _repo.GetAcademicSessionsAsync(schoolId);
             return Ok(result);
+        }
+
+        [HttpPut("academic-session-status")]
+        public async Task<IActionResult> UpdateAcademicSessionStatus([FromBody] UpdateAcademicSessionStatusDto dto)
+        {
+            if (dto.SchoolId <= 0 || dto.SessionId <= 0)
+                return BadRequest(new ApiResponse<string> { Success = false, Message = "A valid school and session are required" });
+
+            var result = await _repo.UpdateAcademicSessionStatusAsync(dto);
+            return result.Success ? Ok(result) : NotFound(result);
         }
 
         [HttpGet("GetStaffAttendanceBySchool")]

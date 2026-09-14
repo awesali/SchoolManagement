@@ -67,7 +67,7 @@ public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
         if (p.Contains("/api/exam")) return "exams.academic-exam";
         if (p.Contains("/api/transport")) return "management.transport";
         if (p.Contains("/api/inventory")) return "management.inventory";
-        if (p.Contains("school-by-superadmin") || p.Contains("/api/admin/create")) return "management.schools";
+        if (p.Contains("school-by-superadmin") || p.Contains("/api/admin/create") || p.Contains("update-school")) return "management.schools";
         if (p.Contains("dashboardcard")) return "dashboard.dashboard";
         if (p.Contains("/api/common/subjects")) return "academics.subjects";
         if (p.Contains("/api/common/by-school")) return "academics.classes";
