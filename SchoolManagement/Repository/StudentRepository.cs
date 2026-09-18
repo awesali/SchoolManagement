@@ -764,18 +764,19 @@ namespace SchoolManagement.Repository
             var profilePictureIndex = dto.DocumentNames?
                 .FindIndex(name => string.Equals(name?.Trim(), "Profile Picture", StringComparison.OrdinalIgnoreCase))
                 ?? -1;
-            if (profilePictureIndex < 0 || dto.Files == null
-                || dto.Files.Count <= profilePictureIndex
-                || dto.Files[profilePictureIndex] == null
-                || dto.Files[profilePictureIndex].Length == 0)
-                return new ApiResponse<string> { Success = false, Message = "Profile picture is required." };
-
-            var profilePicture = dto.Files[profilePictureIndex];
-            var allowedImageTypes = new[] { "image/jpeg", "image/png", "image/webp" };
-            if (!allowedImageTypes.Contains(profilePicture.ContentType.ToLowerInvariant()))
-                return new ApiResponse<string> { Success = false, Message = "Profile picture must be a JPG, PNG, or WebP image." };
-            if (profilePicture.Length > 5 * 1024 * 1024)
-                return new ApiResponse<string> { Success = false, Message = "Profile picture size cannot exceed 5 MB." };
+            IFormFile? profilePicture = null;
+            if (profilePictureIndex >= 0)
+            {
+                if (dto.Files == null || dto.Files.Count <= profilePictureIndex
+                    || dto.Files[profilePictureIndex] == null || dto.Files[profilePictureIndex].Length == 0)
+                    return new ApiResponse<string> { Success = false, Message = "Selected profile picture is empty or missing." };
+                profilePicture = dto.Files[profilePictureIndex];
+                var allowedImageTypes = new[] { "image/jpeg", "image/png", "image/webp" };
+                if (!allowedImageTypes.Contains(profilePicture.ContentType.ToLowerInvariant()))
+                    return new ApiResponse<string> { Success = false, Message = "Profile picture must be a JPG, PNG, or WebP image." };
+                if (profilePicture.Length > 5 * 1024 * 1024)
+                    return new ApiResponse<string> { Success = false, Message = "Profile picture size cannot exceed 5 MB." };
+            }
 
             dto.GenderCode = dto.GenderCode?.Trim().ToUpperInvariant();
             if (!GenderCodes.IsValid(dto.GenderCode))
@@ -928,25 +929,28 @@ namespace SchoolManagement.Repository
                 _context.Students.Add(student);
                 await _context.SaveChangesAsync();
 
-                var profileExtension = Path.GetExtension(profilePicture.FileName);
-                var profileFileName = Guid.NewGuid() + profileExtension;
-                var profileFolder = Path.Combine(_env.WebRootPath, "profilepictures", "student", student.Id.ToString());
-                Directory.CreateDirectory(profileFolder);
-                using (var stream = new FileStream(Path.Combine(profileFolder, profileFileName), FileMode.Create))
+                if (profilePicture != null)
                 {
-                    await profilePicture.CopyToAsync(stream);
+                    var profileExtension = Path.GetExtension(profilePicture.FileName);
+                    var profileFileName = Guid.NewGuid() + profileExtension;
+                    var profileFolder = Path.Combine(_env.WebRootPath, "profilepictures", "student", student.Id.ToString());
+                    Directory.CreateDirectory(profileFolder);
+                    using (var stream = new FileStream(Path.Combine(profileFolder, profileFileName), FileMode.Create))
+                    {
+                        await profilePicture.CopyToAsync(stream);
+                    }
+                    _context.ProfilePictures.Add(new ProfilePicture
+                    {
+                        PersonType = "Student",
+                        PersonId = student.Id,
+                        FileName = profilePicture.FileName,
+                        FileUrl = $"/profilepictures/student/{student.Id}/{profileFileName}",
+                        ContentType = profilePicture.ContentType,
+                        CreatedDate = DateTime.UtcNow,
+                        IsActive = true
+                    });
+                    await _context.SaveChangesAsync();
                 }
-                _context.ProfilePictures.Add(new ProfilePicture
-                {
-                    PersonType = "Student",
-                    PersonId = student.Id,
-                    FileName = profilePicture.FileName,
-                    FileUrl = $"/profilepictures/student/{student.Id}/{profileFileName}",
-                    ContentType = profilePicture.ContentType,
-                    CreatedDate = DateTime.UtcNow,
-                    IsActive = true
-                });
-                await _context.SaveChangesAsync();
 
                 // 3. Add StudentEnrollment
                 var enrollment = new StudentEnrollment

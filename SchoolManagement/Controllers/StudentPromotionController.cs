@@ -15,6 +15,17 @@ public class StudentPromotionController : ControllerBase
         { "Promote", "Repeat", "Transfer", "Left", "PassedOut" };
     private readonly AppDbContext _db;
     public StudentPromotionController(AppDbContext db) => _db = db;
+    private static int? ClassLevel(string? name)
+    {
+        var label = System.Text.RegularExpressions.Regex.Replace((name ?? "").Trim().ToLowerInvariant(), @"^(class|grade|std\.?|standard)\s*[-:]?\s*", "").Trim();
+        var earlyYears = new Dictionary<string, int> { ["pre nursery"] = -3, ["pre-nursery"] = -3, ["nursery"] = -2, ["lkg"] = -1, ["lower kg"] = -1, ["lower kindergarten"] = -1, ["ukg"] = 0, ["upper kg"] = 0, ["upper kindergarten"] = 0, ["kg"] = 0, ["kindergarten"] = 0 };
+        if (earlyYears.TryGetValue(label, out var earlyLevel)) return earlyLevel;
+        var numeric = System.Text.RegularExpressions.Regex.Match(label, @"^(\d+)\s*(?:st|nd|rd|th)?$");
+        if (numeric.Success && int.TryParse(numeric.Groups[1].Value, out var level)) return level;
+        var roman = Array.IndexOf(new[] { "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii" }, label);
+        return roman >= 0 ? roman + 1 : null;
+    }
+
     private int UserId => int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : 0;
 
     private bool CanAccessSchool(int schoolId)
@@ -83,6 +94,7 @@ public class StudentPromotionController : ControllerBase
         if (requestedIds.Count != request.Students.Count)
             return BadRequest(new { success = false, message = "The same enrollment cannot be processed twice." });
         var sources = await _db.StudentEnrollment.Where(x => requestedIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id);
+        var schoolClasses = await _db.Classes.Where(x => x.SchoolId == request.SchoolId).ToDictionaryAsync(x => x.Id);
         var warnings = new List<string>();
 
         await using var transaction = await _db.Database.BeginTransactionAsync();
@@ -133,6 +145,18 @@ public class StudentPromotionController : ControllerBase
                 var toSectionId = item.ToSectionId;
                 if (!toClassId.HasValue || !toSectionId.HasValue)
                     throw new InvalidOperationException($"Destination class and section are required for enrollment {source.Id}.");
+                if (!schoolClasses.TryGetValue(source.ClassId, out var sourceClass) ||
+                    !schoolClasses.TryGetValue(toClassId.Value, out var destinationClass) || !destinationClass.IsActive)
+                    throw new InvalidOperationException("Destination must be an active class in the selected school.");
+                if (action == "Repeat" && toClassId.Value != source.ClassId)
+                    throw new InvalidOperationException("Repeating students must remain in the same class.");
+                if (action == "Promote")
+                {
+                    var sourceLevel = ClassLevel(sourceClass.ClassName);
+                    var destinationLevel = ClassLevel(destinationClass.ClassName);
+                    if (!sourceLevel.HasValue || !destinationLevel.HasValue || (long)destinationLevel.Value != (long)sourceLevel.Value + 1)
+                        throw new InvalidOperationException($"Enrollment {source.Id}: promotion from {sourceClass.ClassName} is allowed only to the next class. Skipping classes is not allowed.");
+                }
                 var validSection = await _db.SectionDetails.AnyAsync(x => x.Id == toSectionId && x.ClassId == toClassId && x.SchoolId == request.SchoolId);
                 if (!validSection) throw new InvalidOperationException($"Destination class/section is invalid for enrollment {source.Id}.");
                 if (await _db.StudentEnrollment.AnyAsync(x => x.StudentId == source.StudentId && x.SessionId == request.NextSessionId))
