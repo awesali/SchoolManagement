@@ -197,18 +197,19 @@ namespace SchoolManagement.Repository
             var profilePictureIndex = dto.DocumentNames?
                 .FindIndex(name => string.Equals(name?.Trim(), "Profile Picture", StringComparison.OrdinalIgnoreCase))
                 ?? -1;
-            if (profilePictureIndex < 0 || dto.Files == null
-                || dto.Files.Count <= profilePictureIndex
-                || dto.Files[profilePictureIndex] == null
-                || dto.Files[profilePictureIndex].Length == 0)
-                return new ApiResponse<Staff> { Success = false, Message = "Profile picture is required." };
-
-            var profilePicture = dto.Files[profilePictureIndex];
-            var allowedImageTypes = new[] { "image/jpeg", "image/png", "image/webp" };
-            if (!allowedImageTypes.Contains(profilePicture.ContentType.ToLowerInvariant()))
-                return new ApiResponse<Staff> { Success = false, Message = "Profile picture must be a JPG, PNG, or WebP image." };
-            if (profilePicture.Length > 5 * 1024 * 1024)
-                return new ApiResponse<Staff> { Success = false, Message = "Profile picture size cannot exceed 5 MB." };
+            IFormFile? profilePicture = null;
+            if (profilePictureIndex >= 0)
+            {
+                if (dto.Files == null || dto.Files.Count <= profilePictureIndex
+                    || dto.Files[profilePictureIndex] == null || dto.Files[profilePictureIndex].Length == 0)
+                    return new ApiResponse<Staff> { Success = false, Message = "Selected profile picture is empty or missing." };
+                profilePicture = dto.Files[profilePictureIndex];
+                var allowedImageTypes = new[] { "image/jpeg", "image/png", "image/webp" };
+                if (!allowedImageTypes.Contains(profilePicture.ContentType.ToLowerInvariant()))
+                    return new ApiResponse<Staff> { Success = false, Message = "Profile picture must be a JPG, PNG, or WebP image." };
+                if (profilePicture.Length > 5 * 1024 * 1024)
+                    return new ApiResponse<Staff> { Success = false, Message = "Profile picture size cannot exceed 5 MB." };
+            }
 
             dto.GenderCode = dto.GenderCode?.Trim().ToUpperInvariant();
             if (!GenderCodes.IsValid(dto.GenderCode))
@@ -282,25 +283,28 @@ namespace SchoolManagement.Repository
 
                 await _context.SaveChangesAsync();
 
-                var profileExtension = Path.GetExtension(profilePicture.FileName);
-                var profileFileName = Guid.NewGuid() + profileExtension;
-                var profileFolder = Path.Combine(_env.WebRootPath, "profilepictures", "staff", staff.Id.ToString());
-                Directory.CreateDirectory(profileFolder);
-                using (var stream = new FileStream(Path.Combine(profileFolder, profileFileName), FileMode.Create))
+                if (profilePicture != null)
                 {
-                    await profilePicture.CopyToAsync(stream);
+                    var profileExtension = Path.GetExtension(profilePicture.FileName);
+                    var profileFileName = Guid.NewGuid() + profileExtension;
+                    var profileFolder = Path.Combine(_env.WebRootPath, "profilepictures", "staff", staff.Id.ToString());
+                    Directory.CreateDirectory(profileFolder);
+                    using (var stream = new FileStream(Path.Combine(profileFolder, profileFileName), FileMode.Create))
+                    {
+                        await profilePicture.CopyToAsync(stream);
+                    }
+                    _context.ProfilePictures.Add(new ProfilePicture
+                    {
+                        PersonType = "Staff",
+                        PersonId = staff.Id,
+                        FileName = profilePicture.FileName,
+                        FileUrl = $"/profilepictures/staff/{staff.Id}/{profileFileName}",
+                        ContentType = profilePicture.ContentType,
+                        CreatedDate = DateTime.UtcNow,
+                        IsActive = true
+                    });
+                    await _context.SaveChangesAsync();
                 }
-                _context.ProfilePictures.Add(new ProfilePicture
-                {
-                    PersonType = "Staff",
-                    PersonId = staff.Id,
-                    FileName = profilePicture.FileName,
-                    FileUrl = $"/profilepictures/staff/{staff.Id}/{profileFileName}",
-                    ContentType = profilePicture.ContentType,
-                    CreatedDate = DateTime.UtcNow,
-                    IsActive = true
-                });
-                await _context.SaveChangesAsync();
 
                 // ✅ Send Email
                 var placeholders = new Dictionary<string, string>
@@ -398,6 +402,17 @@ namespace SchoolManagement.Repository
             if (!GenderCodes.IsValid(dto.GenderCode))
                 return new ApiResponse<string> { Success = false, Message = "A valid gender is required." };
 
+            if (dto.ProfilePicture != null)
+            {
+                var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp" };
+                if (!allowedTypes.Contains(dto.ProfilePicture.ContentType.ToLowerInvariant()))
+                    return new ApiResponse<string> { Success = false, Message = "Profile picture must be a JPG, PNG, or WebP image." };
+                if (dto.ProfilePicture.Length == 0 || dto.ProfilePicture.Length > 5 * 1024 * 1024)
+                    return new ApiResponse<string> { Success = false, Message = "Profile picture must be non-empty and no larger than 5 MB." };
+            }
+
+            var previousPicturePaths = new List<string>();
+            string? newPicturePath = null;
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
@@ -467,12 +482,77 @@ namespace SchoolManagement.Repository
                 }
 
                 await _context.SaveChangesAsync();
+                if (dto.ProfilePicture != null)
+                {
+                    var picture = dto.ProfilePicture;
+                    var extension = picture.ContentType.ToLowerInvariant() switch
+                    {
+                        "image/png" => ".png",
+                        "image/webp" => ".webp",
+                        _ => ".jpg"
+                    };
+                    var fileName = Guid.NewGuid() + extension;
+                    var folder = Path.Combine(_env.WebRootPath, "profilepictures", "staff", staff.Id.ToString());
+                    Directory.CreateDirectory(folder);
+                    newPicturePath = Path.Combine(folder, fileName);
+                    using (var stream = new FileStream(newPicturePath, FileMode.CreateNew))
+                        await picture.CopyToAsync(stream);
+
+                    var existingPicture = await _context.ProfilePictures
+                        .Where(p => p.PersonType == "Staff" && p.PersonId == staff.Id)
+                        .OrderByDescending(p => p.IsActive)
+                        .ThenByDescending(p => p.Id)
+                        .FirstOrDefaultAsync();
+                    if (existingPicture != null && !string.IsNullOrWhiteSpace(existingPicture.FileUrl))
+                    {
+                        var allowedFolder = Path.GetFullPath(folder) + Path.DirectorySeparatorChar;
+                        var previousPath = Path.GetFullPath(Path.Combine(_env.WebRootPath, existingPicture.FileUrl.TrimStart('/')));
+                        if (!previousPath.StartsWith(allowedFolder, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+                            throw new InvalidOperationException("Previous profile picture path is outside the person's profile folder.");
+                        previousPicturePaths.Add(previousPath);
+                    }
+                    if (existingPicture == null)
+                    {
+                        existingPicture = new ProfilePicture
+                        {
+                            PersonType = "Staff",
+                            PersonId = staff.Id,
+                            CreatedDate = DateTime.UtcNow
+                        };
+                        _context.ProfilePictures.Add(existingPicture);
+                    }
+                    existingPicture.FileName = Path.GetFileName(picture.FileName);
+                    existingPicture.FileUrl = $"/profilepictures/staff/{staff.Id}/{fileName}";
+                    existingPicture.ContentType = picture.ContentType;
+                    existingPicture.IsActive = true;
+                    await _context.SaveChangesAsync();
+                }
+
                 await transaction.CommitAsync();
+                // Only delete old files after the replacement is committed.
+                newPicturePath = null;
+                foreach (var previousPath in previousPicturePaths.Distinct())
+                {
+                    try { File.Delete(previousPath); }
+                    catch (Exception cleanupError) when (cleanupError is IOException || cleanupError is UnauthorizedAccessException)
+                    {
+                        System.Diagnostics.Trace.TraceWarning($"Unable to delete replaced profile picture: {cleanupError.Message}");
+                    }
+                }
                 return new ApiResponse<string> { Success = true, Message = "Staff updated successfully", Data = null };
             }
             catch
             {
                 await transaction.RollbackAsync();
+                // A failed update keeps the previous photo and discards the new upload.
+                if (newPicturePath != null)
+                {
+                    try { File.Delete(newPicturePath); }
+                    catch (Exception cleanupError) when (cleanupError is IOException || cleanupError is UnauthorizedAccessException)
+                    {
+                        System.Diagnostics.Trace.TraceWarning($"Unable to delete failed profile upload: {cleanupError.Message}");
+                    }
+                }
                 return new ApiResponse<string> { Success = false, Message = "Failed to update staff", Data = null };
             }
         }

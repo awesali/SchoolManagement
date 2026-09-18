@@ -37,6 +37,17 @@ namespace SchoolManagement.Repository
                     return new ApiResponse<string> { Success = false, Message = "Invalid gender code." };
             }
 
+            if (dto.ProfilePicture != null)
+            {
+                var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp" };
+                if (!allowedTypes.Contains(dto.ProfilePicture.ContentType.ToLowerInvariant()))
+                    return new ApiResponse<string> { Success = false, Message = "Profile picture must be a JPG, PNG, or WebP image." };
+                if (dto.ProfilePicture.Length == 0 || dto.ProfilePicture.Length > 5 * 1024 * 1024)
+                    return new ApiResponse<string> { Success = false, Message = "Profile picture must be non-empty and no larger than 5 MB." };
+            }
+
+            var previousPicturePaths = new List<string>();
+            string? newPicturePath = null;
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
@@ -240,12 +251,77 @@ namespace SchoolManagement.Repository
                     }
                 }
 
+                if (dto.ProfilePicture != null)
+                {
+                    var picture = dto.ProfilePicture;
+                    var extension = picture.ContentType.ToLowerInvariant() switch
+                    {
+                        "image/png" => ".png",
+                        "image/webp" => ".webp",
+                        _ => ".jpg"
+                    };
+                    var fileName = Guid.NewGuid() + extension;
+                    var folder = Path.Combine(_env.WebRootPath, "profilepictures", "student", student.Id.ToString());
+                    Directory.CreateDirectory(folder);
+                    newPicturePath = Path.Combine(folder, fileName);
+                    using (var stream = new FileStream(newPicturePath, FileMode.CreateNew))
+                        await picture.CopyToAsync(stream);
+
+                    var existingPicture = await _context.ProfilePictures
+                        .Where(p => p.PersonType == "Student" && p.PersonId == student.Id)
+                        .OrderByDescending(p => p.IsActive)
+                        .ThenByDescending(p => p.Id)
+                        .FirstOrDefaultAsync();
+                    if (existingPicture != null && !string.IsNullOrWhiteSpace(existingPicture.FileUrl))
+                    {
+                        var allowedFolder = Path.GetFullPath(folder) + Path.DirectorySeparatorChar;
+                        var previousPath = Path.GetFullPath(Path.Combine(_env.WebRootPath, existingPicture.FileUrl.TrimStart('/')));
+                        if (!previousPath.StartsWith(allowedFolder, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+                            throw new InvalidOperationException("Previous profile picture path is outside the person's profile folder.");
+                        previousPicturePaths.Add(previousPath);
+                    }
+                    if (existingPicture == null)
+                    {
+                        existingPicture = new ProfilePicture
+                        {
+                            PersonType = "Student",
+                            PersonId = student.Id,
+                            CreatedDate = DateTime.UtcNow
+                        };
+                        _context.ProfilePictures.Add(existingPicture);
+                    }
+                    existingPicture.FileName = Path.GetFileName(picture.FileName);
+                    existingPicture.FileUrl = $"/profilepictures/student/{student.Id}/{fileName}";
+                    existingPicture.ContentType = picture.ContentType;
+                    existingPicture.IsActive = true;
+                    await _context.SaveChangesAsync();
+                }
+
                 await transaction.CommitAsync();
+                // Only delete old files after the replacement is committed.
+                newPicturePath = null;
+                foreach (var previousPath in previousPicturePaths.Distinct())
+                {
+                    try { File.Delete(previousPath); }
+                    catch (Exception cleanupError) when (cleanupError is IOException || cleanupError is UnauthorizedAccessException)
+                    {
+                        System.Diagnostics.Trace.TraceWarning($"Unable to delete replaced profile picture: {cleanupError.Message}");
+                    }
+                }
                 return new ApiResponse<string> { Success = true, Message = "Student updated successfully", Data = null };
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
+                // A failed update keeps the previous photo and discards the new upload.
+                if (newPicturePath != null)
+                {
+                    try { File.Delete(newPicturePath); }
+                    catch (Exception cleanupError) when (cleanupError is IOException || cleanupError is UnauthorizedAccessException)
+                    {
+                        System.Diagnostics.Trace.TraceWarning($"Unable to delete failed profile upload: {cleanupError.Message}");
+                    }
+                }
                 return new ApiResponse<string> { Success = false, Message = ex.Message, Data = null };
             }
         }

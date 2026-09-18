@@ -15,7 +15,9 @@ namespace SchoolManagement.Service;
 public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
 {
     private readonly IPermissionService _permissions;
-    public CrudPermissionFilter(IPermissionService permissions) => _permissions = permissions;
+    private readonly IConfiguration _configuration;
+    public CrudPermissionFilter(IPermissionService permissions, IConfiguration configuration)
+    { _permissions = permissions; _configuration = configuration; }
 
     public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
@@ -29,6 +31,8 @@ public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
             context.Result = new UnauthorizedObjectResult(new { success = false, message = "Authentication is required." });
             return;
         }
+        // Temporarily bypass custom CRUD grants only; authentication above stays active.
+        if (!_configuration.GetValue<bool>("Security:CrudPermissionsEnabled", true)) return;
         if (user.FindFirstValue("RoleId") == "1") return;
 
         var page = ResolvePage(context.HttpContext.Request.Path.Value ?? "");

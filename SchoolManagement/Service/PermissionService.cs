@@ -13,10 +13,14 @@ public interface IPermissionService
 public class PermissionService : IPermissionService
 {
     private readonly AppDbContext _db;
-    public PermissionService(AppDbContext db) => _db = db;
+    private readonly IConfiguration _configuration;
+    public PermissionService(AppDbContext db, IConfiguration configuration)
+    { _db = db; _configuration = configuration; }
 
     public async Task<bool> HasPermissionAsync(ClaimsPrincipal principal, string key)
     {
+        if (principal.Identity?.IsAuthenticated != true) return false;
+        if (!_configuration.GetValue<bool>("Security:CrudPermissionsEnabled", true)) return true;
         var userIdText = principal.FindFirstValue(ClaimTypes.NameIdentifier);
         var roleIdText = principal.FindFirstValue("RoleId");
         if (!int.TryParse(userIdText, out var userId)) return false;

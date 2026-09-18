@@ -5,6 +5,7 @@ namespace SchoolManagement.DTOs
     public class StudentUpdateDto
     {
         public int Id { get; set; }
+        public IFormFile? ProfilePicture { get; set; }
         public string? StudentName { get; set; }
         public DateTime? DOB { get; set; }
         public string? GenderCode { get; set; }

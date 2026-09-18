@@ -3,6 +3,7 @@
     public class UpdateStaffDto
     {
         public int Id { get; set; }
+        public IFormFile? ProfilePicture { get; set; }
 
         public string Name { get; set; }
         public DateTime DOB { get; set; }
