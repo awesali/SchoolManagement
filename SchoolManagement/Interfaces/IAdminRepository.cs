@@ -5,6 +5,7 @@ namespace SchoolManagement.Interfaces
 {
     public interface IAdminRepository
     {
+        Task<ApiResponse<string>> UpdateParentAsync(UpdateParentDto dto, int userId);
         Task<ApiResponse<Schools>> CreateSchool(SchoolCreateDto dto, int userId);
         Task<ApiResponse<Schools>> UpdateSchoolAsync(SchoolUpdateDto dto, int userId);
 
@@ -25,7 +26,7 @@ namespace SchoolManagement.Interfaces
         Task<ApiResponse<string>> CreateAcademicSessionAsync(CreateSessionDto dto);
         Task<ApiResponse<List<AcademicSessionDto>>> GetAcademicSessionsAsync(int schoolId);
         Task<ApiResponse<string>> UpdateAcademicSessionStatusAsync(UpdateAcademicSessionStatusDto dto);
-        Task<(List<ParentListDto> Data, int TotalRecords)> GetParentsBySchoolAsync(int schoolId, int page, int pageSize, string? search);
+        Task<(List<ParentListDto> Data, int TotalRecords)> GetParentsBySchoolAsync(int schoolId, int page, int pageSize, string? search, int? parentId = null);
         Task<List<StaffAttendanceDto>> GetStaffAttendanceBySchoolAsync(int schoolId);
         Task<List<StaffAttendanceHistoryByDateDto>> GetAttendanceHistoryAsync(int schoolId,DateTime fromDate,DateTime toDate);
     }

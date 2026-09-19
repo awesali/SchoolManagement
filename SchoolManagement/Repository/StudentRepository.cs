@@ -355,6 +355,17 @@ namespace SchoolManagement.Repository
             }
         }
 
+        private static int StudentListClassLevel(string name)
+        {
+            var label = System.Text.RegularExpressions.Regex.Replace((name ?? "").Trim().ToLowerInvariant(), @"^(class|grade|std\.?|standard)\s*[-:]?\s*", "").Trim();
+            var earlyYears = new Dictionary<string, int> { ["pre nursery"] = -3, ["pre-nursery"] = -3, ["nursery"] = -2, ["lkg"] = -1, ["lower kg"] = -1, ["lower kindergarten"] = -1, ["ukg"] = 0, ["upper kg"] = 0, ["upper kindergarten"] = 0, ["kg"] = 0, ["kindergarten"] = 0 };
+            if (earlyYears.TryGetValue(label, out var earlyLevel)) return earlyLevel;
+            var numeric = System.Text.RegularExpressions.Regex.Match(label, @"^(\d+)\s*(?:st|nd|rd|th)?$");
+            if (numeric.Success && int.TryParse(numeric.Groups[1].Value, out var level)) return level;
+            var roman = Array.IndexOf(new[] { "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii" }, label);
+            return roman >= 0 ? roman + 1 : int.MaxValue;
+        }
+
         public async Task<(List<StudentDto> Data, int TotalRecords)> GetStudentsBySchoolIdAsync(int schoolId, int page, int pageSize)
         {
             var query = from s in _context.Students
@@ -382,7 +393,10 @@ namespace SchoolManagement.Repository
                             Email = s.Email,
                             PhoneNumber = s.PhoneNumber,
                             ParentId = s.ParentId,
+                    ParentName = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Name).FirstOrDefault(),
+                    ParentRelationship = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Relationship).FirstOrDefault(),
                             SchoolId = s.SchoolId,
+                            ClassId = c != null ? (int?)c.Id : null,
                             RollNumber = currentRollNumber,
                             ClassName = c != null ? c.ClassName : null,
                             SectionName = sd != null ? sd.SectionName : null,
@@ -404,7 +418,29 @@ namespace SchoolManagement.Repository
                         };
 
             var total = await query.CountAsync();
-            var data = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+            // Rank the small class catalogue, then apply its order in SQL before pagination.
+            var schoolClasses = await _context.Classes.AsNoTracking()
+                .Where(c => c.SchoolId == schoolId)
+                .Select(c => new { c.Id, c.ClassName }).ToListAsync();
+            var orderedClasses = schoolClasses.OrderBy(c => StudentListClassLevel(c.ClassName))
+                .ThenBy(c => c.ClassName, StringComparer.OrdinalIgnoreCase).ThenBy(c => c.Id).ToList();
+            var studentParameter = System.Linq.Expressions.Expression.Parameter(typeof(StudentDto), "student");
+            System.Linq.Expressions.Expression rank = System.Linq.Expressions.Expression.Constant(int.MaxValue);
+            for (var index = orderedClasses.Count - 1; index >= 0; index--)
+            {
+                var matchesClass = System.Linq.Expressions.Expression.Equal(
+                    System.Linq.Expressions.Expression.Property(studentParameter, nameof(StudentDto.ClassId)),
+                    System.Linq.Expressions.Expression.Convert(System.Linq.Expressions.Expression.Constant(orderedClasses[index].Id), typeof(int?)));
+                rank = System.Linq.Expressions.Expression.Condition(matchesClass,
+                    System.Linq.Expressions.Expression.Constant(index), rank);
+            }
+            var classOrder = System.Linq.Expressions.Expression.Lambda<Func<StudentDto, int>>(rank, studentParameter);
+            var data = await query.OrderBy(classOrder)
+                .ThenBy(s => s.SectionName)
+                .ThenBy(s => string.IsNullOrEmpty(s.RollNumber) ? 1 : 0)
+                .ThenBy(s => s.RollNumber.Length).ThenBy(s => s.RollNumber)
+                .ThenBy(s => s.StudentName).ThenBy(s => s.Id).ThenBy(s => s.EnrollmentId)
+                .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
             return (data, total);
         }
         public async Task<ApiResponse<StudentDto>> GetStudentByIdAsync(int studentId)
@@ -440,6 +476,8 @@ namespace SchoolManagement.Repository
                     Email = s.Email,
                     PhoneNumber = s.PhoneNumber,
                     ParentId = s.ParentId,
+                    ParentName = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Name).FirstOrDefault(),
+                    ParentRelationship = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Relationship).FirstOrDefault(),
                     SchoolId = s.SchoolId,
 
                     ClassId = se != null ? se.ClassId : (int?)null,       // <-- Add IDs
@@ -538,6 +576,8 @@ namespace SchoolManagement.Repository
                             Email = s.Email,
                             PhoneNumber = s.PhoneNumber,
                             ParentId = s.ParentId,
+                    ParentName = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Name).FirstOrDefault(),
+                    ParentRelationship = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Relationship).FirstOrDefault(),
                             SchoolId = s.SchoolId,
                             ClassId = se.ClassId,
                             SectionId = se.SectionId,
@@ -1306,7 +1346,7 @@ namespace SchoolManagement.Repository
     int schoolId,
     int? classId,
     int? sectionId,
-    int? sessionId)
+    int? sessionId, bool includePaid = false)
         {
             try
             {
@@ -1332,7 +1372,7 @@ namespace SchoolManagement.Repository
                           && c.SchoolId == schoolId
                           && sec.SchoolId == schoolId
 
-                          && sf.Status != "Paid"
+                          && (includePaid || sf.Status != "Paid")
                           && sf.IsActive == true
 
                     select new
@@ -1406,6 +1446,22 @@ namespace SchoolManagement.Repository
             {
                 throw;
             }
+        }
+        public async Task<ApiResponse<string>> UpdateAssignedFeeAsync(UpdateAssignedFeeDto dto, int userId)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+            var fee = await _context.StudentFees.FirstOrDefaultAsync(f => f.Id == dto.StudentFeeId && f.SchoolId == dto.SchoolId && f.IsActive);
+            if (fee == null) return new() { Success = false, Message = "Assigned fee not found." };
+            var paid = await _context.FeePayments.Where(p => p.StudentFeeId == fee.Id && p.IsActive).SumAsync(p => (decimal?)p.AmountPaid) ?? 0;
+            if (dto.Amount <= 0 || dto.Amount < paid || decimal.Round(dto.Amount, 2) != dto.Amount)
+                return new() { Success = false, Message = "Enter a positive amount with up to two decimal places, not less than the amount already paid." };
+            fee.Amount = dto.Amount;
+            fee.Status = paid == 0 ? "Pending" : paid < fee.Amount ? "Partial" : "Paid";
+            fee.Modified_Date = DateTime.UtcNow;
+            fee.Updated_By = userId;
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+            return new() { Success = true, Message = "Assigned fee updated successfully." };
         }
         public async Task<bool> PayFeeAsync(FeePaymentDto dto)
         {

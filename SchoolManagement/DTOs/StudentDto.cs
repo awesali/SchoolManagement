@@ -10,6 +10,8 @@
         public string Email { get; set; }
         public string PhoneNumber { get; set; }
         public int ParentId { get; set; }
+        public string? ParentName { get; set; }
+        public string? ParentRelationship { get; set; }
         public int SchoolId { get; set; }
         public int? ClassId { get; set; }
         public int? SectionId { get; set; }

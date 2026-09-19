@@ -157,12 +157,23 @@ namespace SchoolManagement.Controllers
             return Ok(result);
         }
 
+        [HttpPut("update-parent")]
+        public async Task<IActionResult> UpdateParent(UpdateParentDto dto)
+        {
+            if (User.FindFirstValue("RoleId") != "1" &&
+                (!int.TryParse(User.FindFirstValue("SchoolId"), out var schoolId) || schoolId != dto.SchoolId))
+                return Forbid();
+            if (!int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return Unauthorized();
+            var result = await _repo.UpdateParentAsync(dto, userId);
+            return result.Success ? Ok(result) : BadRequest(result);
+        }
+
         [HttpGet("parents-by-school")]
         public async Task<IActionResult> GetParentsBySchool(
             [FromQuery] int schoolId,
             int page = 1,
             int pageSize = 10,
-            string? search = null)
+            string? search = null, int? parentId = null)
         {
             if (schoolId <= 0)
                 return BadRequest("A valid schoolId is required.");
@@ -170,7 +181,7 @@ namespace SchoolManagement.Controllers
             page = Math.Max(page, 1);
             pageSize = Math.Clamp(pageSize, 1, 100);
 
-            var (data, total) = await _repo.GetParentsBySchoolAsync(schoolId, page, pageSize, search);
+            var (data, total) = await _repo.GetParentsBySchoolAsync(schoolId, page, pageSize, search, parentId);
 
             return Ok(new PagedResponse<List<ParentListDto>>
             {

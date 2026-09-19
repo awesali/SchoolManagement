@@ -16,6 +16,7 @@ namespace SchoolManagement.DTOs
     {
         public int Id { get; set; }
         public string StudentName { get; set; }
+        public string? ProfilePictureUrl { get; set; }
         public string RollNumber { get; set; }
         public string ClassName { get; set; }
         public string SectionName { get; set; }

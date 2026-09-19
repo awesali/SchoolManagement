@@ -8,6 +8,12 @@ namespace SchoolManagement.Repository
 {
     public class ClassRepository : IClassRepository
     {
+        private static string ClassNameKey(string name)
+        {
+            var key = System.Text.RegularExpressions.Regex.Replace((name ?? "").Trim().ToLowerInvariant(), @"^(class|grade|std\.?|standard)\s*[-:]?\s*", "");
+            key = System.Text.RegularExpressions.Regex.Replace(key, @"\s+", "");
+            return System.Text.RegularExpressions.Regex.Replace(key, @"^(\d+)(st|nd|rd|th)$", "$1");
+        }
         private readonly AppDbContext _context;
         public ClassRepository(AppDbContext context)
         {
@@ -15,13 +21,17 @@ namespace SchoolManagement.Repository
         }
         public async Task<ApiResponse<string>> CreateClassWithSectionsAsync(CreateClassWithSectionsDto dto)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
 
             try
             {
+                var names = await _context.Classes.Where(c => c.SchoolId == dto.SchoolId)
+                    .Select(c => c.ClassName).ToListAsync();
+                if (names.Any(name => ClassNameKey(name) == ClassNameKey(dto.ClassName)))
+                    return new ApiResponse<string> { Success = false, Message = "A class with this name already exists in this school. Please use a different name.", Data = null };
                 var newClass = new Classes
                 {
-                    ClassName = dto.ClassName,
+                    ClassName = dto.ClassName.Trim(),
                     SchoolId = dto.SchoolId,
                     Created_Date = DateTime.UtcNow,
                     IsActive = true,
@@ -179,7 +189,7 @@ namespace SchoolManagement.Repository
 
         public async Task<ApiResponse<string>> UpdateClassWithSectionsAsync(UpdateClassWithSectionsDto dto)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
 
             try
             {
@@ -189,16 +199,15 @@ namespace SchoolManagement.Repository
                 if (existingClass == null)
                     return new ApiResponse<string> { Success = false, Message = "Class not found", Data = null };
 
-                var duplicateClass = await _context.Classes.AnyAsync(c =>
-                    c.ClassName == dto.ClassName &&
-                    c.SchoolId == existingClass.SchoolId &&
-                    c.Id != dto.ClassId &&
-                    c.IsActive);
+                var otherNames = await _context.Classes
+                    .Where(c => c.SchoolId == existingClass.SchoolId && c.Id != dto.ClassId)
+                    .Select(c => c.ClassName).ToListAsync();
+                var duplicateClass = otherNames.Any(name => ClassNameKey(name) == ClassNameKey(dto.ClassName));
 
                 if (duplicateClass)
                     return new ApiResponse<string> { Success = false, Message = "Class already exists", Data = null };
 
-                existingClass.ClassName = dto.ClassName;
+                existingClass.ClassName = dto.ClassName.Trim();
                 existingClass.Modified_Date = DateTime.UtcNow;
 
                 var existingSections = await _context.SectionDetails

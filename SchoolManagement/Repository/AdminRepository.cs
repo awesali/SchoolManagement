@@ -730,13 +730,51 @@ namespace SchoolManagement.Repository
             return result;
         }
 
+        public async Task<ApiResponse<string>> UpdateParentAsync(UpdateParentDto dto, int userId)
+        {
+            var parent = await _context.ParentDetails.FirstOrDefaultAsync(p => p.Id == dto.Id &&
+                _context.Students.Any(s => s.ParentId == p.Id && s.SchoolId == dto.SchoolId));
+            if (parent == null) return new() { Success = false, Message = "Parent not found in this school." };
+            var email = dto.Email.Trim();
+            var oldEmail = parent.Email;
+            var schoolIds = await _context.Students.Where(s => s.ParentId == parent.Id)
+                .Select(s => s.SchoolId).Distinct().ToListAsync();
+            // Parent logins are linked by email and school; preserve passwords while updating contact details.
+            var logins = await _context.Students_Parents_Creds.Where(c => schoolIds.Contains(c.School_Id) &&
+                c.RoleName == "Parent" && c.Email == oldEmail).ToListAsync();
+            var loginIds = logins.Select(c => c.Id).ToList();
+            if (await _context.ParentDetails.AnyAsync(p => p.Id != parent.Id && p.Email == email &&
+                    _context.Students.Any(s => s.ParentId == p.Id && schoolIds.Contains(s.SchoolId))) ||
+                await _context.Students_Parents_Creds.AnyAsync(c => schoolIds.Contains(c.School_Id) &&
+                    c.Email == email && !loginIds.Contains(c.Id)))
+                return new() { Success = false, Message = "This email is already used by another account. Please use a different email." };
+            parent.Name = dto.Name.Trim();
+            parent.Email = email;
+            parent.PhoneNumber = dto.PhoneNumber.Trim();
+            parent.Relationship = dto.Relationship.Trim();
+            parent.Address = dto.Address?.Trim() ?? "";
+            parent.Modified_Date = DateTime.Now;
+            parent.Updated_By = userId;
+            foreach (var login in logins)
+            {
+                login.Name = parent.Name;
+                login.Email = email;
+                login.Phone = parent.PhoneNumber;
+            }
+            await _context.SaveChangesAsync();
+            return new() { Success = true, Message = "Parent details updated successfully." };
+        }
+
+
         public async Task<(List<ParentListDto> Data, int TotalRecords)> GetParentsBySchoolAsync(
-            int schoolId, int page, int pageSize, string? search)
+            int schoolId, int page, int pageSize, string? search, int? parentId = null)
         {
             var query = _context.ParentDetails
                 .AsNoTracking()
                 .Where(parent => _context.Students.Any(student =>
                     student.ParentId == parent.Id && student.SchoolId == schoolId));
+
+            if (parentId.HasValue) query = query.Where(parent => parent.Id == parentId.Value);
 
             if (!string.IsNullOrWhiteSpace(search))
             {
@@ -778,6 +816,10 @@ namespace SchoolManagement.Repository
                     {
                         Id = student.Id,
                         StudentName = student.StudentName,
+                        ProfilePictureUrl = _context.ProfilePictures
+                            .Where(p => p.PersonType == "Student" && p.PersonId == student.Id && p.IsActive)
+                            .OrderByDescending(p => p.Id)
+                            .Select(p => p.FileUrl).FirstOrDefault(),
                         RollNumber = enrollment != null
                             ? (enrollment.RollNumber ?? student.Rollnumber)
                             : student.Rollnumber,

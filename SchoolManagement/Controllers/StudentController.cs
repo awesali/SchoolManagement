@@ -165,13 +165,22 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpGet("GetPendingFees")]
-        public async Task<IActionResult> PendingFees(int schoolId,int? classId,int? sectionId,int? sessionId)
+        public async Task<IActionResult> PendingFees(int schoolId,int? classId,int? sectionId,int? sessionId, bool includePaid = false)
         {
             var result =
-                await _repo.GetPendingFeesAsync( schoolId,classId, sectionId, sessionId);
+                await _repo.GetPendingFeesAsync( schoolId,classId, sectionId, sessionId, includePaid);
             return Ok(result);
         }
 
+        [HttpPut("UpdateAssignedFee")]
+        public async Task<IActionResult> UpdateAssignedFee(UpdateAssignedFeeDto dto)
+        {
+            if (User.FindFirstValue("RoleId") != "1" &&
+                (!int.TryParse(User.FindFirstValue("SchoolId"), out var schoolId) || schoolId != dto.SchoolId)) return Forbid();
+            if (!int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return Unauthorized();
+            var result = await _repo.UpdateAssignedFeeAsync(dto, userId);
+            return result.Success ? Ok(result) : BadRequest(result);
+        }
         [HttpPost("PayFee")]
         public async Task<IActionResult> PayFee( FeePaymentDto dto)
         {
