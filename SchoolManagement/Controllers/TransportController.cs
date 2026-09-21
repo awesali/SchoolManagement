@@ -462,23 +462,9 @@ namespace SchoolManagement.Controllers
                 totalAmount = fee.Amount, dueAmount = fee.Amount - fee.PaidAmount, fee.DueDate }).ToListAsync());
 
         [HttpPut("payments/{id:int}")]
-        public async Task<IActionResult> UpdatePayment(int id, TransportFeePayment item)
+        public IActionResult UpdatePayment(int id, TransportFeePayment item)
         {
-            var existing = await _context.TransportFeePayments.FindAsync(id);
-            if (existing == null) return NotFound(new { success = false, message = "Payment not found." });
-            var oldFee = await _context.TransportFees.FindAsync(existing.TransportFeeId);
-            var newFee = await _context.TransportFees.FindAsync(item.TransportFeeId);
-            if (oldFee == null || newFee == null) return BadRequest(new { success = false, message = "Related fee was not found." });
-            var available = newFee.Amount - newFee.PaidAmount + (oldFee.Id == newFee.Id ? existing.Amount : 0);
-            if (item.Amount <= 0 || item.Amount > available)
-                return BadRequest(new { success = false, message = $"Paid Amount cannot exceed the available fee balance of {available}." });
-            oldFee.PaidAmount -= existing.Amount;
-            existing.TransportFeeId = item.TransportFeeId; existing.Amount = item.Amount; existing.PaymentDate = item.PaymentDate;
-            existing.PaymentMode = item.PaymentMode; existing.ReferenceNumber = item.ReferenceNumber; existing.ReceiptNumber = item.ReceiptNumber;
-            newFee.PaidAmount += item.Amount;
-            SetFeeStatus(oldFee); SetFeeStatus(newFee);
-            await _context.SaveChangesAsync();
-            return Success(existing, "Payment updated.");
+            return BadRequest(new { success = false, message = "Saved fee collection transactions cannot be edited." });
         }
 
         [HttpGet("fuel-logs")]
