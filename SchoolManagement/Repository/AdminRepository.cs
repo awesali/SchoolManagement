@@ -113,12 +113,12 @@ namespace SchoolManagement.Repository
             return new ApiResponse<List<Schools>> { Success = true, Message = "Schools fetched successfully", Data = data };
         }
 
-        public async Task<(List<StaffListDto> Data, int TotalRecords)> GetStaffFullAsync(int schoolId, int page, int pageSize)
+        public async Task<(List<StaffListDto> Data, int TotalRecords)> GetStaffFullAsync(int schoolId, int page, int pageSize, int? staffId = null)
         {
             var query = from s in _context.Staff
                         join r in _context.Roles on s.RoleId equals r.Id
                         join sc in _context.Schools on s.SchoolId equals sc.Id
-                        where s.SchoolId == schoolId
+                        where s.SchoolId == schoolId && (!staffId.HasValue || s.Id == staffId.Value)
                         orderby s.Id descending
                         select new StaffListDto
                         {
@@ -135,6 +135,31 @@ namespace SchoolManagement.Repository
                             RoleName = r.RoleName,
                             SchoolName = sc.SchoolName,
                             Address = s.Adress,
+                            AddressLine2 = s.AddressLine2,
+                            Landmark = s.Landmark,
+                            City = s.City,
+                            District = s.District,
+                            State = s.State,
+                            Country = s.Country,
+                            PinCode = s.PinCode,
+                            Qualification = s.Qualification,
+                            Specialization = s.Specialization,
+                            Institute = s.Institute,
+                            University = s.University,
+                            PassingYear = s.PassingYear,
+                            Grade = s.Grade,
+                            PreviousEmployer = s.PreviousEmployer,
+                            PreviousDesignation = s.PreviousDesignation,
+                            ExperienceYears = s.ExperienceYears,
+                            ExperienceFrom = s.ExperienceFrom,
+                            ExperienceTo = s.ExperienceTo,
+                            ExperienceDetails = s.ExperienceDetails,
+                            AdditionalDetails = s.AdditionalDetails,
+                            CertificationName = s.CertificationName,
+                            CertificationIssuer = s.CertificationIssuer,
+                            CertificationNumber = s.CertificationNumber,
+                            CertificationDate = s.CertificationDate,
+                            CertificationExpiry = s.CertificationExpiry,
                             IsActive = s.IsActive,
                             ProfilePictureUrl = _context.ProfilePictures
                                 .Where(p => p.PersonType == "Staff" && p.PersonId == s.Id && p.IsActive)
@@ -194,6 +219,13 @@ namespace SchoolManagement.Repository
 
         public async Task<ApiResponse<Staff>> AddStaffAsync(AddStaffDto dto)
         {
+            if (dto.PassingYear.HasValue && (dto.PassingYear < 1900 || dto.PassingYear > DateTime.Today.Year))
+                return new ApiResponse<Staff> { Success = false, Message = "Enter a valid passing year up to the current year." };
+            if (dto.ExperienceTo.HasValue && (!dto.ExperienceFrom.HasValue || dto.ExperienceTo < dto.ExperienceFrom))
+                return new ApiResponse<Staff> { Success = false, Message = "Employment end date must be on or after the start date." };
+            if (dto.CertificationExpiry.HasValue && (!dto.CertificationDate.HasValue || dto.CertificationExpiry < dto.CertificationDate))
+                return new ApiResponse<Staff> { Success = false, Message = "Certification expiry must be on or after the issue date." };
+
             var profilePictureIndex = dto.DocumentNames?
                 .FindIndex(name => string.Equals(name?.Trim(), "Profile Picture", StringComparison.OrdinalIgnoreCase))
                 ?? -1;
@@ -274,6 +306,31 @@ namespace SchoolManagement.Repository
                     Email = dto.Email,
                     Phone = dto.Phone,
                     Adress = dto.Address,
+                    AddressLine2 = dto.AddressLine2,
+                    Landmark = dto.Landmark,
+                    City = dto.City,
+                    District = dto.District,
+                    State = dto.State,
+                    Country = dto.Country,
+                    PinCode = dto.PinCode,
+                    Qualification = dto.Qualification,
+                    Specialization = dto.Specialization,
+                    Institute = dto.Institute,
+                    University = dto.University,
+                    PassingYear = dto.PassingYear,
+                    Grade = dto.Grade,
+                    PreviousEmployer = dto.PreviousEmployer,
+                    PreviousDesignation = dto.PreviousDesignation,
+                    ExperienceYears = dto.ExperienceYears,
+                    ExperienceFrom = dto.ExperienceFrom,
+                    ExperienceTo = dto.ExperienceTo,
+                    ExperienceDetails = dto.ExperienceDetails,
+                    AdditionalDetails = dto.AdditionalDetails,
+                    CertificationName = dto.CertificationName,
+                    CertificationIssuer = dto.CertificationIssuer,
+                    CertificationNumber = dto.CertificationNumber,
+                    CertificationDate = dto.CertificationDate,
+                    CertificationExpiry = dto.CertificationExpiry,
                     usersid = userResult.Id, // ✅ Save UserId
                     IsActive = true,
                     Created_Date = DateTime.UtcNow
@@ -398,6 +455,13 @@ namespace SchoolManagement.Repository
         }
         public async Task<ApiResponse<string>> UpdateStaffAsync(UpdateStaffDto dto)
         {
+            if (dto.PassingYear.HasValue && (dto.PassingYear < 1900 || dto.PassingYear > DateTime.Today.Year))
+                return new ApiResponse<string> { Success = false, Message = "Enter a valid passing year up to the current year." };
+            if (dto.ExperienceTo.HasValue && (!dto.ExperienceFrom.HasValue || dto.ExperienceTo < dto.ExperienceFrom))
+                return new ApiResponse<string> { Success = false, Message = "Employment end date must be on or after the start date." };
+            if (dto.CertificationExpiry.HasValue && (!dto.CertificationDate.HasValue || dto.CertificationExpiry < dto.CertificationDate))
+                return new ApiResponse<string> { Success = false, Message = "Certification expiry must be on or after the issue date." };
+
             dto.GenderCode = dto.GenderCode?.Trim().ToUpperInvariant();
             if (!GenderCodes.IsValid(dto.GenderCode))
                 return new ApiResponse<string> { Success = false, Message = "A valid gender is required." };
@@ -428,6 +492,31 @@ namespace SchoolManagement.Repository
                 staff.Email = dto.Email;
                 staff.Phone = dto.Phone;
                 staff.Adress = dto.Address;
+                staff.AddressLine2 = dto.AddressLine2;
+                staff.Landmark = dto.Landmark;
+                staff.City = dto.City;
+                staff.District = dto.District;
+                staff.State = dto.State;
+                staff.Country = dto.Country;
+                staff.PinCode = dto.PinCode;
+                staff.Qualification = dto.Qualification;
+                staff.Specialization = dto.Specialization;
+                staff.Institute = dto.Institute;
+                staff.University = dto.University;
+                staff.PassingYear = dto.PassingYear;
+                staff.Grade = dto.Grade;
+                staff.PreviousEmployer = dto.PreviousEmployer;
+                staff.PreviousDesignation = dto.PreviousDesignation;
+                staff.ExperienceYears = dto.ExperienceYears;
+                staff.ExperienceFrom = dto.ExperienceFrom;
+                staff.ExperienceTo = dto.ExperienceTo;
+                staff.ExperienceDetails = dto.ExperienceDetails;
+                if (dto.AdditionalDetails != null) staff.AdditionalDetails = dto.AdditionalDetails;
+                staff.CertificationName = dto.CertificationName;
+                staff.CertificationIssuer = dto.CertificationIssuer;
+                staff.CertificationNumber = dto.CertificationNumber;
+                staff.CertificationDate = dto.CertificationDate;
+                staff.CertificationExpiry = dto.CertificationExpiry;
                 staff.IsActive = dto.IsActive;
                 staff.Modified_Date = DateTime.UtcNow;
 
@@ -861,7 +950,7 @@ namespace SchoolManagement.Repository
         public async Task<List<StaffAttendanceHistoryByDateDto>> GetAttendanceHistoryAsync(
      int schoolId,
      DateTime fromDate,
-     DateTime toDate)
+     DateTime toDate, int? staffId = null)
         {
             var result = await (
                 from attendance in _context.StaffAttendance
@@ -872,12 +961,13 @@ namespace SchoolManagement.Repository
                       && attendance.Attendance_Date.Date >= fromDate.Date
                       && attendance.Attendance_Date.Date <= toDate.Date
                       && attendance.IsActive == true
-                      && staff.IsActive == true
+                      && (staffId.HasValue ? staff.Id == staffId.Value : staff.IsActive == true)
 
                 orderby attendance.Attendance_Date descending
 
                 select new StaffAttendanceHistoryByDateDto
                 {
+                    StaffId = staff.Id,
                     StaffName = staff.Name,
                     Email = staff.Email,
                     Phone = staff.Phone,

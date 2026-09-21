@@ -13,7 +13,7 @@ namespace SchoolManagement.Interfaces
 
         Task<ApiResponse<List<Schools>>> GetSchoolsBySuperAdminIdAsync(int superAdminId);
 
-        Task<(List<StaffListDto> Data, int TotalRecords)> GetStaffFullAsync(int schoolId, int page, int pageSize);
+        Task<(List<StaffListDto> Data, int TotalRecords)> GetStaffFullAsync(int schoolId, int page, int pageSize, int? staffId = null);
         Task<List<string>> GetStaffEmailsAsync(int schoolId);
 
         Task<ApiResponse<string>> DeleteDocumentAsync(int documentId);
@@ -28,6 +28,6 @@ namespace SchoolManagement.Interfaces
         Task<ApiResponse<string>> UpdateAcademicSessionStatusAsync(UpdateAcademicSessionStatusDto dto);
         Task<(List<ParentListDto> Data, int TotalRecords)> GetParentsBySchoolAsync(int schoolId, int page, int pageSize, string? search, int? parentId = null);
         Task<List<StaffAttendanceDto>> GetStaffAttendanceBySchoolAsync(int schoolId);
-        Task<List<StaffAttendanceHistoryByDateDto>> GetAttendanceHistoryAsync(int schoolId,DateTime fromDate,DateTime toDate);
+        Task<List<StaffAttendanceHistoryByDateDto>> GetAttendanceHistoryAsync(int schoolId,DateTime fromDate,DateTime toDate, int? staffId = null);
     }
 }

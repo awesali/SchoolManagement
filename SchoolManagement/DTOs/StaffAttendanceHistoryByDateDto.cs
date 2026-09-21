@@ -1,7 +1,8 @@
-﻿namespace SchoolManagement.DTOs
+namespace SchoolManagement.DTOs
 {
     public class StaffAttendanceHistoryByDateDto
     {
+        public int StaffId { get; set; }
         public string StaffName { get; set; }
 
         public string Email { get; set; }

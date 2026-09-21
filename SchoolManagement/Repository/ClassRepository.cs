@@ -93,6 +93,7 @@ namespace SchoolManagement.Repository
                                 .Where(ss => ss.SectionId == s.Id && ss.IsActive)
                                 .Join(_context.Subjects, ss => ss.SubjectId, sub => sub.Id, (ss, sub) => new SectionSubjectDto
                                 {
+                                    TeacherId = _context.SectionSubjectTeachers.Where(mapping => mapping.SectionId == ss.SectionId && mapping.SubjectId == sub.Id && mapping.IsActive).Select(mapping => (int?)mapping.StaffId).FirstOrDefault(),
                                     SubjectId = sub.Id,
                                     SubjectName = sub.SubjectName
                                 }).ToList()
@@ -133,6 +134,7 @@ namespace SchoolManagement.Repository
                                 .Where(ss => ss.SectionId == s.Id && ss.IsActive)
                                 .Join(_context.Subjects, ss => ss.SubjectId, sub => sub.Id, (ss, sub) => new SectionSubjectDto
                                 {
+                                    TeacherId = _context.SectionSubjectTeachers.Where(mapping => mapping.SectionId == ss.SectionId && mapping.SubjectId == sub.Id && mapping.IsActive).Select(mapping => (int?)mapping.StaffId).FirstOrDefault(),
                                     SubjectId = sub.Id,
                                     SubjectName = sub.SubjectName
                                 }).ToList()
@@ -268,7 +270,8 @@ namespace SchoolManagement.Repository
                 .Where(ss => ss.SectionId == sectionId && ss.IsActive)
                 .Join(_context.Subjects, ss => ss.SubjectId, sub => sub.Id, (ss, sub) => new SectionSubjectDto
                 {
-                    SubjectId = sub.Id,
+                    TeacherId = _context.SectionSubjectTeachers.Where(mapping => mapping.SectionId == ss.SectionId && mapping.SubjectId == sub.Id && mapping.IsActive).Select(mapping => (int?)mapping.StaffId).FirstOrDefault(),
+                                    SubjectId = sub.Id,
                     SubjectName = sub.SubjectName
                 }).ToListAsync();
 

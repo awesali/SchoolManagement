@@ -443,6 +443,19 @@ namespace SchoolManagement.Repository
                 .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
             return (data, total);
         }
+        public async Task<List<AttendanceHistoryDto>> GetStudentProfileAttendanceAsync(int schoolId, int studentId, DateTime from, DateTime to)
+        {
+            var rangeStart = from.Date;
+            var rangeEnd = to.Date.AddDays(1);
+            return await (from a in _context.StudentAttendance
+                join student in _context.Students on a.Student_Id equals student.Id
+                where a.School_Id == schoolId && student.SchoolId == schoolId && a.Student_Id == studentId && a.IsActive
+                    && a.Attendance_Date >= rangeStart && a.Attendance_Date < rangeEnd
+                orderby a.Attendance_Date descending
+                select new AttendanceHistoryDto { StudentId = student.Id, StudentName = student.StudentName,
+                    EnrollmentId = a.EnrollmentId, AttendanceDate = a.Attendance_Date, Status = a.Status }).ToListAsync();
+        }
+
         public async Task<ApiResponse<StudentDto>> GetStudentByIdAsync(int studentId)
         {
             var student = await (

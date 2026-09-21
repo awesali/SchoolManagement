@@ -11,6 +11,8 @@ namespace SchoolManagement.Interfaces
 
         Task<(List<StudentDto> Data, int TotalRecords)> GetStudentsBySchoolIdAsync(int schoolId, int page, int pageSize);
 
+        Task<List<AttendanceHistoryDto>> GetStudentProfileAttendanceAsync(int schoolId, int studentId, DateTime from, DateTime to);
+
         Task<ApiResponse<StudentDto>> GetStudentByIdAsync(int studentId);
 
         Task<ApiResponse<EnrollmentInfoDto>> GetEnrollmentInfoBySchoolAsync(int schoolId);

@@ -44,7 +44,7 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpGet("Staff-by-school")]
-        public async Task<IActionResult> GetStaffFull([FromQuery] int schoolId, int page = 1, int pageSize = 10)
+        public async Task<IActionResult> GetStaffFull([FromQuery] int schoolId, int page = 1, int pageSize = 10, int? staffId = null)
         {
             try
             {
@@ -52,11 +52,11 @@ namespace SchoolManagement.Controllers
 
                 if (page == -1)
                 {
-                    var (_, tempTotal) = await _repo.GetStaffFullAsync(schoolId, 1, pageSize);
+                    var (_, tempTotal) = await _repo.GetStaffFullAsync(schoolId, 1, pageSize, staffId);
                     page = (int)Math.Ceiling((double)tempTotal / pageSize);
                 }
 
-                var (data, total) = await _repo.GetStaffFullAsync(schoolId, page, pageSize);
+                var (data, total) = await _repo.GetStaffFullAsync(schoolId, page, pageSize, staffId);
                 var totalPages = (int)Math.Ceiling((double)total / pageSize);
 
                 return Ok(new PagedResponse<List<StaffListDto>>
@@ -239,7 +239,7 @@ namespace SchoolManagement.Controllers
         public async Task<IActionResult> GetAttendanceHistory(
         int schoolId,
         DateTime fromDate,
-        DateTime toDate)
+        DateTime toDate, int? staffId = null)
         {
             if (fromDate > toDate)
             {
@@ -249,7 +249,7 @@ namespace SchoolManagement.Controllers
             var result = await _repo.GetAttendanceHistoryAsync(
                 schoolId,
                 fromDate,
-                toDate);
+                toDate, staffId);
 
             if (!result.Any())
             {

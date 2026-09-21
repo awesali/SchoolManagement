@@ -67,6 +67,14 @@ namespace SchoolManagement.Controllers
             });
         }
 
+        [HttpGet("student-profile-attendance")]
+        public async Task<IActionResult> StudentProfileAttendance(int schoolId, int studentId, DateTime from, DateTime to)
+        {
+            if (schoolId <= 0 || studentId <= 0 || from > to || (to - from).TotalDays > 366)
+                return BadRequest(new { success = false, message = "Select a valid attendance date range (up to one year)." });
+            return Ok(await _repo.GetStudentProfileAttendanceAsync(schoolId, studentId, from, to));
+        }
+
         [HttpGet("student-by-id")]
         public async Task<IActionResult> GetStudentById([FromQuery] int studentId)
         {
