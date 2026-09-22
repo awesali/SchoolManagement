@@ -67,6 +67,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.RegisterAppServices();
 
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddHostedService<SalaryGenerationService>();
 
 // JWT Authentication
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

@@ -12,6 +12,8 @@
         // Monthly / Daily / Hourly
         public string SalaryType { get; set; } = string.Empty;
 
+        public int SalaryGenerationDay { get; set; } = 1;
+
         public DateTime EffectiveFrom { get; set; }
 
         public bool IsActive { get; set; } = true;

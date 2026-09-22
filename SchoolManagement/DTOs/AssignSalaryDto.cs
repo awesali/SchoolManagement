@@ -8,6 +8,8 @@
 
         public string SalaryType { get; set; } = string.Empty;
 
+        public int SalaryGenerationDay { get; set; }
+
         public bool IsUpdate { get; set; }
     }
 }

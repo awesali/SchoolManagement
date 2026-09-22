@@ -39,5 +39,8 @@
         public int? Updated_By { get; set; }
 
         public bool IsActive { get; set; }
+
+        [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+        public string? LogoUrl { get; set; }
     }
 }

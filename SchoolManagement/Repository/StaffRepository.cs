@@ -94,6 +94,7 @@ namespace SchoolManagement.Repository
             // JWT NameIdentifier contains Users.Id, not Staff.Id. Project only
             // the required nullable-safe columns so legacy NULL staff fields do
             // not break attendance marking while EF materializes the entity.
+
             var staff = await _context.Staff
                 .Where(u => EF.Property<int?>(u, nameof(Staff.usersid)) == userId)
                 .Select(u => new
@@ -259,6 +260,14 @@ namespace SchoolManagement.Repository
                 };
             }
 
+            if (dto.SalaryGenerationDay < 1 || dto.SalaryGenerationDay > 28)
+            {
+                return new
+                {
+                    Success = false,
+                    Message = "Salary generation date must be between 1 and 28."
+                };
+            }
             var staff = await _context.Staff
                 .FirstOrDefaultAsync(x => x.Id == dto.StaffId && x.IsActive);
 
@@ -286,6 +295,15 @@ namespace SchoolManagement.Repository
                 };
             }
 
+            if (salary == null && dto.IsUpdate)
+            {
+                return new
+                {
+                    Success = false,
+                    Message = "Assigned salary was not found. Assign salary before editing it."
+                };
+            }
+
             if (salary != null)
             {
                 salary.IsActive = false;
@@ -297,6 +315,7 @@ namespace SchoolManagement.Repository
                 schoolId = staff.SchoolId,
                 BasicSalary = dto.BasicSalary,
                 SalaryType = dto.SalaryType,
+                SalaryGenerationDay = dto.SalaryGenerationDay,
                 EffectiveFrom = DateTime.Now.Date,
                 IsActive = true
             };
@@ -325,15 +344,33 @@ namespace SchoolManagement.Repository
                     x.StaffId,
                     x.BasicSalary,
                     x.SalaryType,
+                    x.SalaryGenerationDay,
                     x.EffectiveFrom
                 })
                 .FirstOrDefaultAsync();
 
+            var salaryHistory = await _context.StaffSalaryStructure
+                .AsNoTracking()
+                .Where(x => x.StaffId == staffId)
+                .OrderByDescending(x => x.EffectiveFrom)
+                .ThenByDescending(x => x.Id)
+                .Select(x => new
+                {
+                    x.Id,
+                    x.BasicSalary,
+                    x.SalaryType,
+                    x.SalaryGenerationDay,
+                    x.EffectiveFrom,
+                    x.CreatedDate,
+                    x.IsActive
+                })
+                .ToListAsync();
             return new
             {
                 Success = true,
                 IsAssigned = salary != null,
                 Data = salary,
+                History = salaryHistory,
                 Message = salary == null
                     ? "Salary has not been assigned."
                     : "Salary is already assigned."

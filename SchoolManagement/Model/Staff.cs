@@ -1,4 +1,4 @@
-﻿namespace SchoolManagement.Model
+namespace SchoolManagement.Model
 {
     public class Staff
     {
@@ -11,6 +11,9 @@
         public string? GenderCode { get; set; }
 
         public int RoleId { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(50)]
+        public string? EmploymentType { get; set; }
         public int usersid { get; set; }
 
         public DateTime DOJ { get; set; }

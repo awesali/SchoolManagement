@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
@@ -30,6 +30,16 @@ namespace SchoolManagement.Repository
         }
         public async Task<ApiResponse<string>> UpdateStudentAsync(StudentUpdateDto dto)
         {
+            var admissionTypes = new[] { "New Admission", "Previous School Transfer", "Re-admission" };
+            dto.AdmissionType = admissionTypes.FirstOrDefault(type => string.Equals(type, dto.AdmissionType?.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (dto.AdmissionType == null)
+                return new ApiResponse<string> { Success = false, Message = "Select a valid admission type." };
+            if (string.IsNullOrWhiteSpace(dto.Address) || string.IsNullOrWhiteSpace(dto.City) || string.IsNullOrWhiteSpace(dto.State) || string.IsNullOrWhiteSpace(dto.Country))
+                return new ApiResponse<string> { Success = false, Message = "Complete the required student address details." };
+            if (!System.Text.RegularExpressions.Regex.IsMatch(dto.PinCode ?? "", @"^[1-9]\d{5}$"))
+                return new ApiResponse<string> { Success = false, Message = "Enter a valid 6-digit PIN code." };
+            if (dto.AdmissionType == "Previous School Transfer" && (string.IsNullOrWhiteSpace(dto.PreviousSchoolName) || string.IsNullOrWhiteSpace(dto.PreviousClass)))
+                return new ApiResponse<string> { Success = false, Message = "Previous school name and last class attended are required." };
             if (dto.GenderCode != null)
             {
                 dto.GenderCode = dto.GenderCode.Trim().ToUpperInvariant();
@@ -67,6 +77,13 @@ namespace SchoolManagement.Repository
                     parent.Name = dto.Parent.Name ?? parent.Name;
                     parent.PhoneNumber = dto.Parent.PhoneNumber ?? parent.PhoneNumber;
                     parent.Address = dto.Parent.Address ?? parent.Address;
+                    parent.AddressLine2 = dto.Parent.AddressLine2 ?? parent.AddressLine2;
+                    parent.Landmark = dto.Parent.Landmark ?? parent.Landmark;
+                    parent.City = dto.Parent.City ?? parent.City;
+                    parent.District = dto.Parent.District ?? parent.District;
+                    parent.State = dto.Parent.State ?? parent.State;
+                    parent.Country = dto.Parent.Country ?? parent.Country;
+                    parent.PinCode = dto.Parent.PinCode ?? parent.PinCode;
                     parent.Email = dto.Parent.Email ?? parent.Email;
                     parent.Relationship = dto.Parent.Relationship ?? parent.Relationship;
                     parent.Updated_By = 1;
@@ -88,7 +105,22 @@ namespace SchoolManagement.Repository
                 if (!string.IsNullOrEmpty(dto.Rollnumber))
                     student.Rollnumber = dto.Rollnumber;
 
-                student.Updated_By = 1;
+                student.Address = dto.Address?.Trim();
+                student.AddressLine2 = dto.AddressLine2?.Trim();
+                student.Landmark = dto.Landmark?.Trim();
+                student.City = dto.City?.Trim();
+                student.District = dto.District?.Trim();
+                student.State = dto.State?.Trim();
+                student.Country = dto.Country?.Trim();
+                student.PinCode = dto.PinCode?.Trim();
+                student.AdmissionType = dto.AdmissionType;
+                student.PreviousSchoolName = dto.AdmissionType == "Previous School Transfer" ? dto.PreviousSchoolName?.Trim() : null;
+                student.PreviousSchoolAddress = dto.AdmissionType == "Previous School Transfer" ? dto.PreviousSchoolAddress?.Trim() : null;
+                student.PreviousClass = dto.AdmissionType == "Previous School Transfer" ? dto.PreviousClass?.Trim() : null;
+                student.PreviousBoard = dto.AdmissionType == "Previous School Transfer" ? dto.PreviousBoard?.Trim() : null;
+                student.TransferCertificateNumber = dto.AdmissionType == "Previous School Transfer" ? dto.TransferCertificateNumber?.Trim() : null;
+                student.TransferCertificateDate = dto.AdmissionType == "Previous School Transfer" ? dto.TransferCertificateDate : null;
+                student.ReasonForLeaving = dto.AdmissionType == "Previous School Transfer" ? dto.ReasonForLeaving?.Trim() : null;                student.Updated_By = 1;
                 student.Modified_Date = DateTime.Now;
 
                 if (dto.IsActive.HasValue)
@@ -116,6 +148,8 @@ namespace SchoolManagement.Repository
                             (dto.SessionId.HasValue && dto.SessionId.Value != enrollment.SessionId);
                         if (placementChanged)
                             return new ApiResponse<string> { Success = false, Message = "Class, section, or session cannot be changed from Edit Student. Use Student Promotion to create a new enrollment." };
+
+                        enrollment.AdmissionType = dto.AdmissionType;
 
                         if (!string.IsNullOrWhiteSpace(dto.Rollnumber))
                             enrollment.RollNumber = dto.Rollnumber;
@@ -391,7 +425,23 @@ namespace SchoolManagement.Repository
                             DOB = s.DOB,
                             GenderCode = s.GenderCode,
                             Email = s.Email,
-                            PhoneNumber = s.PhoneNumber,
+                            PhoneNumber = s.PhoneNumber,
+                            Address = s.Address,
+                            AddressLine2 = s.AddressLine2,
+                            Landmark = s.Landmark,
+                            City = s.City,
+                            District = s.District,
+                            State = s.State,
+                            Country = s.Country,
+                            PinCode = s.PinCode,
+                            AdmissionType = s.AdmissionType,
+                            PreviousSchoolName = s.PreviousSchoolName,
+                            PreviousSchoolAddress = s.PreviousSchoolAddress,
+                            PreviousClass = s.PreviousClass,
+                            PreviousBoard = s.PreviousBoard,
+                            TransferCertificateNumber = s.TransferCertificateNumber,
+                            TransferCertificateDate = s.TransferCertificateDate,
+                            ReasonForLeaving = s.ReasonForLeaving,
                             ParentId = s.ParentId,
                     ParentName = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Name).FirstOrDefault(),
                     ParentRelationship = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Relationship).FirstOrDefault(),
@@ -487,7 +537,23 @@ namespace SchoolManagement.Repository
                     DOB = s.DOB,
                     GenderCode = s.GenderCode,
                     Email = s.Email,
-                    PhoneNumber = s.PhoneNumber,
+                    PhoneNumber = s.PhoneNumber,
+                    Address = s.Address,
+                    AddressLine2 = s.AddressLine2,
+                    Landmark = s.Landmark,
+                    City = s.City,
+                    District = s.District,
+                    State = s.State,
+                    Country = s.Country,
+                    PinCode = s.PinCode,
+                    AdmissionType = s.AdmissionType,
+                    PreviousSchoolName = s.PreviousSchoolName,
+                    PreviousSchoolAddress = s.PreviousSchoolAddress,
+                    PreviousClass = s.PreviousClass,
+                    PreviousBoard = s.PreviousBoard,
+                    TransferCertificateNumber = s.TransferCertificateNumber,
+                    TransferCertificateDate = s.TransferCertificateDate,
+                    ReasonForLeaving = s.ReasonForLeaving,
                     ParentId = s.ParentId,
                     ParentName = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Name).FirstOrDefault(),
                     ParentRelationship = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Relationship).FirstOrDefault(),
@@ -587,7 +653,23 @@ namespace SchoolManagement.Repository
                             DOB = s.DOB,
                             GenderCode = s.GenderCode,
                             Email = s.Email,
-                            PhoneNumber = s.PhoneNumber,
+                            PhoneNumber = s.PhoneNumber,
+                            Address = s.Address,
+                            AddressLine2 = s.AddressLine2,
+                            Landmark = s.Landmark,
+                            City = s.City,
+                            District = s.District,
+                            State = s.State,
+                            Country = s.Country,
+                            PinCode = s.PinCode,
+                            AdmissionType = s.AdmissionType,
+                            PreviousSchoolName = s.PreviousSchoolName,
+                            PreviousSchoolAddress = s.PreviousSchoolAddress,
+                            PreviousClass = s.PreviousClass,
+                            PreviousBoard = s.PreviousBoard,
+                            TransferCertificateNumber = s.TransferCertificateNumber,
+                            TransferCertificateDate = s.TransferCertificateDate,
+                            ReasonForLeaving = s.ReasonForLeaving,
                             ParentId = s.ParentId,
                     ParentName = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Name).FirstOrDefault(),
                     ParentRelationship = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Relationship).FirstOrDefault(),
@@ -814,6 +896,20 @@ namespace SchoolManagement.Repository
 
         public async Task<ApiResponse<string>> AddStudentAsync(StudentCreateDto dto)
         {
+            var admissionTypes = new[] { "New Admission", "Previous School Transfer", "Re-admission" };
+            dto.AdmissionType = admissionTypes.FirstOrDefault(type => string.Equals(type, dto.AdmissionType?.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (dto.AdmissionType == null)
+                return new ApiResponse<string> { Success = false, Message = "Select a valid admission type." };
+            if (string.IsNullOrWhiteSpace(dto.Address) || string.IsNullOrWhiteSpace(dto.City) || string.IsNullOrWhiteSpace(dto.State) || string.IsNullOrWhiteSpace(dto.Country))
+                return new ApiResponse<string> { Success = false, Message = "Complete the required student address details." };
+            if (!System.Text.RegularExpressions.Regex.IsMatch(dto.PinCode ?? "", @"^[1-9]\d{5}$"))
+                return new ApiResponse<string> { Success = false, Message = "Enter a valid 6-digit PIN code." };
+            if (dto.AdmissionType == "Previous School Transfer" && (string.IsNullOrWhiteSpace(dto.PreviousSchoolName) || string.IsNullOrWhiteSpace(dto.PreviousClass)))
+                return new ApiResponse<string> { Success = false, Message = "Previous school name and last class attended are required." };            if (dto.Parent == null || string.IsNullOrWhiteSpace(dto.Parent.Address) || string.IsNullOrWhiteSpace(dto.Parent.City)
+                || string.IsNullOrWhiteSpace(dto.Parent.State) || string.IsNullOrWhiteSpace(dto.Parent.Country))
+                return new ApiResponse<string> { Success = false, Message = "Complete the required parent address details." };
+            if (!System.Text.RegularExpressions.Regex.IsMatch(dto.Parent.PinCode ?? "", @"^[1-9]\d{5}$"))
+                return new ApiResponse<string> { Success = false, Message = "Enter a valid 6-digit parent PIN code." };
             var profilePictureIndex = dto.DocumentNames?
                 .FindIndex(name => string.Equals(name?.Trim(), "Profile Picture", StringComparison.OrdinalIgnoreCase))
                 ?? -1;
@@ -950,6 +1046,13 @@ namespace SchoolManagement.Repository
                         Name = dto.Parent.Name,
                         PhoneNumber = dto.Parent.PhoneNumber,
                         Address = dto.Parent.Address,
+                        AddressLine2 = dto.Parent.AddressLine2,
+                        Landmark = dto.Parent.Landmark,
+                        City = dto.Parent.City,
+                        District = dto.Parent.District,
+                        State = dto.Parent.State,
+                        Country = dto.Parent.Country,
+                        PinCode = dto.Parent.PinCode,
                         Email = dto.Parent.Email,
                         Relationship = dto.Parent.Relationship,
                         Created_By = 1,
@@ -970,6 +1073,22 @@ namespace SchoolManagement.Repository
                     GenderCode = dto.GenderCode,
                     Email = dto.Email,
                     PhoneNumber = dto.PhoneNumber,
+                    Address = dto.Address?.Trim(),
+                    AddressLine2 = dto.AddressLine2?.Trim(),
+                    Landmark = dto.Landmark?.Trim(),
+                    City = dto.City?.Trim(),
+                    District = dto.District?.Trim(),
+                    State = dto.State?.Trim(),
+                    Country = dto.Country?.Trim(),
+                    PinCode = dto.PinCode?.Trim(),
+                    AdmissionType = dto.AdmissionType,
+                    PreviousSchoolName = dto.AdmissionType == "Previous School Transfer" ? dto.PreviousSchoolName?.Trim() : null,
+                    PreviousSchoolAddress = dto.AdmissionType == "Previous School Transfer" ? dto.PreviousSchoolAddress?.Trim() : null,
+                    PreviousClass = dto.AdmissionType == "Previous School Transfer" ? dto.PreviousClass?.Trim() : null,
+                    PreviousBoard = dto.AdmissionType == "Previous School Transfer" ? dto.PreviousBoard?.Trim() : null,
+                    TransferCertificateNumber = dto.AdmissionType == "Previous School Transfer" ? dto.TransferCertificateNumber?.Trim() : null,
+                    TransferCertificateDate = dto.AdmissionType == "Previous School Transfer" ? dto.TransferCertificateDate : null,
+                    ReasonForLeaving = dto.AdmissionType == "Previous School Transfer" ? dto.ReasonForLeaving?.Trim() : null,
                     ParentId = parent.Id,
                     Rollnumber = dto.Rollnumber,
                     SchoolId = dto.SchoolId,
@@ -1014,7 +1133,7 @@ namespace SchoolManagement.Repository
                     SessionId = dto.SessionId.Value,
                     SchoolId = dto.SchoolId,
                     RollNumber = dto.Rollnumber,
-                    AdmissionType = "New",
+                    AdmissionType = dto.AdmissionType,
                     EnrollmentStatus = "Active",
                     PromotionStatus = "NotProcessed",
                     EnrollmentDate = DateTime.UtcNow,
@@ -1147,57 +1266,25 @@ namespace SchoolManagement.Repository
                     await _context.SaveChangesAsync();
                 }
 
-                // ✅ Send Welcome Emails
-                // Send email to student
-                var studentPlaceholders = new Dictionary<string, string>
+                // Commit credentials and student records before queueing welcome emails.
+                var studentEmailPlaceholders = new Dictionary<string, string>
                 {
-                    { "StudentName", dto.StudentName },
-                    { "Email", dto.Email },
-                    { "Password", studentPassword },
-                    { "SchoolName", "Blue Berry School" }, // You might want to fetch this
-                    { "ClassName", $"Class {dto.ClassId}" },
-                    { "ParentName", dto.Parent.Name }
+                    { "StudentName", dto.StudentName }, { "Email", dto.Email }, { "Password", studentPassword },
+                    { "SchoolName", "Blue Berry School" }, { "ClassName", $"Class {dto.ClassId}" }, { "ParentName", dto.Parent.Name }
                 };
+                var (studentEmailSubject, studentEmailBody) = await _emailService.GetEmailTemplateAsync("STUDENT_WELCOME", studentEmailPlaceholders);
+                await _emailService.SendEmailAsync(dto.Email, studentEmailSubject, studentEmailBody);
 
-                try
-                {
-                    var (studentSubject, studentBody) = await _emailService
-                        .GetEmailTemplateAsync("STUDENT_WELCOME", studentPlaceholders);
-
-                    await _emailService.SendEmailAsync(dto.Email, studentSubject, studentBody);
-                }
-                catch
-                {
-                    // Log error but don't fail the operation
-                }
-
-                // Only send credentials when a new parent login was created.
                 if (existingParentCredential == null)
                 {
-                    var parentPlaceholders = new Dictionary<string, string>
+                    var parentEmailPlaceholders = new Dictionary<string, string>
                     {
-                        { "ParentName", dto.Parent.Name },
-                        { "StudentName", dto.StudentName },
-                        { "Email", dto.Parent.Email },
-                        { "Password", parentPassword },
-                        { "SchoolName", "Blue Berry School" },
-                        { "ClassName", $"Class {dto.ClassId}" }
+                        { "ParentName", dto.Parent.Name }, { "StudentName", dto.StudentName }, { "Email", dto.Parent.Email },
+                        { "Password", parentPassword }, { "SchoolName", "Blue Berry School" }, { "ClassName", $"Class {dto.ClassId}" }
                     };
-
-                    try
-                    {
-                        var (parentSubject, parentBody) = await _emailService
-                            .GetEmailTemplateAsync("STUDENT_WELCOME", parentPlaceholders);
-
-                        await _emailService.SendEmailAsync(dto.Parent.Email, parentSubject, parentBody);
-                    }
-                    catch
-                    {
-                        // Log error but don't fail the operation
-                    }
+                    var (parentEmailSubject, parentEmailBody) = await _emailService.GetEmailTemplateAsync("STUDENT_WELCOME", parentEmailPlaceholders);
+                    await _emailService.SendEmailAsync(dto.Parent.Email, parentEmailSubject, parentEmailBody);
                 }
-
-                // Commit transaction
                 await transaction.CommitAsync();
                 return new ApiResponse<string> { Success = true, Message = "Student added successfully", Data = null };
             }

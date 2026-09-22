@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 
 namespace SchoolManagement.Service
 {
@@ -9,7 +9,8 @@ namespace SchoolManagement.Service
             var assembly = Assembly.GetExecutingAssembly();
 
             var types = assembly.GetTypes()
-                .Where(t => t.IsClass && !t.IsAbstract);
+                .Where(t => t.IsClass && !t.IsAbstract &&
+                            !typeof(IHostedService).IsAssignableFrom(t));
 
             foreach (var implementation in types)
             {

@@ -29,8 +29,40 @@ namespace SchoolManagement.Repository
             _httpContextAccessor = httpContextAccessor;
         }
 
+        private static string? ValidateSchoolLogo(IFormFile? logo)
+        {
+            if (logo == null) return null;
+            var allowed = new[] { "image/jpeg", "image/png", "image/webp" };
+            if (!allowed.Contains(logo.ContentType.ToLowerInvariant())) return "School logo must be a JPG, PNG, or WebP image.";
+            if (logo.Length == 0 || logo.Length > 5 * 1024 * 1024) return "School logo must be between 1 byte and 5 MB.";
+            return null;
+        }
+
+        private async Task<ProfilePicture> SaveSchoolLogoAsync(int schoolId, IFormFile logo)
+        {
+            var extension = logo.ContentType.ToLowerInvariant() switch
+            {
+                "image/png" => ".png",
+                "image/webp" => ".webp",
+                _ => ".jpg"
+            };
+            var webRoot = _env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot");
+            var folder = Path.Combine(webRoot, "uploads", "school-logos");
+            Directory.CreateDirectory(folder);
+            var fileName = $"school-{schoolId}-{Guid.NewGuid():N}{extension}";
+            await using var stream = new FileStream(Path.Combine(folder, fileName), FileMode.CreateNew);
+            await logo.CopyToAsync(stream);
+            return new ProfilePicture { PersonType = "School", PersonId = schoolId, FileName = fileName,
+                FileUrl = $"/uploads/school-logos/{fileName}", ContentType = logo.ContentType,
+                CreatedDate = DateTime.UtcNow, IsActive = true };
+        }
+
         public async Task<ApiResponse<Schools>> CreateSchool(SchoolCreateDto dto, int userId)
         {
+            var logoError = ValidateSchoolLogo(dto.Logo);
+            if (logoError != null) return new ApiResponse<Schools> { Success = false, Message = logoError };
+            ProfilePicture? savedLogo = null;
+            await using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
                 var school = new Schools
@@ -58,10 +90,26 @@ namespace SchoolManagement.Repository
                 _context.Schools.Add(school);
                 await _context.SaveChangesAsync();
 
+                if (dto.Logo != null)
+                {
+                    savedLogo = await SaveSchoolLogoAsync(school.Id, dto.Logo);
+                    _context.ProfilePictures.Add(savedLogo);
+                    await _context.SaveChangesAsync();
+                    school.LogoUrl = savedLogo.FileUrl;
+                }
+
+                await transaction.CommitAsync();
+
                 return new ApiResponse<Schools> { Success = true, Message = "School created successfully", Data = school };
             }
             catch (Exception ex)
             {
+                await transaction.RollbackAsync();
+                if (savedLogo != null)
+                {
+                    var path = Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"), savedLogo.FileUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+                    if (File.Exists(path)) File.Delete(path);
+                }
                 return new ApiResponse<Schools> { Success = false, Message = ex.Message, Data = null };
             }
         }
@@ -110,6 +158,13 @@ namespace SchoolManagement.Repository
                 .OrderByDescending(s => s.Created_Date)
                 .ToListAsync();
 
+            var schoolIds = data.Select(x => x.Id).ToList();
+            var logos = await _context.ProfilePictures.AsNoTracking()
+                .Where(x => x.PersonType == "School" && x.IsActive && schoolIds.Contains(x.PersonId))
+                .OrderByDescending(x => x.CreatedDate).ToListAsync();
+            foreach (var school in data)
+                school.LogoUrl = logos.FirstOrDefault(x => x.PersonId == school.Id)?.FileUrl;
+
             return new ApiResponse<List<Schools>> { Success = true, Message = "Schools fetched successfully", Data = data };
         }
 
@@ -133,6 +188,7 @@ namespace SchoolManagement.Repository
                             DOJ = s.DOJ,
                             RoleId = r.Id,
                             RoleName = r.RoleName,
+                            EmploymentType = s.EmploymentType,
                             SchoolName = sc.SchoolName,
                             Address = s.Adress,
                             AddressLine2 = s.AddressLine2,
@@ -219,6 +275,10 @@ namespace SchoolManagement.Repository
 
         public async Task<ApiResponse<Staff>> AddStaffAsync(AddStaffDto dto)
         {
+            var employmentTypes = new[] { "Permanent", "Contract", "Part-Time", "Temporary", "Intern", "Substitute", "Probationary", "Visiting / Guest", "Consultant", "Volunteer" };
+            dto.EmploymentType = employmentTypes.FirstOrDefault(type => string.Equals(type, dto.EmploymentType?.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (dto.EmploymentType == null)
+                return new ApiResponse<Staff> { Success = false, Message = "Select a valid employment type." };
             if (dto.PassingYear.HasValue && (dto.PassingYear < 1900 || dto.PassingYear > DateTime.Today.Year))
                 return new ApiResponse<Staff> { Success = false, Message = "Enter a valid passing year up to the current year." };
             if (dto.ExperienceTo.HasValue && (!dto.ExperienceFrom.HasValue || dto.ExperienceTo < dto.ExperienceFrom))
@@ -251,7 +311,7 @@ namespace SchoolManagement.Repository
 
             try
             {
-                // ✅ Email check in Staff table
+                // âœ… Email check in Staff table
                 var emailExists = await _context.Staff
                     .AnyAsync(e => e.Email == dto.Email && e.SchoolId == dto.SchoolId);
 
@@ -265,10 +325,10 @@ namespace SchoolManagement.Repository
                     };
                 }
 
-                // ✅ Generate Password
+                // âœ… Generate Password
                 var password = _common.GeneratePassword(dto.Name, dto.DOB);
 
-                // ✅ Register User FIRST
+                // âœ… Register User FIRST
                 var req = new RegisterDto
                 {
                     Name = dto.Name,
@@ -281,7 +341,7 @@ namespace SchoolManagement.Repository
 
                 var userResult = await _user.Register(req);
 
-                // ❌ If user registration failed
+                // âŒ If user registration failed
                 if (userResult == null || userResult.Id <= 0)
                 {
                     await transaction.RollbackAsync();
@@ -294,7 +354,7 @@ namespace SchoolManagement.Repository
                     };
                 }
 
-                // ✅ Create Staff after User created
+                // âœ… Create Staff after User created
                 var staff = new Staff
                 {
                     Name = dto.Name,
@@ -302,6 +362,7 @@ namespace SchoolManagement.Repository
                     GenderCode = dto.GenderCode,
                     DOJ = dto.DOJ,
                     RoleId = dto.RoleId,
+                    EmploymentType = dto.EmploymentType,
                     SchoolId = dto.SchoolId,
                     Email = dto.Email,
                     Phone = dto.Phone,
@@ -331,7 +392,7 @@ namespace SchoolManagement.Repository
                     CertificationNumber = dto.CertificationNumber,
                     CertificationDate = dto.CertificationDate,
                     CertificationExpiry = dto.CertificationExpiry,
-                    usersid = userResult.Id, // ✅ Save UserId
+                    usersid = userResult.Id, // âœ… Save UserId
                     IsActive = true,
                     Created_Date = DateTime.UtcNow
                 };
@@ -363,26 +424,12 @@ namespace SchoolManagement.Repository
                     await _context.SaveChangesAsync();
                 }
 
-                // ✅ Send Email
-                var placeholders = new Dictionary<string, string>
-                    {
-                        { "Name", dto.Name },
-                        { "Email", dto.Email },
-                        { "Password", password }
-                    };
-
-                var (subject, body) = await _emailService
-                    .GetEmailTemplateAsync("STAFF_CREDENTIALS", placeholders);
-
-                await _emailService.SendEmailAsync(dto.Email, subject, body);
-
-                // 📁 Folder path
                 var folderPath = Path.Combine(_env.WebRootPath, "staffdocs", staff.Id.ToString());
 
                 if (!Directory.Exists(folderPath))
                     Directory.CreateDirectory(folderPath);
 
-                // ✅ Save Documents
+                // âœ… Save Documents
                 if (dto.Files != null && dto.Files.Count > 0)
                 {
                     for (int i = 0; i < dto.Files.Count; i++)
@@ -408,13 +455,13 @@ namespace SchoolManagement.Repository
                         var uniqueFileName = Guid.NewGuid() + extension;
                         var filePath = Path.Combine(folderPath, uniqueFileName);
 
-                        // ✅ Save file
+                        // âœ… Save file
                         using (var stream = new FileStream(filePath, FileMode.Create))
                         {
                             await file.CopyToAsync(stream);
                         }
 
-                        // ✅ Save DB record
+                        // âœ… Save DB record
                         var document = new StaffDocument
                         {
                             StaffId = staff.Id,
@@ -430,9 +477,16 @@ namespace SchoolManagement.Repository
                     await _context.SaveChangesAsync();
                 }
 
-                // ✅ Commit only if ALL success
+                // âœ… Commit only if ALL success
+                var staffEmailPlaceholders = new Dictionary<string, string>
+                {
+                    { "Name", dto.Name },
+                    { "Email", dto.Email },
+                    { "Password", password }
+                };
+                var (staffEmailSubject, staffEmailBody) = await _emailService.GetEmailTemplateAsync("STAFF_CREDENTIALS", staffEmailPlaceholders);
+                await _emailService.SendEmailAsync(dto.Email, staffEmailSubject, staffEmailBody);
                 await transaction.CommitAsync();
-
                 return new ApiResponse<Staff>
                 {
                     Success = true,
@@ -442,7 +496,7 @@ namespace SchoolManagement.Repository
             }
             catch (Exception ex)
             {
-                // ❌ Rollback everything if ANYTHING fails
+                // âŒ Rollback everything if ANYTHING fails
                 await transaction.RollbackAsync();
 
                 return new ApiResponse<Staff>
@@ -455,6 +509,10 @@ namespace SchoolManagement.Repository
         }
         public async Task<ApiResponse<string>> UpdateStaffAsync(UpdateStaffDto dto)
         {
+            var employmentTypes = new[] { "Permanent", "Contract", "Part-Time", "Temporary", "Intern", "Substitute", "Probationary", "Visiting / Guest", "Consultant", "Volunteer" };
+            dto.EmploymentType = employmentTypes.FirstOrDefault(type => string.Equals(type, dto.EmploymentType?.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (dto.EmploymentType == null)
+                return new ApiResponse<string> { Success = false, Message = "Select a valid employment type." };
             if (dto.PassingYear.HasValue && (dto.PassingYear < 1900 || dto.PassingYear > DateTime.Today.Year))
                 return new ApiResponse<string> { Success = false, Message = "Enter a valid passing year up to the current year." };
             if (dto.ExperienceTo.HasValue && (!dto.ExperienceFrom.HasValue || dto.ExperienceTo < dto.ExperienceFrom))
@@ -489,6 +547,7 @@ namespace SchoolManagement.Repository
                 staff.GenderCode = dto.GenderCode;
                 staff.DOJ = dto.DOJ;
                 staff.RoleId = dto.RoleId;
+                staff.EmploymentType = dto.EmploymentType;
                 staff.Email = dto.Email;
                 staff.Phone = dto.Phone;
                 staff.Adress = dto.Address;
@@ -658,7 +717,7 @@ namespace SchoolManagement.Repository
 
         public async Task<ApiResponse<string>> CreateAcademicSessionAsync(CreateSessionDto dto)
         {
-            // 🔹 Validation
+            // ðŸ”¹ Validation
             if (dto.YearEnd <= dto.YearStart)
             {
                 return new ApiResponse<string>
@@ -668,7 +727,7 @@ namespace SchoolManagement.Repository
                 };
             }
 
-            // 🔹 Prevent duplicate session
+            // ðŸ”¹ Prevent duplicate session
             var exists = await _context.AcademicSessions
                 .AnyAsync(x => x.SchoolId == dto.SchoolId &&
                                x.Year_Start == dto.YearStart &&
@@ -683,7 +742,7 @@ namespace SchoolManagement.Repository
                 };
             }
 
-            // 🔹 Ensure only one active session
+            // ðŸ”¹ Ensure only one active session
             if (dto.IsActive)
             {
                 var activeSessions = await _context.AcademicSessions
@@ -696,7 +755,7 @@ namespace SchoolManagement.Repository
                 }
             }
 
-            // 🔹 Create new session
+            // ðŸ”¹ Create new session
             var newSession = new AcademicSessions
             {
                 SchoolId = dto.SchoolId,
@@ -742,6 +801,8 @@ namespace SchoolManagement.Repository
 
         public async Task<ApiResponse<Schools>> UpdateSchoolAsync(SchoolUpdateDto dto, int userId)
         {
+            var logoError = ValidateSchoolLogo(dto.Logo);
+            if (logoError != null) return new ApiResponse<Schools> { Success = false, Message = logoError };
             var school = await _context.Schools
                 .FirstOrDefaultAsync(x => x.Id == dto.Id && x.SuperAdminId == userId && x.IsActive);
 
@@ -763,7 +824,34 @@ namespace SchoolManagement.Repository
             school.Modified_Date = DateTime.Now;
             school.Updated_By = userId;
 
-            await _context.SaveChangesAsync();
+            ProfilePicture? newLogo = null;
+            ProfilePicture? oldLogo = null;
+            if (dto.Logo != null)
+            {
+                newLogo = await SaveSchoolLogoAsync(school.Id, dto.Logo);
+                oldLogo = await _context.ProfilePictures
+                    .Where(x => x.PersonType == "School" && x.PersonId == school.Id && x.IsActive)
+                    .OrderByDescending(x => x.CreatedDate).FirstOrDefaultAsync();
+                if (oldLogo != null) oldLogo.IsActive = false;
+                _context.ProfilePictures.Add(newLogo);
+                school.LogoUrl = newLogo.FileUrl;
+            }
+
+            try { await _context.SaveChangesAsync(); }
+            catch
+            {
+                if (newLogo != null)
+                {
+                    var failedPath = Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"), newLogo.FileUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+                    if (File.Exists(failedPath)) File.Delete(failedPath);
+                }
+                throw;
+            }
+            if (oldLogo != null)
+            {
+                var oldPath = Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"), oldLogo.FileUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+                if (File.Exists(oldPath)) File.Delete(oldPath);
+            }
             return new ApiResponse<Schools> { Success = true, Message = "School updated successfully", Data = school };
         }
 
@@ -821,6 +909,10 @@ namespace SchoolManagement.Repository
 
         public async Task<ApiResponse<string>> UpdateParentAsync(UpdateParentDto dto, int userId)
         {
+            if (string.IsNullOrWhiteSpace(dto.Address) || string.IsNullOrWhiteSpace(dto.City) || string.IsNullOrWhiteSpace(dto.State) || string.IsNullOrWhiteSpace(dto.Country))
+                return new() { Success = false, Message = "Complete the required parent address details." };
+            if (!System.Text.RegularExpressions.Regex.IsMatch(dto.PinCode ?? "", @"^[1-9]\d{5}$"))
+                return new() { Success = false, Message = "Enter a valid 6-digit parent PIN code." };
             var parent = await _context.ParentDetails.FirstOrDefaultAsync(p => p.Id == dto.Id &&
                 _context.Students.Any(s => s.ParentId == p.Id && s.SchoolId == dto.SchoolId));
             if (parent == null) return new() { Success = false, Message = "Parent not found in this school." };
@@ -842,6 +934,13 @@ namespace SchoolManagement.Repository
             parent.PhoneNumber = dto.PhoneNumber.Trim();
             parent.Relationship = dto.Relationship.Trim();
             parent.Address = dto.Address?.Trim() ?? "";
+            parent.AddressLine2 = dto.AddressLine2?.Trim();
+            parent.Landmark = dto.Landmark?.Trim();
+            parent.City = dto.City?.Trim();
+            parent.District = dto.District?.Trim();
+            parent.State = dto.State?.Trim();
+            parent.Country = dto.Country?.Trim();
+            parent.PinCode = dto.PinCode?.Trim();
             parent.Modified_Date = DateTime.Now;
             parent.Updated_By = userId;
             foreach (var login in logins)
@@ -939,6 +1038,13 @@ namespace SchoolManagement.Repository
                 Email = parent.Email,
                 PhoneNumber = parent.PhoneNumber,
                 Address = parent.Address,
+                AddressLine2 = parent.AddressLine2,
+                Landmark = parent.Landmark,
+                City = parent.City,
+                District = parent.District,
+                State = parent.State,
+                Country = parent.Country,
+                PinCode = parent.PinCode,
                 Relationship = parent.Relationship,
                 IsActive = parent.IsActive,
                 Students = studentsByParent.GetValueOrDefault(parent.Id) ?? new List<ParentStudentDto>()

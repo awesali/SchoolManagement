@@ -1,4 +1,4 @@
-﻿namespace SchoolManagement.DTOs
+namespace SchoolManagement.DTOs
 {
     public class AddStaffDto
     {
@@ -8,6 +8,9 @@
         public DateTime DOJ { get; set; }
 
         public int RoleId { get; set; }
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.MaxLength(50)]
+        public string EmploymentType { get; set; }
         public int SchoolId { get; set; }
 
         public string Email { get; set; }

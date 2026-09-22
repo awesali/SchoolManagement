@@ -1,4 +1,4 @@
-﻿namespace SchoolManagement.DTOs
+namespace SchoolManagement.DTOs
 {
     public class StaffListDto
     {
@@ -13,6 +13,7 @@
 
         public int RoleId { get; set; }
         public string RoleName { get; set; }
+        public string? EmploymentType { get; set; }
 
         public string SchoolName { get; set; }
         public string? Address { get; set; }

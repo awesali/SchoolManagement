@@ -20,7 +20,8 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpPost("create")]
-        public async Task<IActionResult> CreateSchool(SchoolCreateDto dto)
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> CreateSchool([FromForm] SchoolCreateDto dto)
         {
             var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
             var result = await _repo.CreateSchool(dto, userId);
@@ -81,7 +82,8 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpPut("update-school")]
-        public async Task<IActionResult> UpdateSchool(SchoolUpdateDto dto)
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UpdateSchool([FromForm] SchoolUpdateDto dto)
         {
             var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
             var result = await _repo.UpdateSchoolAsync(dto, userId);

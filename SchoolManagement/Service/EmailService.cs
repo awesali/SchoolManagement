@@ -18,40 +18,43 @@ namespace SchoolManagement.Service
 
         public async Task SendEmailAsync(string toEmail, string subject, string body)
         {
-            var fromEmail = _config["EmailSettings:FromEmail"]?.Trim();
-            var password = _config["EmailSettings:Password"]?
-                .Replace(" ", "")
-                .Trim();
-
-            var smtpHost = _config["EmailSettings:SmtpHost"]?.Trim();
-            var port = int.Parse(_config["EmailSettings:Port"]!);
-
-            Console.WriteLine($"SMTP Host: {smtpHost}");
-            Console.WriteLine($"SMTP Port: {port}");
-            Console.WriteLine($"From Email: {fromEmail}");
-            Console.WriteLine($"Password Length: {password?.Length}");
-
-            using var smtpClient = new SmtpClient(smtpHost, port)
+            Exception? lastError = null;
+            for (var attempt = 1; attempt <= 3; attempt++)
             {
-                EnableSsl = true,
-                UseDefaultCredentials = false,
-                Credentials = new NetworkCredential(fromEmail, password),
-                DeliveryMethod = SmtpDeliveryMethod.Network
-            };
+                try
+                {
+                    var fromEmail = _config["EmailSettings:FromEmail"]?.Trim();
+                    var password = _config["EmailSettings:Password"]?.Replace(" ", "").Trim();
+                    var smtpHost = _config["EmailSettings:SmtpHost"]?.Trim();
+                    var port = int.Parse(_config["EmailSettings:Port"]!);
 
-            using var mail = new MailMessage
-            {
-                From = new MailAddress(fromEmail!),
-                Subject = subject,
-                Body = body,
-                IsBodyHtml = true
-            };
+                    using var smtpClient = new SmtpClient(smtpHost, port)
+                    {
+                        EnableSsl = true,
+                        UseDefaultCredentials = false,
+                        Credentials = new NetworkCredential(fromEmail, password),
+                        DeliveryMethod = SmtpDeliveryMethod.Network
+                    };
+                    using var mail = new MailMessage
+                    {
+                        From = new MailAddress(fromEmail!),
+                        Subject = subject,
+                        Body = body,
+                        IsBodyHtml = true
+                    };
+                    mail.To.Add(toEmail);
+                    await smtpClient.SendMailAsync(mail);
+                    return;
+                }
+                catch (Exception exception)
+                {
+                    lastError = exception;
+                    if (attempt < 3) await Task.Delay(TimeSpan.FromSeconds(attempt * 2));
+                }
+            }
 
-            mail.To.Add(toEmail);
-
-            await smtpClient.SendMailAsync(mail);
+            throw new InvalidOperationException($"Email delivery to {toEmail} failed after three attempts.", lastError);
         }
-
         public async Task<(string subject, string body)> GetEmailTemplateAsync(string templateName, Dictionary<string, string> placeholders)
         {
             var template = await _context.EmailTemplates
