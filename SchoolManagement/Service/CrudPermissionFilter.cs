@@ -57,6 +57,13 @@ public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
     private static string? ResolvePage(string rawPath)
     {
         var p = rawPath.ToLowerInvariant();
+        if (p.Contains("/api/teacher/classes")) return "academics.classes";
+        if (p.Contains("/api/teacher/timetable")) return "academics.class-schedule";
+        if (p.Contains("/api/teacher/workspace")) return "dashboard.dashboard";
+        if (p.Contains("/api/teacher/section-students")) return "attendance.students";
+        if (p.Contains("/api/teacher/teaching-options") || p.Contains("/api/teacher/homework") || p.Contains("/api/teacher/study-materials")) return "academics.classes";
+        if (p.Contains("/api/teacher/calendar")) return "academics.class-schedule";
+        if (p.Contains("/api/teacher/profile-summary") || p.Contains("/api/teacher/leave") || p.Contains("/api/teacher/payslips") || p.Contains("/api/teacher/documents")) return "dashboard.dashboard";
         if (p.Contains("student-promotion")) return p.Contains("history") || p.Contains("passed-out") ? "academics.promotion-history" : "academics.student-promotion";
         if (p.Contains("attendance")) return p.Contains("student") ? "attendance.students" : "attendance.staff";
         if (p.Contains("fee") || p.Contains("receipt")) return "finance.fees";

@@ -65,6 +65,9 @@ namespace SchoolManagement.Data
         public DbSet<ExamResults> ExamResults { get; set; }
         public DbSet<StaffSalaryStructure> StaffSalaryStructure { get; set; }
         public DbSet<SalaryPayment> SalaryPayment { get; set; }
+        public DbSet<HomeworkAssignment> HomeworkAssignments { get; set; }
+        public DbSet<TeacherStudyMaterial> TeacherStudyMaterials { get; set; }
+        public DbSet<StaffLeaveRequest> StaffLeaveRequests { get; set; }
         public DbSet<VehicleType> VehicleTypes { get; set; }
         public DbSet<TransportVehicle> TransportVehicles { get; set; }
         public DbSet<TransportDriver> TransportDrivers { get; set; }
@@ -122,6 +125,9 @@ namespace SchoolManagement.Data
             modelBuilder.Entity<StudentEnrollment>().HasIndex(x => new { x.StudentId, x.SessionId }).IsUnique();
             modelBuilder.Entity<StudentEnrollment>().HasIndex(x => new { x.SchoolId, x.SessionId, x.ClassId, x.SectionId, x.IsActive });
             modelBuilder.Entity<StudentAttendance>().HasIndex(x => new { x.EnrollmentId, x.Attendance_Date }).IsUnique();
+            modelBuilder.Entity<HomeworkAssignment>().HasIndex(x => new { x.StaffId, x.SectionId, x.DueDate });
+            modelBuilder.Entity<TeacherStudyMaterial>().HasIndex(x => new { x.StaffId, x.SectionId, x.SubjectId });
+            modelBuilder.Entity<StaffLeaveRequest>().HasIndex(x => new { x.StaffId, x.FromDate, x.ToDate });
             modelBuilder.Entity<ExamMarks>().HasIndex(x => new { x.EnrollmentId, x.ExamScheduleId }).IsUnique();
             modelBuilder.Entity<ExamResults>().HasIndex(x => new { x.EnrollmentId, x.ExamId }).IsUnique();
             modelBuilder.Entity<StudentFee>().HasIndex(x => new { x.EnrollmentId, x.FeeTypeId }).IsUnique();

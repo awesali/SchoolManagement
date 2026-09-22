@@ -42,8 +42,17 @@ namespace SchoolManagement.Controllers
                 .OrderByDescending(x => x.PersonType == "User").ThenByDescending(x => x.CreatedDate)
                 .Select(x => x.FileUrl).FirstOrDefaultAsync();
             var roleName = await _context.Roles.AsNoTracking().Where(x => x.Id == user.RoleId).Select(x => x.RoleName).FirstOrDefaultAsync();
-            var schoolName = await _context.Schools.AsNoTracking().Where(x => x.Id == user.School_Id).Select(x => x.SchoolName).FirstOrDefaultAsync();
-            return Ok(new { user.Id, user.Name, user.Email, user.Phone, RoleName = roleName, SchoolName = schoolName, ProfilePictureUrl = picture });
+            // Resolve teacher branding from the authenticated staff record, never a requested school ID.
+            var profileSchoolId = user.RoleId == 2
+                ? await _context.Staff.AsNoTracking().Where(x => x.usersid == userId && x.IsActive)
+                    .Select(x => (int?)x.SchoolId).FirstOrDefaultAsync()
+                : user.School_Id;
+            var schoolName = await _context.Schools.AsNoTracking().Where(x => x.Id == profileSchoolId)
+                .Select(x => x.SchoolName).FirstOrDefaultAsync();
+            var schoolLogoUrl = await _context.ProfilePictures.AsNoTracking()
+                .Where(x => x.PersonType == "School" && x.PersonId == profileSchoolId && x.IsActive)
+                .OrderByDescending(x => x.CreatedDate).Select(x => x.FileUrl).FirstOrDefaultAsync();
+            return Ok(new { user.Id, user.Name, user.Email, user.Phone, RoleName = roleName, SchoolName = schoolName, SchoolLogoUrl = schoolLogoUrl, ProfilePictureUrl = picture });
         }
 
         [Authorize]
@@ -159,6 +168,3 @@ namespace SchoolManagement.Controllers
         }
     }
 }
-
-
-
