@@ -57,6 +57,8 @@ public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
     private static string? ResolvePage(string rawPath)
     {
         var p = rawPath.ToLowerInvariant();
+        if (p.StartsWith("/api/principal/")) return "dashboard.dashboard";
+        if (p.Contains("/api/teacher/syllabus")) return "academics.classes";
         if (p.Contains("/api/teacher/classes")) return "academics.classes";
         if (p.Contains("/api/teacher/timetable")) return "academics.class-schedule";
         if (p.Contains("/api/teacher/workspace")) return "dashboard.dashboard";

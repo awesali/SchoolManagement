@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Model;
 using System.Collections.Generic;
 using System.Data;
@@ -65,6 +65,7 @@ namespace SchoolManagement.Data
         public DbSet<ExamResults> ExamResults { get; set; }
         public DbSet<StaffSalaryStructure> StaffSalaryStructure { get; set; }
         public DbSet<SalaryPayment> SalaryPayment { get; set; }
+        public DbSet<SyllabusProgress> SyllabusProgress { get; set; }
         public DbSet<HomeworkAssignment> HomeworkAssignments { get; set; }
         public DbSet<TeacherStudyMaterial> TeacherStudyMaterials { get; set; }
         public DbSet<StaffLeaveRequest> StaffLeaveRequests { get; set; }
