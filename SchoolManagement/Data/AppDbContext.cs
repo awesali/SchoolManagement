@@ -67,6 +67,28 @@ namespace SchoolManagement.Data
         public DbSet<SalaryPayment> SalaryPayment { get; set; }
         public DbSet<SyllabusProgress> SyllabusProgress { get; set; }
         public DbSet<HomeworkAssignment> HomeworkAssignments { get; set; }
+        public DbSet<ClassDiaryEntry> ClassDiaryEntries { get; set; }
+        public DbSet<AssignmentSubmission> AssignmentSubmissions { get; set; }
+        public DbSet<SchoolAnnouncement> SchoolAnnouncements { get; set; }
+        public DbSet<StudentServiceRequest> StudentServiceRequests { get; set; }
+        public DbSet<TeacherStudentMessage> TeacherStudentMessages { get; set; }
+        public DbSet<StudentAchievement> StudentAchievements { get; set; }
+        public DbSet<SchoolCalendarEvent> SchoolCalendarEvents { get; set; }
+        public DbSet<ExamLearningResource> ExamLearningResources { get; set; }
+        public DbSet<StudentHallTicket> StudentHallTickets { get; set; }
+        public DbSet<OnlineExamQuestion> OnlineExamQuestions { get; set; }
+        public DbSet<OnlineExamAttempt> OnlineExamAttempts { get; set; }
+        public DbSet<StudentDiscussionThread> StudentDiscussionThreads { get; set; }
+        public DbSet<StudentDiscussionPost> StudentDiscussionPosts { get; set; }
+        public DbSet<SchoolClub> SchoolClubs { get; set; }
+        public DbSet<StudentClubMembership> StudentClubMemberships { get; set; }
+        public DbSet<StudentEventRegistration> StudentEventRegistrations { get; set; }
+        public DbSet<SchoolLostFoundPost> SchoolLostFoundPosts { get; set; }
+        public DbSet<SchoolHouse> SchoolHouses { get; set; }
+        public DbSet<StudentHouseMembership> StudentHouseMemberships { get; set; }
+        public DbSet<StudentTransportAlert> StudentTransportAlerts { get; set; }
+        public DbSet<StudentIdentityToken> StudentIdentityTokens { get; set; }
+        public DbSet<StudentLibraryReservation> StudentLibraryReservations { get; set; }
         public DbSet<TeacherStudyMaterial> TeacherStudyMaterials { get; set; }
         public DbSet<StaffLeaveRequest> StaffLeaveRequests { get; set; }
         public DbSet<VehicleType> VehicleTypes { get; set; }
@@ -141,3 +163,7 @@ namespace SchoolManagement.Data
         }
     }
 }
+
+
+
+

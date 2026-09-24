@@ -34,6 +34,8 @@ public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
         // Temporarily bypass custom CRUD grants only; authentication above stays active.
         if (!_configuration.GetValue<bool>("Security:CrudPermissionsEnabled", true)) return;
         if (user.FindFirstValue("RoleId") == "1") return;
+        if (descriptor.ControllerName == "StudentCommunity" && user.IsInRole("Student") && ((context.HttpContext.Request.Method == "GET" && new[] { "Overview", "DiscussionPosts" }.Contains(descriptor.ActionName)) || (context.HttpContext.Request.Method == "POST" && new[] { "JoinClub", "RegisterEvent", "CreateLostFound", "CreateDiscussionPost", "ReserveBook" }.Contains(descriptor.ActionName)))) return;
+        if (descriptor.ControllerName == "StudentSelfService" && user.IsInRole("Student") && ((descriptor.ActionName == "Overview" && context.HttpContext.Request.Method == "GET") || ((descriptor.ActionName == "Submit" || descriptor.ActionName == "CreateRequest" || descriptor.ActionName == "SendMessage" || descriptor.ActionName == "SubmitOnlineExam") && context.HttpContext.Request.Method == "POST") || ((descriptor.ActionName == "DownloadSubmissionFile" || descriptor.ActionName == "OnlineExam") && context.HttpContext.Request.Method == "GET"))) return;
 
         var page = ResolvePage(context.HttpContext.Request.Path.Value ?? "");
         var action = ResolveAction(context.HttpContext.Request.Method, context.HttpContext.Request.Path.Value ?? "");
@@ -63,13 +65,16 @@ public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
         if (p.Contains("/api/teacher/timetable")) return "academics.class-schedule";
         if (p.Contains("/api/teacher/workspace")) return "dashboard.dashboard";
         if (p.Contains("/api/teacher/section-students")) return "attendance.students";
-        if (p.Contains("/api/teacher/teaching-options") || p.Contains("/api/teacher/homework") || p.Contains("/api/teacher/study-materials")) return "academics.classes";
+        if (p.Contains("/api/teacher/discussions")) return "academics.classes";
+        if (p.Contains("/api/teacher/teaching-options") || p.Contains("/api/teacher/homework") || p.Contains("/api/teacher/study-materials") || p.Contains("/api/teacher/exam-options") || p.Contains("/api/teacher/exam-resources") || p.Contains("/api/teacher/online-questions") || p.Contains("/api/teacher/online-attempts") || p.Contains("/api/teacher/diary") || p.Contains("/api/teacher/submissions") || p.Contains("/api/teacher/announcements") || p.Contains("/api/teacher/messages")) return "academics.classes";
         if (p.Contains("/api/teacher/calendar")) return "academics.class-schedule";
         if (p.Contains("/api/teacher/profile-summary") || p.Contains("/api/teacher/leave") || p.Contains("/api/teacher/payslips") || p.Contains("/api/teacher/documents")) return "dashboard.dashboard";
         if (p.Contains("student-promotion")) return p.Contains("history") || p.Contains("passed-out") ? "academics.promotion-history" : "academics.student-promotion";
         if (p.Contains("attendance")) return p.Contains("student") ? "attendance.students" : "attendance.staff";
         if (p.Contains("fee") || p.Contains("receipt")) return "finance.fees";
         if (p.Contains("salary") || p.Contains("/staff/assign") || p.Contains("/staff/generate") || p.Contains("/staff/pay") || p.Contains("/staff/history") || p.Contains("/staff/pending")) return "finance.salary";
+        if (p.Contains("/api/schoolcommunityadmin")) return "management.students";
+        if (p.Contains("/api/schoolstudentadmin")) return "management.students";
         if (p.Contains("/api/student")) return "management.students";
         if (p.Contains("add-staff") || p.Contains("update-staff") || p.Contains("staff-by-school") || p.Contains("staff-emails") || p.Contains("delete-document") || p.Contains("get-roles")) return "management.staff";
         if (p.Contains("parent")) return "management.parents";
@@ -87,3 +92,8 @@ public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
         return null;
     }
 }
+
+
+
+
+

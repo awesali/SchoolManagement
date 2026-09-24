@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
@@ -16,10 +16,17 @@ namespace SchoolManagement.Controllers
             _studentParentRepo = studentParentRepo;
         }
 
+        [Authorize]
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] StudentParentRegisterDto dto)
         {
-            if (dto == null || string.IsNullOrEmpty(dto.Email) || string.IsNullOrEmpty(dto.Password))
+            if (dto == null) return BadRequest(new ApiResponse<string> { Success = false, Message = "Invalid input" });
+            // Student credentials must be provisioned by school staff for their own school.
+            var roleId = User.FindFirst("RoleId")?.Value;
+            var schoolClaim = User.FindFirst("SchoolId")?.Value;
+            if (roleId != "1" && (!int.TryParse(schoolClaim, out var callerSchoolId) || callerSchoolId != dto.School_Id))
+                return Forbid();
+            if ( string.IsNullOrEmpty(dto.Email) || string.IsNullOrEmpty(dto.Password))
                 return BadRequest(new ApiResponse<string> { Success = false, Message = "Invalid input" });
 
             var result = await _studentParentRepo.RegisterStudentParentAsync(dto);
@@ -80,3 +87,6 @@ namespace SchoolManagement.Controllers
         }
     }
 }
+
+
+

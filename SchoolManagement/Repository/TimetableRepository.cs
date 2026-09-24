@@ -62,7 +62,7 @@ namespace SchoolManagement.Repository
                 {
                     SectionId = sectionId,
                     DayOfWeek = day.DayOfWeek,
-                    PeriodId = p.PeriodId,
+                    PeriodId = periods.Single(period => period.PeriodNumber == p.PeriodId).Id,
                     SubjectId = p.SubjectId,
                     SchoolId = schoolId,
                     IsActive = true,
@@ -102,7 +102,8 @@ namespace SchoolManagement.Repository
                 .Select(t => new
                 {
                     t.DayOfWeek,
-                    t.PeriodId,
+                    PeriodId = _context.TimetablePeriods.Where(p => p.Id == t.PeriodId && p.SectionId == t.SectionId)
+                        .Select(p => (int?)p.PeriodNumber).FirstOrDefault() ?? t.PeriodId,
                     t.SubjectId,
                     SubjectName = t.Subject != null ? t.Subject.SubjectName : null
                 }).ToListAsync();
@@ -147,7 +148,7 @@ namespace SchoolManagement.Repository
                 {
                     SectionId = sectionId,
                     DayOfWeek = day.DayOfWeek,
-                    PeriodId = p.PeriodId,
+                    PeriodId = periods.Single(period => period.PeriodNumber == p.PeriodId).Id,
                     SubjectId = p.SubjectId,
                     SchoolId = dto.SchoolId,
                     IsActive = true,
