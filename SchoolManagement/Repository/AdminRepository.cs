@@ -542,6 +542,9 @@ namespace SchoolManagement.Repository
                 if (staff == null)
                     return new ApiResponse<string> { Success = false, Message = "Staff not found", Data = null };
 
+                if (staff.RoleId != dto.RoleId)
+                    return new ApiResponse<string> { Success = false, Message = "Use the staff promotion or demotion action to change the role." };
+
                 staff.Name = dto.Name;
                 staff.DOB = dto.DOB;
                 staff.GenderCode = dto.GenderCode;

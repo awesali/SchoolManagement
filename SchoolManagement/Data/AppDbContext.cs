@@ -6,11 +6,13 @@ using System.Reflection.Emit;
 
 namespace SchoolManagement.Data
 {
-    public class AppDbContext : DbContext
+    public partial class AppDbContext : DbContext
     {
-        public AppDbContext(DbContextOptions<AppDbContext> options)
+        private readonly IHttpContextAccessor? _staffHistoryHttp;
+        public AppDbContext(DbContextOptions<AppDbContext> options, IHttpContextAccessor? httpContextAccessor = null)
             : base(options)
         {
+            _staffHistoryHttp = httpContextAccessor;
         }
 
         public DbSet<Users> Users { get; set; }

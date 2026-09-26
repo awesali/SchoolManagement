@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -75,6 +75,23 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 {
     var key = Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]);
 
+    // Role-bearing staff tokens must be refreshed after a promotion/demotion.
+    // Student/parent tokens use a separate identity format without RoleId.
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = async context =>
+        {
+            var role = context.Principal?.FindFirst("RoleId")?.Value;
+            if (role == null) return;
+            var idText = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (!int.TryParse(idText, out var id)) { context.Fail("Invalid user."); return; }
+            var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+            var user = await db.Users.AsNoTracking().Where(x => x.Id == id)
+                .Select(x => new { x.RoleId, x.IsActive }).FirstOrDefaultAsync();
+            if (user == null || !user.IsActive || user.RoleId?.ToString() != role)
+                context.Fail("Your role has changed. Please sign in again.");
+        }
+    };
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = false,
