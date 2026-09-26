@@ -34,6 +34,8 @@ public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
         // Temporarily bypass custom CRUD grants only; authentication above stays active.
         if (!_configuration.GetValue<bool>("Security:CrudPermissionsEnabled", true)) return;
         if (user.FindFirstValue("RoleId") == "1") return;
+        // These principal workflows validate the caller's active Principal role and school in the action.
+        if (descriptor.ControllerName == "Principal" && new[] { "Invigilation", "AssignInvigilation", "RemoveInvigilation", "DecideLeave", "LeaveHistory", "UpcomingApprovedLeave" }.Contains(descriptor.ActionName)) return;
         if (descriptor.ControllerName == "StudentCommunity" && user.IsInRole("Student") && ((context.HttpContext.Request.Method == "GET" && new[] { "Overview", "DiscussionPosts" }.Contains(descriptor.ActionName)) || (context.HttpContext.Request.Method == "POST" && new[] { "JoinClub", "RegisterEvent", "CreateLostFound", "CreateDiscussionPost", "ReserveBook" }.Contains(descriptor.ActionName)))) return;
         if (descriptor.ControllerName == "StudentSelfService" && user.IsInRole("Student") && ((descriptor.ActionName == "Overview" && context.HttpContext.Request.Method == "GET") || ((descriptor.ActionName == "Submit" || descriptor.ActionName == "CreateRequest" || descriptor.ActionName == "SendMessage" || descriptor.ActionName == "SubmitOnlineExam") && context.HttpContext.Request.Method == "POST") || ((descriptor.ActionName == "DownloadSubmissionFile" || descriptor.ActionName == "OnlineExam") && context.HttpContext.Request.Method == "GET"))) return;
 
@@ -59,6 +61,9 @@ public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
     private static string? ResolvePage(string rawPath)
     {
         var p = rawPath.ToLowerInvariant();
+        if (p.StartsWith("/api/staffleaveallocations/mine")) return "dashboard.dashboard";
+        if (p.StartsWith("/api/staffleaveallocations/")) return "management.staff";
+        if (p.StartsWith("/api/principal/invigilation")) return "exams.academic-exam";
         if (p.StartsWith("/api/staff-career/")) return "management.staff";
         if (p.StartsWith("/api/principal/")) return "dashboard.dashboard";
         if (p.Contains("/api/teacher/syllabus")) return "academics.classes";
@@ -79,6 +84,7 @@ public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
         if (p.Contains("/api/student")) return "management.students";
         if (p.Contains("add-staff") || p.Contains("update-staff") || p.Contains("staff-by-school") || p.Contains("staff-emails") || p.Contains("delete-document") || p.Contains("get-roles")) return "management.staff";
         if (p.Contains("parent")) return "management.parents";
+        if (p.StartsWith("/api/academicholidays/")) return "academics.sessions";
         if (p.Contains("academic-session") || p.Contains("create-session")) return "academics.sessions";
         if (p.Contains("/api/class")) return "academics.classes";
         if (p.Contains("/api/subject")) return "academics.subjects";

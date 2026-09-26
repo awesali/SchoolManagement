@@ -36,6 +36,7 @@ namespace SchoolManagement.Data
         public DbSet<Students> Students { get; set; }
 
         public DbSet<StaffAttendance> StaffAttendance { get; set; }
+        public DbSet<StaffLeaveAllocation> StaffLeaveAllocations { get; set; }
 
         public DbSet<StudentAttendance> StudentAttendance { get; set; }
         public DbSet<Classes> Classes { get; set; }

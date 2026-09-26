@@ -48,6 +48,8 @@ public class SchoolCalendarEvent
     [MaxLength(200)] public string Title { get; set; } = "";
     [MaxLength(1000)] public string? Description { get; set; }
     public DateTime EventDate { get; set; }
+    public DateTime? EndDate { get; set; }
+    [MaxLength(30)] public string EventType { get; set; } = "Event";
     public bool IsActive { get; set; } = true;
 }
 

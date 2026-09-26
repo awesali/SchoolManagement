@@ -167,7 +167,7 @@ public class StudentSelfServiceController : ControllerBase
             .Where(x => x.SchoolId == student.SchoolId && x.IsActive &&
                 (x.SectionId == null || x.SectionId == enrollment.SectionId))
             .OrderBy(x => x.EventDate)
-            .Select(x => new { x.Id, x.Title, x.Description, x.EventDate }).ToListAsync();
+            .Select(x => new { x.Id, x.Title, x.Description, x.EventDate, x.EndDate, x.EventType }).ToListAsync();
 
         var markRows = await (from mark in _db.ExamMarks.AsNoTracking()
             join schedule in _db.ExamSchedules on mark.ExamScheduleId equals schedule.Id

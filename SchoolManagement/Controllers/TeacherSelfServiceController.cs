@@ -159,10 +159,32 @@ public class TeacherSelfServiceController : ControllerBase
         var exams = examRows.Where(row => mappings.Any(mapping => mapping.SectionId == row.SectionId && mapping.SubjectId == row.SubjectId))
             .Select(row => new TeacherCalendarItem { Date = row.ExamDate, Title = row.Name + " · " + row.SubjectName,
                 Type = "Exam", Detail = row.StartTime.ToString(@"hh\:mm") }).ToList();
+        var dutyRows = await (from duty in _db.ExamInvigilators.AsNoTracking()
+            join schedule in _db.ExamSchedules.AsNoTracking() on duty.ExamScheduleId equals schedule.Id
+            join exam in _db.Exams.AsNoTracking() on schedule.ExamId equals exam.Id
+            join classroom in _db.Classes.AsNoTracking() on schedule.ClassId equals classroom.Id
+            join section in _db.SectionDetails.AsNoTracking() on schedule.SectionId equals section.Id
+            where duty.StaffId == staff.Id && schedule.SchoolId == staff.SchoolId && schedule.IsActive &&
+                schedule.ExamDate.Date >= rangeStart.Date && schedule.ExamDate.Date <= rangeEnd.Date
+            select new { schedule.ExamDate, schedule.StartTime, schedule.EndTime, exam.Name, classroom.ClassName, section.SectionName, duty.DutyType }).ToListAsync();
+        var duties = dutyRows.Select(x => new TeacherCalendarItem { Date = x.ExamDate,
+            Title = "Invigilate " + x.ClassName + " - " + x.SectionName + " (" + x.Name + ")",
+            Type = "Invigilation", Detail = x.StartTime.ToString(@"hh\:mm") + "-" + x.EndTime.ToString(@"hh\:mm") + " - " + x.DutyType + " duty" });
         var leave = await _db.StaffLeaveRequests.AsNoTracking()
             .Where(x => x.StaffId == staff.Id && x.IsActive && x.ToDate.Date >= rangeStart.Date && x.FromDate.Date <= rangeEnd.Date)
             .Select(x => new TeacherCalendarItem { Date = x.FromDate, Title = x.LeaveType, Type = "Leave", Detail = x.Status }).ToListAsync();
-        return Ok(new { success = true, data = assignments.Concat(exams).Concat(leave).OrderBy(x => x.Date) });
+        var schoolEvents = await _db.SchoolCalendarEvents.AsNoTracking()
+            .Where(x => x.SchoolId == staff.SchoolId && x.IsActive &&
+                (x.SectionId == null || sectionIds.Contains(x.SectionId.Value)) &&
+                x.EventDate.Date <= rangeEnd.Date && (x.EndDate ?? x.EventDate).Date >= rangeStart.Date)
+            .Select(x => new { x.EventDate, x.EndDate, x.Title, x.Description, x.EventType }).ToListAsync();
+        var schoolItems = schoolEvents.SelectMany(x => Enumerable.Range(0,
+                x.EventType == "AcademicHoliday" ? ((x.EndDate ?? x.EventDate).Date - x.EventDate.Date).Days + 1 : 1)
+            .Select(offset => new TeacherCalendarItem { Date = x.EventDate.Date.AddDays(offset), Title = x.Title,
+                Type = x.EventType == "AcademicHoliday" ? "Holiday" : "School event",
+                Detail = x.Description ?? (x.EventType == "AcademicHoliday" ? "Academic holiday" : "") }))
+            .Where(x => x.Date >= rangeStart.Date && x.Date <= rangeEnd.Date);
+        return Ok(new { success = true, data = assignments.Concat(exams).Concat(duties).Concat(leave).Concat(schoolItems).OrderBy(x => x.Date) });
     }
 
     [HttpGet("profile-summary")]
@@ -196,12 +218,28 @@ public class TeacherSelfServiceController : ControllerBase
         if (staff == null) return Forbid();
         if (request.FromDate.Date < DateTime.Today || request.ToDate.Date < request.FromDate.Date || string.IsNullOrWhiteSpace(request.Reason))
             return BadRequest(new { success = false, message = "Choose valid future dates and enter a reason." });
-        var allowedLeaveTypes = new[] { "Casual Leave", "Sick Leave", "Earned Leave", "Unpaid Leave" };
+        var allowedLeaveTypes = new[] { "Casual Leave", "Sick Leave", "Planned Leave", "Unpaid Leave", "Earned Leave" };
         if (!allowedLeaveTypes.Contains(request.LeaveType))
             return BadRequest(new { success = false, message = "Choose a valid leave type." });
         if (await _db.StaffLeaveRequests.AnyAsync(x => x.StaffId == staff.Id && x.IsActive && x.Status != "Rejected" &&
             x.FromDate.Date <= request.ToDate.Date && x.ToDate.Date >= request.FromDate.Date))
             return Conflict(new { success = false, message = "A leave request already covers these dates." });
+        var session = await _db.AcademicSessions.AsNoTracking().Where(x => x.SchoolId == staff.SchoolId && x.IsActive &&
+            x.Year_Start.Date <= request.FromDate.Date && x.Year_End.Date >= request.FromDate.Date)
+            .OrderByDescending(x => x.Year_Start).FirstOrDefaultAsync();
+        if (session == null || request.ToDate.Date > session.Year_End.Date)
+            return BadRequest(new { success = false, message = "Choose dates within one active academic session." });
+        var allotted = await _db.StaffLeaveAllocations.AsNoTracking()
+            .Where(x => x.StaffId == staff.Id && x.AcademicSessionId == session.Id && x.LeaveType == request.LeaveType)
+            .Select(x => (int?)x.Days).FirstOrDefaultAsync() ?? 0;
+        var existing = await _db.StaffLeaveRequests.AsNoTracking().Where(x => x.StaffId == staff.Id && x.IsActive &&
+            x.LeaveType == request.LeaveType && (x.Status == "Pending" || x.Status == "Approved") &&
+            x.FromDate.Date >= session.Year_Start.Date && x.ToDate.Date <= session.Year_End.Date)
+            .Select(x => new { x.FromDate, x.ToDate }).ToListAsync();
+        var reserved = existing.Sum(x => (x.ToDate.Date - x.FromDate.Date).Days + 1);
+        var requested = (request.ToDate.Date - request.FromDate.Date).Days + 1;
+        if (requested > allotted - reserved)
+            return BadRequest(new { success = false, message = $"Only {Math.Max(0, allotted - reserved)} {request.LeaveType} day(s) remain in this academic year." });
         var item = new StaffLeaveRequest { SchoolId = staff.SchoolId, StaffId = staff.Id,
             LeaveType = request.LeaveType.Trim(), FromDate = request.FromDate.Date, ToDate = request.ToDate.Date,
             Reason = request.Reason.Trim() };
