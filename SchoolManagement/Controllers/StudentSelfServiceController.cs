@@ -132,7 +132,7 @@ public class StudentSelfServiceController : ControllerBase
         var announcements = await _db.SchoolAnnouncements.AsNoTracking()
             .Where(x => x.SchoolId == student.SchoolId && x.IsActive && x.IsPublished &&
                 (x.SectionId == null || x.SectionId == enrollment.SectionId) &&
-                (x.ExpiresAt == null || x.ExpiresAt >= DateTime.UtcNow))
+                (x.ExpiresAt == null || x.ExpiresAt.Value.Date >= DateTime.Today))
             .OrderByDescending(x => x.IsPinned).ThenByDescending(x => x.CreatedAt)
             .Select(x => new { x.Id, x.Title, x.Body, x.CreatedAt, x.IsPinned }).Take(50).ToListAsync();
         var libraryBooks = await _db.InventoryBooks.AsNoTracking()
@@ -154,7 +154,7 @@ public class StudentSelfServiceController : ControllerBase
             .Where(x => x.SchoolId == student.SchoolId && x.StudentId == student.Id && x.IsActive)
             .OrderByDescending(x => x.CreatedAt)
             .Select(x => new { x.Id, x.Type, x.Subject, x.Details, x.FromDate, x.ToDate,
-                x.Status, x.Response, x.CreatedAt, x.RespondedAt }).ToListAsync();
+                x.Status, x.Response, x.CreatedAt, x.RespondedAt, x.RecipientRoleId, x.RecipientUserId }).ToListAsync();
         var messages = await (from message in _db.TeacherStudentMessages.AsNoTracking()
             join staff in _db.Staff on message.StaffId equals staff.Id
             where message.SchoolId == student.SchoolId && message.StudentId == student.Id && message.IsActive
@@ -311,6 +311,30 @@ public class StudentSelfServiceController : ControllerBase
         return PhysicalFile(path, "application/octet-stream", "submission" + Path.GetExtension(path));
     }
 
+    [HttpGet("request-recipients")]
+    public async Task<IActionResult> RequestRecipients()
+    {
+        var (student, enrollment) = await CurrentEnrollment();
+        if (student == null || enrollment == null) return Forbid();
+        var roles = await _db.Roles.AsNoTracking()
+            .Where(x => x.IsActive && x.Id != 1 && (x.School_Id == null || x.School_Id == student.SchoolId))
+            .OrderBy(x => x.RoleName)
+            .Select(x => new { x.Id, x.RoleName }).ToListAsync();
+        var recipients = await (from account in _db.Users.AsNoTracking()
+            join role in _db.Roles.AsNoTracking() on account.RoleId equals role.Id
+            join staff in _db.Staff.AsNoTracking() on account.Id equals staff.usersid into staffJoin
+            from staff in staffJoin.DefaultIfEmpty()
+            where account.IsActive && account.Status && role.IsActive && role.Id != 1 &&
+                (role.School_Id == null || role.School_Id == student.SchoolId) &&
+                ((staff != null && staff.SchoolId == student.SchoolId && staff.IsActive &&
+                    staff.RoleId == account.RoleId) ||
+                 (account.School_Id == student.SchoolId && staff == null))
+            orderby role.RoleName, account.Name
+            select new { id = account.Id, name = account.Name, roleId = account.RoleId })
+            .Distinct().ToListAsync();
+        return Ok(new { success = true, data = new { roles, recipients } });
+    }
+
     [HttpPost("requests")]
     public async Task<IActionResult> CreateRequest([FromBody] StudentRequestInput input)
     {
@@ -323,8 +347,22 @@ public class StudentSelfServiceController : ControllerBase
         if (input.Type == "Leave" && (!input.FromDate.HasValue || !input.ToDate.HasValue ||
             input.FromDate.Value.Date < DateTime.Today || input.ToDate.Value.Date < input.FromDate.Value.Date))
             return BadRequest(new { message = "Choose a valid future leave date range." });
+        if (!input.RecipientRoleId.HasValue || !input.RecipientUserId.HasValue || input.RecipientRoleId.Value == 1)
+            return BadRequest(new { message = "Choose a recipient role and staff member." });
+        var recipient = await (from account in _db.Users.AsNoTracking()
+            join role in _db.Roles.AsNoTracking() on account.RoleId equals role.Id
+            join staff in _db.Staff.AsNoTracking() on account.Id equals staff.usersid into staffJoin
+            from staff in staffJoin.DefaultIfEmpty()
+            where account.Id == input.RecipientUserId.Value && account.IsActive && account.Status &&
+                role.IsActive && role.Id != 1 && (role.School_Id == null || role.School_Id == student.SchoolId) &&
+                account.RoleId == input.RecipientRoleId.Value &&
+                (staff != null && staff.SchoolId == student.SchoolId && staff.IsActive && staff.RoleId == account.RoleId ||
+                 account.School_Id == student.SchoolId && staff == null)
+            select account.Id).AnyAsync();
+        if (!recipient) return BadRequest(new { message = "The selected staff member is not active in your school and role." });
         var request = new SchoolManagement.Model.StudentServiceRequest {
             SchoolId = student.SchoolId, StudentId = student.Id, EnrollmentId = enrollment.Id,
+            RecipientRoleId = input.RecipientRoleId, RecipientUserId = input.RecipientUserId,
             Type = input.Type, Subject = input.Subject.Trim(), Details = input.Details.Trim(),
             FromDate = input.FromDate?.Date, ToDate = input.ToDate?.Date
         };
@@ -362,5 +400,5 @@ public class StudentSubmissionInput { public int AssignmentId { get; set; } publ
 
 
 
-public class StudentRequestInput { public string Type { get; set; } = ""; public string Subject { get; set; } = ""; public string Details { get; set; } = ""; public DateTime? FromDate { get; set; } public DateTime? ToDate { get; set; } }
+public class StudentRequestInput { public int? RecipientRoleId { get; set; } public int? RecipientUserId { get; set; } public string Type { get; set; } = ""; public string Subject { get; set; } = ""; public string Details { get; set; } = ""; public DateTime? FromDate { get; set; } public DateTime? ToDate { get; set; } }
 public class StudentMessageInput { public int StaffId { get; set; } public string Body { get; set; } = ""; }

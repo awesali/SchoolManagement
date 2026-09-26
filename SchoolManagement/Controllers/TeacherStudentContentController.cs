@@ -133,6 +133,8 @@ public class TeacherStudentContentController : ControllerBase
         if (string.IsNullOrWhiteSpace(input.Title) || string.IsNullOrWhiteSpace(input.Body) ||
             input.Title.Length > 200 || input.Body.Length > 4000)
             return BadRequest(new { message = "Enter a title and message." });
+        if (input.ExpiresAt.HasValue && input.ExpiresAt.Value.Date < DateTime.Today)
+            return BadRequest(new { message = "Expiry date cannot be in the past." });
         var item = new SchoolAnnouncement { SchoolId = staff.SchoolId, SectionId = input.SectionId,
             CreatedBy = staff.Id, Title = input.Title.Trim(), Body = input.Body.Trim(),
             ExpiresAt = input.ExpiresAt, IsPinned = input.IsPinned, IsPublished = input.Publish };

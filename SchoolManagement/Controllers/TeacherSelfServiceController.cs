@@ -19,7 +19,7 @@ public class TeacherSelfServiceController : ControllerBase
     {
         if (User.FindFirstValue("RoleId") != "2" ||
             !int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return null;
-        return await _db.Staff.AsNoTracking().FirstOrDefaultAsync(x => x.usersid == userId && x.IsActive);
+        return await _db.Staff.AsNoTracking().FirstOrDefaultAsync(x => x.usersid == userId && x.IsActive && x.RoleId == 2);
     }
 
     private async Task<List<SectionSubjectTeachers>> TeachingAssignments(Staff staff) =>
@@ -30,6 +30,52 @@ public class TeacherSelfServiceController : ControllerBase
     private async Task<bool> CanTeach(Staff staff, int sectionId, int subjectId) =>
         await _db.SectionSubjectTeachers.AnyAsync(x => x.StaffId == staff.Id && x.SchoolId == staff.SchoolId &&
             x.SectionId == sectionId && x.SubjectId == subjectId && x.IsActive);
+
+    [HttpGet("student-leave-requests")]
+    public async Task<IActionResult> StudentLeaveRequests()
+    {
+        var staff = await CurrentStaff();
+        if (staff == null || !int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return Forbid();
+        var rows = await (from request in _db.StudentServiceRequests.AsNoTracking()
+            join enrollment in _db.StudentEnrollment.AsNoTracking() on request.EnrollmentId equals enrollment.Id
+            join section in _db.SectionDetails.AsNoTracking() on enrollment.SectionId equals section.Id
+            join classroom in _db.Classes.AsNoTracking() on enrollment.ClassId equals classroom.Id
+            join student in _db.Students.AsNoTracking() on request.StudentId equals student.Id
+            where request.IsActive &&
+                request.SchoolId == staff.SchoolId && enrollment.SchoolId == staff.SchoolId &&
+                enrollment.StudentId == request.StudentId && section.SchoolId == staff.SchoolId &&
+                (request.RecipientUserId == userId && request.RecipientRoleId == 2 || (request.RecipientUserId == null && request.Type == "Leave" && section.StaffId == staff.Id)) && section.IsActive && student.IsActive
+            orderby request.CreatedAt descending
+            select new { request.Id, request.StudentId, student.StudentName, request.Type,
+                classroom.ClassName, section.SectionName, request.Subject, request.Details,
+                request.FromDate, request.ToDate, request.Status, request.Response, request.CreatedAt })
+            .Take(300).ToListAsync();
+        return Ok(new { success = true, data = rows });
+    }
+
+    [HttpPost("student-leave-requests/{id:int}/respond")]
+    public async Task<IActionResult> RespondToStudentLeave(int id, [FromBody] StudentLeaveReviewInput input)
+    {
+        var staff = await CurrentStaff();
+        if (staff == null || !int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return Forbid();
+        var request = await (from item in _db.StudentServiceRequests
+            join enrollment in _db.StudentEnrollment on item.EnrollmentId equals enrollment.Id
+            join section in _db.SectionDetails on enrollment.SectionId equals section.Id
+            where item.Id == id && item.IsActive &&
+                item.SchoolId == staff.SchoolId && enrollment.SchoolId == staff.SchoolId &&
+                enrollment.StudentId == item.StudentId && section.SchoolId == staff.SchoolId &&
+                (item.RecipientUserId == userId && item.RecipientRoleId == 2 || (item.RecipientUserId == null && item.Type == "Leave" && section.StaffId == staff.Id)) && section.IsActive
+            select item).FirstOrDefaultAsync();
+        if (request == null) return NotFound();
+        if (!new[] { "Approved", "Rejected" }.Contains(input.Status) ||
+            input.Response?.Length > 2000)
+            return BadRequest(new { message = "Choose Approved or Rejected and enter a response up to 2000 characters." });
+        request.Status = input.Status;
+        request.Response = input.Response?.Trim();
+        request.RespondedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return Ok(new { success = true });
+    }
 
     [HttpGet("teaching-options")]
     public async Task<IActionResult> TeachingOptions()
@@ -312,3 +358,5 @@ public class TeacherCalendarItem
     public string Type { get; set; } = "";
     public string Detail { get; set; } = "";
 }
+
+public class StudentLeaveReviewInput { public string Status { get; set; } = ""; public string? Response { get; set; } }
