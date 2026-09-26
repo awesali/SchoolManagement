@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
@@ -226,57 +226,6 @@ public class TeacherStudentContentController : ControllerBase
         await _db.SaveChangesAsync();
         return Ok(new { success = true, data = new { item.Id } });
     }
-    [HttpGet("online-questions")]
-    public async Task<IActionResult> OnlineQuestions([FromQuery] int examId)
-    {
-        var staff = await CurrentStaff();
-        if (staff == null) return Forbid();
-        var mappings = await _db.SectionSubjectTeachers.AsNoTracking()
-            .Where(x => x.StaffId == staff.Id && x.SchoolId == staff.SchoolId && x.IsActive)
-            .Select(x => new { x.SectionId, x.SubjectId }).ToListAsync();
-        var sections = mappings.Select(x => x.SectionId).Distinct().ToList();
-        var rows = await _db.OnlineExamQuestions.AsNoTracking()
-            .Where(x => x.ExamId == examId && x.SchoolId == staff.SchoolId && sections.Contains(x.SectionId) && x.IsActive)
-            .ToListAsync();
-        return Ok(new { success = true, data = rows.Where(x => mappings.Any(m =>
-            m.SectionId == x.SectionId && m.SubjectId == x.SubjectId)) });
-    }
-    [HttpPost("online-questions")]
-    public async Task<IActionResult> CreateQuestion([FromBody] TeacherOnlineQuestionInput input)
-    {
-        var staff = await CurrentStaff();
-        if (staff == null) return Forbid();
-        if (!await CanTeach(staff, input.SectionId, input.SubjectId)) return Forbid();
-        if (!await _db.Exams.AnyAsync(x => x.Id == input.ExamId && x.SchoolId == staff.SchoolId && x.IsActive))
-            return BadRequest(new { message = "Choose a school exam." });
-        if (new[] { input.Question, input.OptionA, input.OptionB, input.OptionC, input.OptionD }.Any(string.IsNullOrWhiteSpace) ||
-            !new[] { "A", "B", "C", "D" }.Contains(input.CorrectOption?.ToUpperInvariant()))
-            return BadRequest(new { message = "Enter a question, four options, and the correct choice." });
-        var item = new OnlineExamQuestion { SchoolId = staff.SchoolId, ExamId = input.ExamId,
-            SectionId = input.SectionId, SubjectId = input.SubjectId, Question = input.Question.Trim(),
-            OptionA = input.OptionA.Trim(), OptionB = input.OptionB.Trim(), OptionC = input.OptionC.Trim(),
-            OptionD = input.OptionD.Trim(), CorrectOption = input.CorrectOption.ToUpperInvariant() };
-        _db.OnlineExamQuestions.Add(item);
-        await _db.SaveChangesAsync();
-        return Ok(new { success = true, data = new { item.Id } });
-    }
-    [HttpGet("online-attempts")]
-    public async Task<IActionResult> OnlineAttempts([FromQuery] int examId)
-    {
-        var staff = await CurrentStaff();
-        if (staff == null) return Forbid();
-        var sections = await _db.SectionSubjectTeachers.AsNoTracking()
-            .Where(x => x.StaffId == staff.Id && x.SchoolId == staff.SchoolId && x.IsActive)
-            .Select(x => x.SectionId).Distinct().ToListAsync();
-        var rows = await (from attempt in _db.OnlineExamAttempts.AsNoTracking()
-            join enrollment in _db.StudentEnrollment on attempt.EnrollmentId equals enrollment.Id
-            join student in _db.Students on attempt.StudentId equals student.Id
-            where attempt.ExamId == examId && attempt.SchoolId == staff.SchoolId &&
-                sections.Contains(enrollment.SectionId)
-            select new { student.StudentName, attempt.CorrectCount, attempt.TotalQuestions,
-                attempt.SubmittedAt }).ToListAsync();
-        return Ok(new { success = true, data = rows });
-    }
 
 }
 public class DiaryInput
@@ -310,5 +259,3 @@ public class TeacherMessageInput { public int StudentId { get; set; } public str
 
 
 public class TeacherExamResourceInput { public int ExamId { get; set; } public int SectionId { get; set; } public int SubjectId { get; set; } public string Syllabus { get; set; } = ""; public string? ResourceUrl { get; set; } public bool Publish { get; set; } = true; }
-public class TeacherOnlineQuestionInput { public int ExamId { get; set; } public int SectionId { get; set; } public int SubjectId { get; set; } public string Question { get; set; } = ""; public string OptionA { get; set; } = ""; public string OptionB { get; set; } = ""; public string OptionC { get; set; } = ""; public string OptionD { get; set; } = ""; public string CorrectOption { get; set; } = ""; }
-

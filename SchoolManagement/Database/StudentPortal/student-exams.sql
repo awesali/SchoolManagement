@@ -16,25 +16,3 @@ BEGIN
  );
  CREATE UNIQUE INDEX UX_StudentHallTickets_Student_Exam ON dbo.StudentHallTickets(StudentId,ExamId) WHERE IsActive=1;
 END;
-IF OBJECT_ID(N'dbo.OnlineExamQuestions', N'U') IS NULL
-BEGIN
- CREATE TABLE dbo.OnlineExamQuestions(
- Id int IDENTITY(1,1) NOT NULL PRIMARY KEY, SchoolId int NOT NULL, ExamId int NOT NULL,
- SectionId int NOT NULL, SubjectId int NOT NULL, Question nvarchar(1000) NOT NULL,
- OptionA nvarchar(500) NOT NULL, OptionB nvarchar(500) NOT NULL,
- OptionC nvarchar(500) NOT NULL, OptionD nvarchar(500) NOT NULL,
- CorrectOption nvarchar(1) NOT NULL, IsActive bit NOT NULL DEFAULT 1
- );
- CREATE INDEX IX_OnlineExamQuestions_Exam_Section ON dbo.OnlineExamQuestions(SchoolId,ExamId,SectionId);
-END;
-IF OBJECT_ID(N'dbo.OnlineExamAttempts', N'U') IS NULL
-BEGIN
- CREATE TABLE dbo.OnlineExamAttempts(
- Id int IDENTITY(1,1) NOT NULL PRIMARY KEY, SchoolId int NOT NULL, StudentId int NOT NULL,
- EnrollmentId int NOT NULL, ExamId int NOT NULL, AnswersJson nvarchar(max) NOT NULL,
- CorrectCount int NOT NULL, TotalQuestions int NOT NULL, SubmittedAt datetime2 NOT NULL
- );
- CREATE UNIQUE INDEX UX_OnlineExamAttempts_Student_Exam ON dbo.OnlineExamAttempts(StudentId,ExamId);
-END;
-
-

@@ -93,14 +93,42 @@ public class SchoolStudentAdminController : ControllerBase
         await _db.SaveChangesAsync();
         return Ok(new { success = true, data = new { item.Id } });
     }
+    [HttpGet("hall-ticket-options")]
+    public async Task<IActionResult> HallTicketOptions([FromQuery] int schoolId)
+    {
+        if (!CanManage(schoolId)) return Forbid();
+        var enrollments = await (from enrollment in _db.StudentEnrollment.AsNoTracking()
+            join student in _db.Students.AsNoTracking() on enrollment.StudentId equals student.Id
+            join schoolClass in _db.Classes.AsNoTracking() on enrollment.ClassId equals schoolClass.Id
+            join section in _db.SectionDetails.AsNoTracking() on enrollment.SectionId equals section.Id
+            where enrollment.SchoolId == schoolId && enrollment.IsActive && enrollment.EnrollmentStatus == "Active" &&
+                student.SchoolId == schoolId && student.IsActive && schoolClass.SchoolId == schoolId && schoolClass.IsActive &&
+                section.SchoolId == schoolId && section.ClassId == schoolClass.Id && section.IsActive
+            select new { enrollment.StudentId, student.StudentName, enrollment.ClassId, schoolClass.ClassName,
+                enrollment.SectionId, section.SectionName, enrollment.SessionId, enrollment.RollNumber,
+                enrollment.EnrollmentDate }).ToListAsync();
+        var students = enrollments.GroupBy(x => x.StudentId)
+            .Select(group => group.OrderByDescending(x => x.EnrollmentDate).First())
+            .Select(x => new { id = x.StudentId, x.StudentName, x.ClassId, x.ClassName,
+                x.SectionId, x.SectionName, x.SessionId, x.RollNumber }).ToList();
+        var classes = students.GroupBy(x => x.ClassId)
+            .Select(group => new { id = group.Key, className = group.First().ClassName }).OrderBy(x => x.className).ToList();
+        var sections = students.GroupBy(x => new { x.ClassId, x.SectionId })
+            .Select(group => new { id = group.Key.SectionId, classId = group.Key.ClassId,
+                sectionName = group.First().SectionName }).OrderBy(x => x.sectionName).ToList();
+        return Ok(new { success = true, data = new { classes, sections, students } });
+    }
+
     [HttpGet("exam-options")]
     public async Task<IActionResult> ExamOptions([FromQuery] int schoolId)
     {
         if (!CanManage(schoolId)) return Forbid();
         var rows = await _db.Exams.AsNoTracking().Where(x => x.SchoolId == schoolId && x.IsActive)
-            .OrderByDescending(x => x.StartDate).Select(x => new { x.Id, x.Name }).Take(100).ToListAsync();
+            .OrderByDescending(x => x.StartDate).Select(x => new { x.Id, x.Name, sessionId = x.AcademicSessionId }).Take(100).ToListAsync();
         return Ok(new { success = true, data = rows });
-    }    [HttpGet("hall-tickets")]
+    }
+
+    [HttpGet("hall-tickets")]
     public async Task<IActionResult> HallTickets([FromQuery] int schoolId)
     {
         if (!CanManage(schoolId)) return Forbid();
@@ -108,29 +136,57 @@ public class SchoolStudentAdminController : ControllerBase
             join student in _db.Students on ticket.StudentId equals student.Id
             join exam in _db.Exams on ticket.ExamId equals exam.Id
             where ticket.SchoolId == schoolId && ticket.IsActive
+            orderby ticket.Id descending
             select new { ticket.Id, ticket.StudentId, student.StudentName, ticket.ExamId,
-                examName = exam.Name, ticket.SeatNumber, ticket.Room, ticket.DocumentUrl,
-                ticket.IsPublished }).ToListAsync();
+                examName = exam.Name, sessionId = exam.AcademicSessionId, ticket.SeatNumber,
+                ticket.Room, ticket.Venue, ticket.DocumentUrl, ticket.IsPublished }).ToListAsync();
         return Ok(new { success = true, data = rows });
     }
+
     [HttpPost("hall-tickets")]
-    public async Task<IActionResult> SaveHallTicket([FromBody] HallTicketInput input)
+    public Task<IActionResult> SaveHallTicket([FromBody] HallTicketInput input) => SaveHallTicketCore(input, null);
+
+    [HttpPut("hall-tickets/{id:int}")]
+    public Task<IActionResult> UpdateHallTicket(int id, [FromBody] HallTicketInput input) => SaveHallTicketCore(input, id);
+
+    private async Task<IActionResult> SaveHallTicketCore(HallTicketInput input, int? id)
     {
         if (!CanManage(input.SchoolId)) return Forbid();
-        if (!await _db.Students.AnyAsync(x => x.Id == input.StudentId && x.SchoolId == input.SchoolId && x.IsActive) ||
-            !await _db.Exams.AnyAsync(x => x.Id == input.ExamId && x.SchoolId == input.SchoolId && x.IsActive) ||
-            string.IsNullOrWhiteSpace(input.SeatNumber) || input.SeatNumber.Length > 50 ||
-            string.IsNullOrWhiteSpace(input.Room) || input.Room.Length > 100)
-            return BadRequest(new { message = "Choose a student, exam, seat number and room." });
+        if (string.IsNullOrWhiteSpace(input.SeatNumber) || input.SeatNumber.Length > 50 ||
+            string.IsNullOrWhiteSpace(input.Room) || input.Room.Length > 100 || input.Venue?.Length > 200)
+            return BadRequest(new { message = "Enter a seat number, room, and a venue up to 200 characters." });
         if (!string.IsNullOrWhiteSpace(input.DocumentUrl) &&
             (!Uri.TryCreate(input.DocumentUrl, UriKind.Absolute, out var uri) ||
              (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)))
             return BadRequest(new { message = "Enter a valid document link." });
-        var item = await _db.StudentHallTickets.FirstOrDefaultAsync(x => x.StudentId == input.StudentId &&
-            x.ExamId == input.ExamId && x.SchoolId == input.SchoolId && x.IsActive);
-        if (item == null) { item = new StudentHallTicket { SchoolId = input.SchoolId,
-            StudentId = input.StudentId, ExamId = input.ExamId }; _db.StudentHallTickets.Add(item); }
-        item.SeatNumber = input.SeatNumber.Trim(); item.Room = input.Room.Trim();
+        var exam = await _db.Exams.AsNoTracking().FirstOrDefaultAsync(x => x.Id == input.ExamId &&
+            x.SchoolId == input.SchoolId && x.IsActive);
+        if (exam == null) return BadRequest(new { message = "Choose an exam in this school." });
+        var enrollmentExists = await (from enrollment in _db.StudentEnrollment.AsNoTracking()
+            join student in _db.Students on enrollment.StudentId equals student.Id
+            where enrollment.StudentId == input.StudentId && enrollment.SchoolId == input.SchoolId &&
+                enrollment.ClassId == input.ClassId && enrollment.SectionId == input.SectionId &&
+                enrollment.SessionId == exam.AcademicSessionId && enrollment.IsActive &&
+                enrollment.EnrollmentStatus == "Active" && student.SchoolId == input.SchoolId && student.IsActive
+            select enrollment.Id).AnyAsync();
+        if (!enrollmentExists) return BadRequest(new { message = "Choose a student enrolled in this class, section, and exam session." });
+        StudentHallTicket? item;
+        if (id.HasValue)
+        {
+            item = await _db.StudentHallTickets.FirstOrDefaultAsync(x => x.Id == id.Value && x.SchoolId == input.SchoolId && x.IsActive);
+            if (item == null) return NotFound(new { message = "Hall ticket not found." });
+        }
+        else
+        {
+            item = await _db.StudentHallTickets.FirstOrDefaultAsync(x => x.StudentId == input.StudentId &&
+                x.ExamId == input.ExamId && x.SchoolId == input.SchoolId && x.IsActive);
+            if (item == null) { item = new StudentHallTicket { SchoolId = input.SchoolId }; _db.StudentHallTickets.Add(item); }
+        }
+        if (await _db.StudentHallTickets.AnyAsync(x => x.Id != item.Id && x.SchoolId == input.SchoolId &&
+            x.StudentId == input.StudentId && x.ExamId == input.ExamId && x.IsActive))
+            return Conflict(new { message = "This student already has a ticket for this exam." });
+        item.StudentId = input.StudentId; item.ExamId = input.ExamId;
+        item.SeatNumber = input.SeatNumber.Trim(); item.Room = input.Room.Trim(); item.Venue = input.Venue?.Trim();
         item.DocumentUrl = input.DocumentUrl?.Trim(); item.IsPublished = input.Publish;
         await _db.SaveChangesAsync();
         return Ok(new { success = true, data = new { item.Id } });
@@ -142,6 +198,4 @@ public class SchoolEventInput { public int SchoolId { get; set; } public int? Se
 public class AdminAnnouncementInput { public int SchoolId { get; set; } public int? SectionId { get; set; } public string Title { get; set; } = ""; public string Body { get; set; } = ""; public DateTime? ExpiresAt { get; set; } public bool IsPinned { get; set; } public bool Publish { get; set; } = true; }
 
 
-public class HallTicketInput { public int SchoolId { get; set; } public int StudentId { get; set; } public int ExamId { get; set; } public string SeatNumber { get; set; } = ""; public string Room { get; set; } = ""; public string? DocumentUrl { get; set; } public bool Publish { get; set; } = true; }
-
-
+public class HallTicketInput { public int SchoolId { get; set; } public int StudentId { get; set; } public int ExamId { get; set; } public int ClassId { get; set; } public int SectionId { get; set; } public string SeatNumber { get; set; } = ""; public string Room { get; set; } = ""; public string? Venue { get; set; } public string? DocumentUrl { get; set; } public bool Publish { get; set; } = true; }

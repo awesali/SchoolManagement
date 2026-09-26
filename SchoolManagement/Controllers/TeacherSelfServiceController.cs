@@ -126,6 +126,8 @@ public class TeacherSelfServiceController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Title) || !Uri.TryCreate(request.ResourceUrl, UriKind.Absolute, out var resource) ||
             (resource.Scheme != Uri.UriSchemeHttp && resource.Scheme != Uri.UriSchemeHttps))
             return BadRequest(new { success = false, message = "Enter a title and a valid web resource link." });
+        if (request.ResourceType is not ("Link" or "PDF" or "Worksheet" or "Notes"))
+            return BadRequest(new { success = false, message = "Choose a valid resource type." });
         var item = new TeacherStudyMaterial {
             SchoolId = staff.SchoolId, StaffId = staff.Id, SectionId = request.SectionId, SubjectId = request.SubjectId,
             Title = request.Title.Trim(), Description = request.Description?.Trim(),

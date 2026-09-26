@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
@@ -22,7 +22,7 @@ namespace SchoolManagement.Repository
         // ---------------- CREATE EXAM ----------------
         //public async Task CreateExamSchedulesAsync(CreateExamScheduleRequest request)
         //{
-        //    // 🔥 Step 1: Create Exam (GROUP)
+        //    // Ã°Å¸â€Â¥ Step 1: Create Exam (GROUP)
         //    var exam = new Exams
         //    {
         //        Name = request.Name, // e.g. "Nursery Midterm April"
@@ -34,11 +34,11 @@ namespace SchoolManagement.Repository
         //    };
 
         //    _context.Exams.Add(exam);
-        //    await _context.SaveChangesAsync(); // 👉 ExamId mil gaya
+        //    await _context.SaveChangesAsync(); // Ã°Å¸â€˜â€° ExamId mil gaya
 
         //    var schedules = new List<ExamSchedules>();
 
-        //    // 🔥 Step 2: Add schedules under SAME ExamId
+        //    // Ã°Å¸â€Â¥ Step 2: Add schedules under SAME ExamId
         //    foreach (var cls in request.Classes)
         //    {
         //        foreach (var sec in cls.Sections)
@@ -47,7 +47,7 @@ namespace SchoolManagement.Repository
         //            {
         //                schedules.Add(new ExamSchedules
         //                {
-        //                    ExamId = exam.Id,   // ✅ GROUPING FIX
+        //                    ExamId = exam.Id,   // Ã¢Å“â€¦ GROUPING FIX
         //                    ExamTypeId = request.ExamTypeId,
         //                    SchoolId = request.SchoolId,
         //                    ClassId = cls.ClassId,
@@ -74,7 +74,7 @@ namespace SchoolManagement.Repository
         //    if (schedule == null)
         //        throw new Exception("Schedule not found");
 
-        //    // 🔥 STAFF CONFLICT CHECK
+        //    // Ã°Å¸â€Â¥ STAFF CONFLICT CHECK
         //    var conflict = await _context.ExamInvigilators
         //        .Include(x => x.ExamSchedule)
         //        .AnyAsync(x =>
@@ -140,7 +140,7 @@ namespace SchoolManagement.Repository
         //                    StartDate = e.StartDate,
         //                    EndDate = e.EndDate,
 
-        //                    // 🔥 Count distinct classes
+        //                    // Ã°Å¸â€Â¥ Count distinct classes
         //                    ClassCount = _context.ExamSchedules
         //                        .Where(es => es.ExamId == e.Id)
         //                        .Select(es => es.ClassId)
@@ -818,6 +818,12 @@ select new ExamSubjectResponseDto
                     };
                 }
 
+                var scheduleId = await _context.ExamSchedules.AsNoTracking()
+                    .Where(x => x.ExamId == examId && x.SchoolId == schoolId && x.SectionId == sectionId &&
+                        x.SubjectId == subjectId && x.IsActive).Select(x => x.Id).FirstOrDefaultAsync();
+                if (scheduleId == 0) return new ApiResponse<List<MarksEntrySheetDto>>
+                    { Success = false, Message = "Exam schedule not found for this subject." };
+
                 var students =
                     await (
                     from se in _context.StudentEnrollment
@@ -840,14 +846,16 @@ select new ExamSubjectResponseDto
                         Marks = _context.ExamMarks
                             .Where(m =>
                                 m.EnrollmentId == se.Id &&
-                                m.ExamId == examId)
+                                m.ExamId == examId &&
+                                m.ExamScheduleId == scheduleId)
                             .Select(m => (decimal?)m.ObtainedMarks)
                             .FirstOrDefault(),
 
                         Remarks = _context.ExamMarks
                             .Where(m =>
                                 m.EnrollmentId == se.Id &&
-                                m.ExamId == examId)
+                                m.ExamId == examId &&
+                                m.ExamScheduleId == scheduleId)
                             .Select(m => m.Remarks)
                             .FirstOrDefault()
                     })
@@ -1029,93 +1037,95 @@ select new ExamSubjectResponseDto
         {
             try
             {
-                var enrollments = await _context.ExamMarks
-                    .Where(x => x.ExamId == dto.ExamId && x.SchoolId == dto.SchoolId)
-                    .Select(x => new { x.EnrollmentId, x.StudentId })
-                    .Distinct()
-                    .ToListAsync();
+                var exam = await _context.Exams.AsNoTracking().FirstOrDefaultAsync(x =>
+                    x.Id == dto.ExamId && x.SchoolId == dto.SchoolId && x.IsActive);
+                if (exam == null) return new ApiResponse<string> { Success = false, Message = "Exam not found." };
 
-                foreach (var enrollment in enrollments)
+                var schedules = await _context.ExamSchedules.AsNoTracking()
+                    .Where(x => x.ExamId == dto.ExamId && x.SchoolId == dto.SchoolId && x.IsActive && x.SubjectId.HasValue)
+                    .Select(x => new { x.Id, x.ClassId, x.SectionId, x.SubjectId }).ToListAsync();
+                if (schedules.Count == 0) return new ApiResponse<string> { Success = false, Message = "Add exam schedules before generating results." };
+
+                var enrollments = await _context.StudentEnrollment.AsNoTracking()
+                    .Where(x => x.SchoolId == dto.SchoolId && x.SessionId == exam.AcademicSessionId &&
+                        x.IsActive && x.EnrollmentStatus == "Active")
+                    .Select(x => new { x.Id, x.StudentId, x.ClassId, x.SectionId }).ToListAsync();
+                var eligible = enrollments.Where(x => schedules.Any(schedule =>
+                    schedule.ClassId == x.ClassId && schedule.SectionId == x.SectionId)).ToList();
+                if (eligible.Count == 0) return new ApiResponse<string> { Success = false, Message = "No active students are enrolled in scheduled classes for this exam session." };
+
+                var settings = await _context.ExamSubjects.AsNoTracking()
+                    .Where(x => x.ExamId == dto.ExamId && x.SchoolId == dto.SchoolId && x.IsActive)
+                    .Select(x => new { x.ClassId, x.SectionId, x.SubjectId, x.MaxMarks, x.PassingMarks }).ToListAsync();
+                var enrollmentIds = eligible.Select(x => x.Id).ToList();
+                var marks = await _context.ExamMarks.AsNoTracking()
+                    .Where(x => x.ExamId == dto.ExamId && x.SchoolId == dto.SchoolId && x.IsActive &&
+                        enrollmentIds.Contains(x.EnrollmentId))
+                    .Select(x => new { x.EnrollmentId, x.ExamScheduleId, x.ObtainedMarks }).ToListAsync();
+
+                var missing = 0;
+                var invalid = 0;
+                var summaries = new List<(int EnrollmentId, int StudentId, decimal Total, decimal Obtained, decimal Percentage, string Grade, string Status)>();
+                foreach (var enrollment in eligible)
                 {
-                    var marks = await (
-                        from em in _context.ExamMarks
-                        join es in _context.ExamSchedules
-                            on em.ExamScheduleId equals es.Id
-                        join sub in _context.Subjects
-                            on es.SubjectId equals sub.Id
-                        where em.EnrollmentId == enrollment.EnrollmentId
-                              && em.ExamId == dto.ExamId
-                        select new
+                    var subjectSchedules = schedules.Where(x => x.ClassId == enrollment.ClassId && x.SectionId == enrollment.SectionId)
+                        .GroupBy(x => x.SubjectId).Select(group => group.First()).ToList();
+                    decimal total = 0;
+                    decimal obtained = 0;
+                    var passed = true;
+                    foreach (var schedule in subjectSchedules)
+                    {
+                        var setting = settings.Where(x => x.ClassId == enrollment.ClassId && x.SubjectId == schedule.SubjectId &&
+                                (x.SectionId == null || x.SectionId == enrollment.SectionId))
+                            .OrderByDescending(x => x.SectionId == enrollment.SectionId).FirstOrDefault();
+                        if (setting == null || setting.MaxMarks <= 0 || setting.PassingMarks < 0 || setting.PassingMarks > setting.MaxMarks)
                         {
-                            em.ObtainedMarks,
-                            es.SubjectId
+                            invalid++;
+                            continue;
                         }
-                    ).ToListAsync();
-
-                    var subjectTotals = await _context.ExamSchedules
-                        .Where(x => x.ExamId == dto.ExamId)
-                        .ToListAsync();
-
-                    decimal obtained = marks.Sum(x => x.ObtainedMarks);
-                    decimal total = subjectTotals.Count * 100; // simplified OR use ExamSubjects
-
-                    decimal percentage = (obtained / total) * 100;
-
-                    string grade = GetGrade(percentage);
-
-                    string status = marks.Any(x => x.ObtainedMarks < 35)
-                        ? "FAIL"
-                        : "PASS";
-
-                    var existing = await _context.ExamResults
-                        .FirstOrDefaultAsync(x =>
-                            x.ExamId == dto.ExamId &&
-                            x.EnrollmentId == enrollment.EnrollmentId);
-
-                    if (existing != null)
-                    {
-                        existing.TotalMarks = total;
-                        existing.ObtainedMarks = obtained;
-                        existing.Percentage = percentage;
-                        existing.Grade = grade;
-                        existing.ResultStatus = status;
+                        var mark = marks.FirstOrDefault(x => x.EnrollmentId == enrollment.Id && x.ExamScheduleId == schedule.Id);
+                        if (mark == null) { missing++; continue; }
+                        if (mark.ObtainedMarks < 0 || mark.ObtainedMarks > setting.MaxMarks) { invalid++; continue; }
+                        total += setting.MaxMarks;
+                        obtained += mark.ObtainedMarks;
+                        if (mark.ObtainedMarks < setting.PassingMarks) passed = false;
                     }
-                    else
+                    if (total > 0)
                     {
-                        _context.ExamResults.Add(new ExamResults
-                        {
-                            SchoolId = dto.SchoolId,
-                            ExamId = dto.ExamId,
-                            StudentId = enrollment.StudentId,
-                            EnrollmentId = enrollment.EnrollmentId,
-                            TotalMarks = total,
-                            ObtainedMarks = obtained,
-                            Percentage = percentage,
-                            Grade = grade,
-                            ResultStatus = status,
-                            Published = false
-                        });
+                        var percentage = Math.Round(obtained * 100 / total, 2);
+                        summaries.Add((enrollment.Id, enrollment.StudentId, total, obtained, percentage,
+                            GetGrade(percentage), passed ? "PASS" : "FAIL"));
                     }
                 }
+                if (invalid > 0) return new ApiResponse<string> { Success = false,
+                    Message = $"Check max marks and entered marks for {invalid} subject entries before generating results." };
+                if (missing > 0) return new ApiResponse<string> { Success = false,
+                    Message = $"Save marks for all scheduled subjects first. {missing} student-subject entries are missing." };
 
-                await _context.SaveChangesAsync();
-
-                return new ApiResponse<string>
+                foreach (var summary in summaries)
                 {
-                    Success = true,
-                    Message = "Results Generated Successfully"
-                };
+                    var result = await _context.ExamResults.FirstOrDefaultAsync(x => x.SchoolId == dto.SchoolId &&
+                        x.ExamId == dto.ExamId && x.EnrollmentId == summary.EnrollmentId);
+                    if (result == null)
+                    {
+                        result = new ExamResults { SchoolId = dto.SchoolId, ExamId = dto.ExamId,
+                            StudentId = summary.StudentId, EnrollmentId = summary.EnrollmentId, Published = false };
+                        _context.ExamResults.Add(result);
+                    }
+                    result.TotalMarks = summary.Total;
+                    result.ObtainedMarks = summary.Obtained;
+                    result.Percentage = summary.Percentage;
+                    result.Grade = summary.Grade;
+                    result.ResultStatus = summary.Status;
+                }
+                await _context.SaveChangesAsync();
+                return new ApiResponse<string> { Success = true, Message = "Results generated from complete subject marks." };
             }
             catch (Exception ex)
             {
-                return new ApiResponse<string>
-                {
-                    Success = false,
-                    Message = ex.Message
-                };
+                return new ApiResponse<string> { Success = false, Message = ex.Message };
             }
         }
-
         private string GetGrade(decimal percentage)
         {
             if (percentage >= 90) return "A+";
@@ -1197,29 +1207,27 @@ select new ExamSubjectResponseDto
 
         public async Task<ApiResponse<string>> PublishResults(int examId, int schoolId)
         {
+            // Recalculate and validate every scheduled subject for every enrolled student
+            // before changing any publication flag.
+            var generation = await GenerateResults(new GenerateResultDto { ExamId = examId, SchoolId = schoolId });
+            if (!generation.Success) return generation;
+
             var results = await _context.ExamResults
                 .Where(x => x.ExamId == examId && x.SchoolId == schoolId)
                 .ToListAsync();
+            if (results.Count == 0)
+                return new ApiResponse<string> { Success = false, Message = "No results were generated." };
 
-            foreach (var r in results)
-            {
-                r.Published = true;
-            }
+            var exam = await _context.Exams.FirstOrDefaultAsync(x => x.Id == examId && x.SchoolId == schoolId && x.IsActive);
+            if (exam == null)
+                return new ApiResponse<string> { Success = false, Message = "Exam not found." };
 
-            var exam = await _context.Exams
-                .FirstOrDefaultAsync(x => x.Id == examId);
-
+            foreach (var result in results) result.Published = true;
             exam.ResultPublished = true;
-
             await _context.SaveChangesAsync();
 
-            return new ApiResponse<string>
-            {
-                Success = true,
-                Message = "Results Published Successfully"
-            };
+            return new ApiResponse<string> { Success = true, Message = "Results published successfully." };
         }
-
         public async Task<ApiResponse<StudentResultDetailDto>>GetStudentResultDetail(int studentId, int examId, int schoolId)
         {
             try
@@ -1256,45 +1264,72 @@ select new ExamSubjectResponseDto
                     .Select(x => x.Name)
                     .FirstOrDefaultAsync();
 
-                var subjects = await (
-                    from em in _context.ExamMarks
-
-                    join esch in _context.ExamSchedules
-                        on em.ExamScheduleId equals esch.Id
-
-                    join sub in _context.Subjects
-                        on esch.SubjectId equals sub.Id
-
-                    from exSub in _context.ExamSubjects
-                        .Where(x =>
-                            x.ExamId == esch.ExamId &&
-                            x.SubjectId == esch.SubjectId &&
-                            x.ClassId == esch.ClassId &&
-                            x.SectionId == esch.SectionId)
-
-                    where em.StudentId == studentId
-                          && em.ExamId == examId
-
-                    select new StudentSubjectResultDto
-                    {
-                        SubjectId = sub.Id,
-                        SubjectName = sub.SubjectName,
-                        MaxMarks = exSub.MaxMarks,
-                        PassingMarks = exSub.PassingMarks,
-                        ObtainedMarks = em.ObtainedMarks,
-                        Status = em.ObtainedMarks >= exSub.PassingMarks
-                            ? "PASS"
-                            : "FAIL",
-                        Remarks = em.Remarks
-                    }
+                var enrollment = await _context.StudentEnrollment.AsNoTracking()
+                    .FirstOrDefaultAsync(x => x.Id == result.EnrollmentId && x.StudentId == studentId && x.SchoolId == schoolId);
+                if (enrollment == null)
+                    return new ApiResponse<StudentResultDetailDto> { Success = false, Message = "Student enrollment not found." };
+                var scheduleRows = await (
+                    from schedule in _context.ExamSchedules.AsNoTracking()
+                    join subject in _context.Subjects.AsNoTracking() on schedule.SubjectId equals subject.Id
+                    where schedule.ExamId == examId && schedule.SchoolId == schoolId &&
+                        schedule.ClassId == enrollment.ClassId && schedule.SectionId == enrollment.SectionId && schedule.IsActive
+                    select new { schedule.Id, SubjectId = subject.Id, SubjectName = subject.SubjectName }
                 ).ToListAsync();
-
-                var dto = new StudentResultDetailDto
+                var marks = await _context.ExamMarks.AsNoTracking()
+                    .Where(x => x.ExamId == examId && x.SchoolId == schoolId && x.EnrollmentId == result.EnrollmentId && x.IsActive)
+                    .Select(x => new { x.ExamScheduleId, x.ObtainedMarks, x.Remarks }).ToListAsync();
+                var settings = await _context.ExamSubjects.AsNoTracking()
+                    .Where(x => x.ExamId == examId && x.SchoolId == schoolId && x.ClassId == enrollment.ClassId &&
+                        (x.SectionId == null || x.SectionId == enrollment.SectionId) && x.IsActive)
+                    .Select(x => new { x.SubjectId, x.SectionId, x.MaxMarks, x.PassingMarks }).ToListAsync();
+                var subjects = scheduleRows.GroupBy(x => x.SubjectId).Select(group =>
+                {
+                    var scheduled = group.First();
+                    var setting = settings?.Where(x => x.SubjectId == group.Key)
+                        .OrderByDescending(x => x.SectionId == enrollment.SectionId).FirstOrDefault();
+                    var mark = marks.FirstOrDefault(x => group.Any(schedule => schedule.Id == x.ExamScheduleId));
+                    return new StudentSubjectResultDto
+                    {
+                        SubjectId = group.Key,
+                        SubjectName = scheduled.SubjectName,
+                        MaxMarks = setting?.MaxMarks ?? 0,
+                        PassingMarks = setting?.PassingMarks ?? 0,
+                        ObtainedMarks = mark?.ObtainedMarks,
+                        Status = mark == null ? "Pending" : mark.ObtainedMarks >= (setting?.PassingMarks ?? 0) ? "PASS" : "FAIL",
+                        Remarks = mark?.Remarks
+                    };
+                }).OrderBy(x => x.SubjectName).ToList();
+                var scheduledSubjects = scheduleRows.Select(x => x.SubjectId).Distinct().ToList();
+                var school = await _context.Schools.AsNoTracking().Where(x => x.Id == schoolId)
+                    .Select(x => new { x.SchoolName, x.Address }).FirstOrDefaultAsync();
+                var schoolLogoUrl = await _context.ProfilePictures.AsNoTracking()
+                    .Where(x => x.PersonType == "School" && x.PersonId == schoolId && x.IsActive)
+                    .OrderByDescending(x => x.CreatedDate).Select(x => x.FileUrl).FirstOrDefaultAsync();
+                var className = enrollment == null ? null : await _context.Classes.AsNoTracking()
+                    .Where(x => x.Id == enrollment.ClassId).Select(x => x.ClassName).FirstOrDefaultAsync();
+                var sectionName = enrollment == null ? null : await _context.SectionDetails.AsNoTracking()
+                    .Where(x => x.Id == enrollment.SectionId).Select(x => x.SectionName).FirstOrDefaultAsync();
+                var parentName = await _context.ParentDetails.AsNoTracking()
+                    .Where(x => x.Id == student.ParentId && x.IsActive).Select(x => x.Name).FirstOrDefaultAsync();
+                var isComplete = subjects.Count > 0 && subjects.Count == scheduledSubjects.Count &&
+                    subjects.All(x => x.MaxMarks > 0 && x.ObtainedMarks.HasValue) &&
+                    subjects.Sum(x => x.MaxMarks) == result.TotalMarks &&
+                    subjects.Sum(x => x.ObtainedMarks ?? 0) == result.ObtainedMarks;                var dto = new StudentResultDetailDto
                 {
                     StudentId = student.Id,
                     StudentName = student.StudentName,
 
                     ExamName = examName,
+                    SchoolName = school?.SchoolName,
+                    SchoolAddress = school?.Address,
+                    SchoolLogoUrl = schoolLogoUrl,
+                    RollNumber = enrollment?.RollNumber ?? student.Rollnumber,
+                    ClassName = className,
+                    SectionName = sectionName,
+                    ParentName = parentName,
+                    ExpectedSubjectCount = scheduledSubjects.Count,
+                    RecordedSubjectCount = subjects.Count(x => x.ObtainedMarks.HasValue),
+                    IsComplete = isComplete,
 
                     TotalMarks = result.TotalMarks,
                     ObtainedMarks = result.ObtainedMarks,
