@@ -78,8 +78,6 @@ namespace SchoolManagement.Data
         public DbSet<SchoolCalendarEvent> SchoolCalendarEvents { get; set; }
         public DbSet<ExamLearningResource> ExamLearningResources { get; set; }
         public DbSet<StudentHallTicket> StudentHallTickets { get; set; }
-        public DbSet<OnlineExamQuestion> OnlineExamQuestions { get; set; }
-        public DbSet<OnlineExamAttempt> OnlineExamAttempts { get; set; }
         public DbSet<StudentDiscussionThread> StudentDiscussionThreads { get; set; }
         public DbSet<StudentDiscussionPost> StudentDiscussionPosts { get; set; }
         public DbSet<SchoolClub> SchoolClubs { get; set; }

@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
@@ -35,7 +35,9 @@ public class StudentSelfServiceController : ControllerBase
             .OrderByDescending(x => x.EnrollmentDate).FirstOrDefaultAsync();
         if (enrollment == null) return NotFound(new { message = "No active enrollment was found for this student." });
 
-        var school = await _db.Schools.AsNoTracking().Where(x => x.Id == student.SchoolId).Select(x => x.SchoolName).FirstOrDefaultAsync();
+        var school = await _db.Schools.AsNoTracking().Where(x => x.Id == student.SchoolId).Select(x => new { x.SchoolName, x.Address }).FirstOrDefaultAsync();
+        var schoolLogoUrl = await _db.ProfilePictures.AsNoTracking().Where(x => x.PersonType == "School" && x.PersonId == student.SchoolId && x.IsActive).OrderByDescending(x => x.CreatedDate).Select(x => x.FileUrl).FirstOrDefaultAsync();
+        var profilePictureUrl = await _db.ProfilePictures.AsNoTracking().Where(x => x.PersonType == "Student" && x.PersonId == student.Id && x.IsActive).OrderByDescending(x => x.CreatedDate).Select(x => x.FileUrl).FirstOrDefaultAsync();
         var className = await _db.Classes.AsNoTracking().Where(x => x.Id == enrollment.ClassId).Select(x => x.ClassName).FirstOrDefaultAsync();
         var sectionName = await _db.SectionDetails.AsNoTracking().Where(x => x.Id == enrollment.SectionId).Select(x => x.SectionName).FirstOrDefaultAsync();
         var subjects = await (from link in _db.SectionSubjects.AsNoTracking()
@@ -81,7 +83,7 @@ public class StudentSelfServiceController : ControllerBase
             join exam in _db.Exams on result.ExamId equals exam.Id
             where result.StudentId == student.Id && result.EnrollmentId == enrollment.Id && result.SchoolId == student.SchoolId &&
                 result.Published && exam.ResultPublished && exam.IsActive
-            select new { examName = exam.Name, result.TotalMarks, result.ObtainedMarks, result.Percentage,
+            select new { examId = exam.Id, examName = exam.Name, result.TotalMarks, result.ObtainedMarks, result.Percentage,
                 result.Grade, result.ResultStatus }).ToListAsync();
         var parent = await _db.ParentDetails.AsNoTracking().Where(x => x.Id == student.ParentId && x.IsActive)
             .Select(x => new { x.Name, x.Relationship, x.Email, x.PhoneNumber }).FirstOrDefaultAsync();
@@ -169,25 +171,58 @@ public class StudentSelfServiceController : ControllerBase
             .OrderBy(x => x.EventDate)
             .Select(x => new { x.Id, x.Title, x.Description, x.EventDate }).ToListAsync();
 
+        var publishedExamIds = results.Select(x => x.examId).Distinct().ToList();
         var markRows = await (from mark in _db.ExamMarks.AsNoTracking()
             join schedule in _db.ExamSchedules on mark.ExamScheduleId equals schedule.Id
             join exam in _db.Exams on mark.ExamId equals exam.Id
             join subject in _db.Subjects on schedule.SubjectId equals subject.Id
             where mark.StudentId == student.Id && mark.EnrollmentId == enrollment.Id &&
-                mark.SchoolId == student.SchoolId && mark.IsActive && exam.ResultPublished && exam.IsActive
+                mark.SchoolId == student.SchoolId && mark.IsActive && exam.ResultPublished && exam.IsActive &&
+                publishedExamIds.Contains(exam.Id)
             orderby mark.EnteredDate descending
             select new { examId = exam.Id, examName = exam.Name, subjectId = subject.Id,
                 subjectName = subject.SubjectName, mark.ObtainedMarks, mark.Remarks, mark.EnteredDate }).ToListAsync();
-        var examIds = markRows.Select(x => x.examId).Distinct().ToList();
+        var examIds = publishedExamIds;
         var maxMarks = await _db.ExamSubjects.AsNoTracking()
             .Where(x => x.SchoolId == student.SchoolId && x.ClassId == enrollment.ClassId &&
                 (x.SectionId == null || x.SectionId == enrollment.SectionId) &&
                 examIds.Contains(x.ExamId) && x.IsActive)
-            .Select(x => new { x.ExamId, x.SubjectId, x.MaxMarks }).ToListAsync();
-        var gradeHistory = markRows.Select(row => new { row.examName, row.subjectName, row.ObtainedMarks,
-            maxMarks = maxMarks.FirstOrDefault(x => x.ExamId == row.examId && x.SubjectId == row.subjectId)?.MaxMarks,
+            .Select(x => new { x.ExamId, x.SubjectId, x.SectionId, x.MaxMarks }).ToListAsync();
+        var gradeHistory = markRows.Select(row => new { row.examId, row.examName, row.subjectName, row.ObtainedMarks,
+            maxMarks = maxMarks.Where(x => x.ExamId == row.examId && x.SubjectId == row.subjectId)
+                .OrderByDescending(x => x.SectionId == enrollment.SectionId).Select(x => (decimal?)x.MaxMarks).FirstOrDefault(),
             row.Remarks, row.EnteredDate }).ToList();
 
+        var scheduledResultSubjects = await (from schedule in _db.ExamSchedules.AsNoTracking()
+            join subject in _db.Subjects.AsNoTracking() on schedule.SubjectId equals subject.Id
+            where schedule.SchoolId == student.SchoolId && schedule.ClassId == enrollment.ClassId &&
+                schedule.SectionId == enrollment.SectionId && schedule.IsActive && examIds.Contains(schedule.ExamId)
+            select new { examId = schedule.ExamId, subjectId = subject.Id, subjectName = subject.SubjectName }).ToListAsync();
+        var resultSubjects = scheduledResultSubjects.GroupBy(x => new { x.examId, x.subjectId })
+            .Select(group =>
+            {
+                var subject = group.First();
+                return new { subject.examId, subject.subjectId, subject.subjectName,
+                    maxMarks = maxMarks.Where(x => x.ExamId == subject.examId && x.SubjectId == subject.subjectId)
+                        .OrderByDescending(x => x.SectionId == enrollment.SectionId)
+                        .Select(x => (decimal?)x.MaxMarks).FirstOrDefault(),
+                    obtainedMarks = markRows.Where(x => x.examId == subject.examId && x.subjectId == subject.subjectId)
+                        .Select(x => (decimal?)x.ObtainedMarks).FirstOrDefault() };
+            }).OrderBy(x => x.subjectName).ToList();
+        var resultDetails = results.Select(result =>
+        {
+            var rows = resultSubjects.Where(x => x.examId == result.examId).ToList();
+            var configuredTotal = rows.All(x => x.maxMarks > 0)
+                ? (decimal?)rows.Sum(x => x.maxMarks ?? 0) : null;
+            var recordedObtained = rows.Sum(x => x.obtainedMarks ?? 0);
+            var isComplete = rows.Count > 0 && configuredTotal.HasValue &&
+                rows.All(x => x.obtainedMarks.HasValue) &&
+                result.TotalMarks == configuredTotal.Value && result.ObtainedMarks == recordedObtained;
+            return new { result.examId, result.examName, result.TotalMarks, result.ObtainedMarks,
+                result.Percentage, result.Grade, result.ResultStatus,
+                expectedSubjectCount = rows.Count, recordedSubjectCount = rows.Count(x => x.obtainedMarks.HasValue),
+                configuredTotalMarks = configuredTotal, recordedObtainedMarks = recordedObtained, isComplete };
+        }).ToList();
         var examResources = await (from resource in _db.ExamLearningResources.AsNoTracking()
             join exam in _db.Exams on resource.ExamId equals exam.Id
             join subject in _db.Subjects on resource.SubjectId equals subject.Id
@@ -200,24 +235,12 @@ public class StudentSelfServiceController : ControllerBase
             join exam in _db.Exams on ticket.ExamId equals exam.Id
             where ticket.SchoolId == student.SchoolId && ticket.StudentId == student.Id &&
                 ticket.IsActive && ticket.IsPublished && exam.IsActive && exam.IsPublished
-            select new { ticket.Id, ticket.ExamId, examName = exam.Name, ticket.SeatNumber, ticket.Room,
+            select new { ticket.Id, ticket.ExamId, examName = exam.Name, ticket.SeatNumber, ticket.Room, ticket.Venue,
                 ticket.DocumentUrl }).ToListAsync();
-        var onlineExamIds = await _db.OnlineExamQuestions.AsNoTracking()
-            .Where(x => x.SchoolId == student.SchoolId && x.SectionId == enrollment.SectionId && x.IsActive)
-            .Select(x => x.ExamId).Distinct().ToListAsync();
-        var onlineExams = await _db.Exams.AsNoTracking()
-            .Where(x => x.SchoolId == student.SchoolId && x.AcademicSessionId == enrollment.SessionId &&
-                x.IsActive && x.IsPublished && onlineExamIds.Contains(x.Id))
-            .Select(x => new { x.Id, x.Name, x.StartDate, x.EndDate }).ToListAsync();
-        var onlineAttempts = await _db.OnlineExamAttempts.AsNoTracking()
-            .Where(x => x.StudentId == student.Id && x.EnrollmentId == enrollment.Id &&
-                x.SchoolId == student.SchoolId)
-            .Select(x => new { x.Id, x.ExamId, x.CorrectCount, x.TotalQuestions, x.SubmittedAt }).ToListAsync();
-
         return Ok(new { success = true, data = new {
             profile = new { student.StudentName, student.Email, rollNumber = enrollment.RollNumber ?? student.Rollnumber,
-                schoolName = school, className, sectionName },
-            subjects, timetable, homework, materials, attendance, exams, results, parent, teachers, documents, fees, payments, transport, diary, submissions, announcements, libraryBooks, borrowedBooks, requests, messages, achievements, schoolEvents, gradeHistory, examResources, hallTickets, onlineExams, onlineAttempts
+                schoolName = school?.SchoolName, schoolAddress = school?.Address, schoolLogoUrl, profilePictureUrl, className, sectionName },
+            subjects, timetable, homework, materials, attendance, exams, results = resultDetails, resultSubjects, parent, teachers, documents, fees, payments, transport, diary, submissions, announcements, libraryBooks, borrowedBooks, requests, messages, achievements, schoolEvents, gradeHistory, examResources, hallTickets
         } });
     }
     private async Task<(SchoolManagement.Model.Students? student, SchoolManagement.Model.StudentEnrollment? enrollment)> CurrentEnrollment()
@@ -329,60 +352,6 @@ public class StudentSelfServiceController : ControllerBase
         return Ok(new { success = true, data = new { message.Id } });
     }
 
-    [HttpGet("online-exams/{examId:int}")]
-    public async Task<IActionResult> OnlineExam(int examId)
-    {
-        var (student, enrollment) = await CurrentEnrollment();
-        if (student == null || enrollment == null) return Forbid();
-        var exam = await _db.Exams.AsNoTracking().FirstOrDefaultAsync(x => x.Id == examId &&
-            x.SchoolId == student.SchoolId && x.AcademicSessionId == enrollment.SessionId &&
-            x.IsActive && x.IsPublished);
-        if (exam == null) return NotFound();
-        if (!exam.StartDate.HasValue || !exam.EndDate.HasValue ||
-            DateTime.Today < exam.StartDate.Value.Date || DateTime.Today > exam.EndDate.Value.Date)
-            return BadRequest(new { message = "This online exam is not open today." });
-        if (await _db.OnlineExamAttempts.AnyAsync(x => x.ExamId == examId && x.StudentId == student.Id))
-            return Conflict(new { message = "You already submitted this online exam." });
-        var questions = await _db.OnlineExamQuestions.AsNoTracking()
-            .Where(x => x.ExamId == examId && x.SchoolId == student.SchoolId &&
-                x.SectionId == enrollment.SectionId && x.IsActive)
-            .OrderBy(x => x.Id)
-            .Select(x => new { x.Id, x.Question, x.OptionA, x.OptionB, x.OptionC, x.OptionD }).ToListAsync();
-        if (questions.Count == 0) return NotFound(new { message = "No questions are published for your class." });
-        return Ok(new { success = true, data = new { exam.Id, exam.Name, questions } });
-    }
-
-    [HttpPost("online-exams/{examId:int}/submit")]
-    public async Task<IActionResult> SubmitOnlineExam(int examId, [FromBody] OnlineExamAnswerInput input)
-    {
-        var (student, enrollment) = await CurrentEnrollment();
-        if (student == null || enrollment == null) return Forbid();
-        var exam = await _db.Exams.AsNoTracking().FirstOrDefaultAsync(x => x.Id == examId &&
-            x.SchoolId == student.SchoolId && x.AcademicSessionId == enrollment.SessionId &&
-            x.IsActive && x.IsPublished);
-        if (exam == null) return NotFound();
-        if (!exam.StartDate.HasValue || !exam.EndDate.HasValue ||
-            DateTime.Today < exam.StartDate.Value.Date || DateTime.Today > exam.EndDate.Value.Date)
-            return BadRequest(new { message = "This online exam is not open today." });
-        if (await _db.OnlineExamAttempts.AnyAsync(x => x.ExamId == examId && x.StudentId == student.Id))
-            return Conflict(new { message = "You already submitted this online exam." });
-        var questions = await _db.OnlineExamQuestions.AsNoTracking()
-            .Where(x => x.ExamId == examId && x.SchoolId == student.SchoolId &&
-                x.SectionId == enrollment.SectionId && x.IsActive).ToListAsync();
-        if (questions.Count == 0) return NotFound();
-        var answers = input.Answers ?? new Dictionary<int, string>();
-        var correct = questions.Count(x => answers.TryGetValue(x.Id, out var choice) &&
-            string.Equals(choice, x.CorrectOption, StringComparison.OrdinalIgnoreCase));
-        var attempt = new SchoolManagement.Model.OnlineExamAttempt {
-            SchoolId = student.SchoolId, StudentId = student.Id, EnrollmentId = enrollment.Id,
-            ExamId = examId, AnswersJson = System.Text.Json.JsonSerializer.Serialize(answers),
-            CorrectCount = correct, TotalQuestions = questions.Count
-        };
-        _db.OnlineExamAttempts.Add(attempt);
-        try { await _db.SaveChangesAsync(); }
-        catch (DbUpdateException) { return Conflict(new { message = "This exam was already submitted." }); }
-        return Ok(new { success = true, data = new { attempt.Id, attempt.CorrectCount, attempt.TotalQuestions } });
-    }
 
 }
 
@@ -395,12 +364,3 @@ public class StudentSubmissionInput { public int AssignmentId { get; set; } publ
 
 public class StudentRequestInput { public string Type { get; set; } = ""; public string Subject { get; set; } = ""; public string Details { get; set; } = ""; public DateTime? FromDate { get; set; } public DateTime? ToDate { get; set; } }
 public class StudentMessageInput { public int StaffId { get; set; } public string Body { get; set; } = ""; }
-
-
-
-
-
-
-
-public class OnlineExamAnswerInput { public Dictionary<int, string> Answers { get; set; } = new(); }
-
