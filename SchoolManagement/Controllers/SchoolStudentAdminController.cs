@@ -24,10 +24,11 @@ public class SchoolStudentAdminController : ControllerBase
     [HttpGet("requests")]
     public async Task<IActionResult> Requests([FromQuery] int schoolId)
     {
-        if (!CanManage(schoolId)) return Forbid();
+        if (!CanManage(schoolId) || !int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId) || !int.TryParse(User.FindFirstValue("RoleId"), out var roleId)) return Forbid();
         var rows = await (from request in _db.StudentServiceRequests.AsNoTracking()
             join student in _db.Students on request.StudentId equals student.Id
-            where request.SchoolId == schoolId && request.IsActive
+            where request.SchoolId == schoolId && request.IsActive &&
+                (request.RecipientUserId == userId && request.RecipientRoleId == roleId || (request.RecipientUserId == null && request.Type != "Leave"))
             orderby request.CreatedAt descending
             select new { request.Id, student.StudentName, request.Type, request.Subject,
                 request.Details, request.FromDate, request.ToDate, request.Status,
@@ -39,7 +40,8 @@ public class SchoolStudentAdminController : ControllerBase
     {
         var request = await _db.StudentServiceRequests.FirstOrDefaultAsync(x => x.Id == id && x.IsActive);
         if (request == null) return NotFound();
-        if (!CanManage(request.SchoolId)) return Forbid();
+        if (!CanManage(request.SchoolId) || !int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId) || !int.TryParse(User.FindFirstValue("RoleId"), out var roleId) ||
+            !(request.RecipientUserId == userId && request.RecipientRoleId == roleId || (request.RecipientUserId == null && request.Type != "Leave"))) return Forbid();
         if (!new[] { "Approved", "Rejected", "Resolved", "Pending" }.Contains(input.Status) ||
             input.Response?.Length > 2000) return BadRequest(new { message = "Choose a valid status and response." });
         request.Status = input.Status;
@@ -47,6 +49,35 @@ public class SchoolStudentAdminController : ControllerBase
         request.RespondedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         return Ok(new { success = true });
+    }
+    [HttpGet("achievements")]
+    public async Task<IActionResult> Achievements([FromQuery] int schoolId)
+    {
+        if (!CanManage(schoolId)) return Forbid();
+        var rows = await (from item in _db.StudentAchievements.AsNoTracking()
+            join student in _db.Students.AsNoTracking() on item.StudentId equals student.Id
+            where item.SchoolId == schoolId && item.IsActive
+            orderby item.AwardedAt descending, item.Id descending
+            select new { item.Id, item.StudentId, student.StudentName, item.Title, item.Description, item.AwardedAt })
+            .Take(300).ToListAsync();
+        return Ok(new { success = true, data = rows });
+    }
+
+    [HttpPut("achievements/{id:int}")]
+    public async Task<IActionResult> UpdateAchievement(int id, [FromBody] StudentAchievementInput input)
+    {
+        if (!CanManage(input.SchoolId)) return Forbid();
+        var item = await _db.StudentAchievements.FirstOrDefaultAsync(x => x.Id == id && x.SchoolId == input.SchoolId && x.IsActive);
+        if (item == null) return NotFound();
+        if (string.IsNullOrWhiteSpace(input.Title) || input.Title.Length > 200 || input.Description?.Length > 1000 ||
+            !await _db.Students.AnyAsync(x => x.Id == input.StudentId && x.SchoolId == input.SchoolId && x.IsActive))
+            return BadRequest(new { message = "Choose a student and enter a title." });
+        item.StudentId = input.StudentId;
+        item.Title = input.Title.Trim();
+        item.Description = input.Description?.Trim();
+        item.AwardedAt = input.AwardedAt == default ? DateTime.Today : input.AwardedAt.Date;
+        await _db.SaveChangesAsync();
+        return Ok(new { success = true, data = new { item.Id } });
     }
     [HttpPost("achievements")]
     public async Task<IActionResult> Achievement([FromBody] StudentAchievementInput input)
@@ -60,6 +91,33 @@ public class SchoolStudentAdminController : ControllerBase
             Title = input.Title.Trim(), Description = input.Description?.Trim(),
             AwardedAt = input.AwardedAt == default ? DateTime.Today : input.AwardedAt.Date };
         _db.StudentAchievements.Add(item);
+        await _db.SaveChangesAsync();
+        return Ok(new { success = true, data = new { item.Id } });
+    }
+    [HttpGet("events")]
+    public async Task<IActionResult> Events([FromQuery] int schoolId)
+    {
+        if (!CanManage(schoolId)) return Forbid();
+        var rows = await _db.SchoolCalendarEvents.AsNoTracking().Where(x => x.SchoolId == schoolId && x.IsActive)
+            .OrderByDescending(x => x.EventDate).ThenByDescending(x => x.Id)
+            .Select(x => new { x.Id, x.SectionId, x.Title, x.Description, x.EventDate }).Take(300).ToListAsync();
+        return Ok(new { success = true, data = rows });
+    }
+
+    [HttpPut("events/{id:int}")]
+    public async Task<IActionResult> UpdateEvent(int id, [FromBody] SchoolEventInput input)
+    {
+        if (!CanManage(input.SchoolId)) return Forbid();
+        var item = await _db.SchoolCalendarEvents.FirstOrDefaultAsync(x => x.Id == id && x.SchoolId == input.SchoolId && x.IsActive);
+        if (item == null) return NotFound();
+        if (string.IsNullOrWhiteSpace(input.Title) || input.Title.Length > 200 || input.Description?.Length > 1000 || input.EventDate == default)
+            return BadRequest(new { message = "Enter an event title and date." });
+        if (input.SectionId.HasValue && !await _db.SectionDetails.AnyAsync(x =>
+            x.Id == input.SectionId.Value && x.SchoolId == input.SchoolId && x.IsActive)) return BadRequest();
+        item.SectionId = input.SectionId;
+        item.Title = input.Title.Trim();
+        item.Description = input.Description?.Trim();
+        item.EventDate = input.EventDate;
         await _db.SaveChangesAsync();
         return Ok(new { success = true, data = new { item.Id } });
     }
@@ -78,12 +136,44 @@ public class SchoolStudentAdminController : ControllerBase
         await _db.SaveChangesAsync();
         return Ok(new { success = true, data = new { item.Id } });
     }
+    [HttpGet("announcements")]
+    public async Task<IActionResult> Announcements([FromQuery] int schoolId)
+    {
+        if (!CanManage(schoolId)) return Forbid();
+        var rows = await _db.SchoolAnnouncements.AsNoTracking().Where(x => x.SchoolId == schoolId && x.IsActive)
+            .OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id)
+            .Select(x => new { x.Id, x.SectionId, x.Title, x.Body, x.ExpiresAt,
+                x.IsPinned, x.IsPublished, x.CreatedAt }).Take(300).ToListAsync();
+        return Ok(new { success = true, data = rows });
+    }
+
+    [HttpPut("announcements/{id:int}")]
+    public async Task<IActionResult> UpdateAnnouncement(int id, [FromBody] AdminAnnouncementInput input)
+    {
+        if (!CanManage(input.SchoolId)) return Forbid();
+        var item = await _db.SchoolAnnouncements.FirstOrDefaultAsync(x => x.Id == id && x.SchoolId == input.SchoolId && x.IsActive);
+        if (item == null) return NotFound();
+        if (string.IsNullOrWhiteSpace(input.Title) || string.IsNullOrWhiteSpace(input.Body) ||
+            input.Title.Length > 200 || input.Body.Length > 4000) return BadRequest(new { message = "Enter title and message." });
+        if (input.ExpiresAt.HasValue && input.ExpiresAt.Value.Date < DateTime.Today) return BadRequest(new { message = "Expiry date cannot be in the past." });
+        if (input.SectionId.HasValue && !await _db.SectionDetails.AnyAsync(x =>
+            x.Id == input.SectionId.Value && x.SchoolId == input.SchoolId && x.IsActive)) return BadRequest();
+        item.SectionId = input.SectionId;
+        item.Title = input.Title.Trim();
+        item.Body = input.Body.Trim();
+        item.ExpiresAt = input.ExpiresAt;
+        item.IsPinned = input.IsPinned;
+        item.IsPublished = input.Publish;
+        await _db.SaveChangesAsync();
+        return Ok(new { success = true, data = new { item.Id } });
+    }
     [HttpPost("announcements")]
     public async Task<IActionResult> Announcement([FromBody] AdminAnnouncementInput input)
     {
         if (!CanManage(input.SchoolId) || !int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return Forbid();
         if (string.IsNullOrWhiteSpace(input.Title) || string.IsNullOrWhiteSpace(input.Body) ||
             input.Title.Length > 200 || input.Body.Length > 4000) return BadRequest(new { message = "Enter title and message." });
+        if (input.ExpiresAt.HasValue && input.ExpiresAt.Value.Date < DateTime.Today) return BadRequest(new { message = "Expiry date cannot be in the past." });
         if (input.SectionId.HasValue && !await _db.SectionDetails.AnyAsync(x =>
             x.Id == input.SectionId.Value && x.SchoolId == input.SchoolId && x.IsActive)) return BadRequest();
         var item = new SchoolAnnouncement { SchoolId = input.SchoolId, SectionId = input.SectionId,

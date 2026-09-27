@@ -36,8 +36,9 @@ public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
         if (user.FindFirstValue("RoleId") == "1") return;
         // These principal workflows validate the caller's active Principal role and school in the action.
         if (descriptor.ControllerName == "Principal" && new[] { "Invigilation", "AssignInvigilation", "RemoveInvigilation", "DecideLeave", "LeaveHistory", "UpcomingApprovedLeave" }.Contains(descriptor.ActionName)) return;
+        if (descriptor.ControllerName == "StudentRequestInbox") return;
         if (descriptor.ControllerName == "StudentCommunity" && user.IsInRole("Student") && ((context.HttpContext.Request.Method == "GET" && new[] { "Overview", "DiscussionPosts" }.Contains(descriptor.ActionName)) || (context.HttpContext.Request.Method == "POST" && new[] { "JoinClub", "RegisterEvent", "CreateLostFound", "CreateDiscussionPost", "ReserveBook" }.Contains(descriptor.ActionName)))) return;
-        if (descriptor.ControllerName == "StudentSelfService" && user.IsInRole("Student") && ((descriptor.ActionName == "Overview" && context.HttpContext.Request.Method == "GET") || ((descriptor.ActionName == "Submit" || descriptor.ActionName == "CreateRequest" || descriptor.ActionName == "SendMessage") && context.HttpContext.Request.Method == "POST") || ((descriptor.ActionName == "DownloadSubmissionFile") && context.HttpContext.Request.Method == "GET"))) return;
+        if (descriptor.ControllerName == "StudentSelfService" && user.IsInRole("Student") && (((descriptor.ActionName == "Overview" || descriptor.ActionName == "RequestRecipients") && context.HttpContext.Request.Method == "GET") || ((descriptor.ActionName == "Submit" || descriptor.ActionName == "CreateRequest" || descriptor.ActionName == "SendMessage") && context.HttpContext.Request.Method == "POST") || ((descriptor.ActionName == "DownloadSubmissionFile") && context.HttpContext.Request.Method == "GET"))) return;
 
         var page = ResolvePage(context.HttpContext.Request.Path.Value ?? "");
         var action = ResolveAction(context.HttpContext.Request.Method, context.HttpContext.Request.Path.Value ?? "");
@@ -72,6 +73,7 @@ public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
         if (p.Contains("/api/teacher/timetable")) return "academics.class-schedule";
         if (p.Contains("/api/teacher/workspace")) return "dashboard.dashboard";
         if (p.Contains("/api/teacher/section-students")) return "attendance.students";
+        if (p.Contains("/api/teacher/student-leave-requests")) return "academics.classes";
         if (p.Contains("/api/teacher/discussions")) return "academics.classes";
         if (p.Contains("/api/teacher/teaching-options") || p.Contains("/api/teacher/homework") || p.Contains("/api/teacher/study-materials") || p.Contains("/api/teacher/exam-options") || p.Contains("/api/teacher/exam-resources") || p.Contains("/api/teacher/diary") || p.Contains("/api/teacher/submissions") || p.Contains("/api/teacher/announcements") || p.Contains("/api/teacher/messages")) return "academics.classes";
         if (p.Contains("/api/teacher/calendar")) return "academics.class-schedule";
@@ -92,7 +94,6 @@ public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
         if (p.Contains("/api/timetable")) return "academics.class-schedule";
         if (p.Contains("/api/exam")) return "exams.academic-exam";
         if (p.Contains("/api/transport")) return "management.transport";
-        if (p.Contains("/api/inventory")) return "management.inventory";
         if (p.Contains("school-by-superadmin") || p.Contains("/api/admin/create") || p.Contains("update-school")) return "management.schools";
         if (p.Contains("dashboardcard")) return "dashboard.dashboard";
         if (p.Contains("/api/common/subjects")) return "academics.subjects";

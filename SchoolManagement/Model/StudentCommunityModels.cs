@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 
 namespace SchoolManagement.Model;
 
@@ -8,6 +8,8 @@ public class StudentServiceRequest
     public int SchoolId { get; set; }
     public int StudentId { get; set; }
     public int EnrollmentId { get; set; }
+    public int? RecipientRoleId { get; set; }
+    public int? RecipientUserId { get; set; }
     [MaxLength(40)] public string Type { get; set; } = "General";
     [MaxLength(200)] public string Subject { get; set; } = "";
     [MaxLength(2000)] public string Details { get; set; } = "";
