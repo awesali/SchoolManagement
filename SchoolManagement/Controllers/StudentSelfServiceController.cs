@@ -40,18 +40,13 @@ public class StudentSelfServiceController : ControllerBase
         var profilePictureUrl = await _db.ProfilePictures.AsNoTracking().Where(x => x.PersonType == "Student" && x.PersonId == student.Id && x.IsActive).OrderByDescending(x => x.CreatedDate).Select(x => x.FileUrl).FirstOrDefaultAsync();
         var className = await _db.Classes.AsNoTracking().Where(x => x.Id == enrollment.ClassId).Select(x => x.ClassName).FirstOrDefaultAsync();
         var sectionName = await _db.SectionDetails.AsNoTracking().Where(x => x.Id == enrollment.SectionId).Select(x => x.SectionName).FirstOrDefaultAsync();
-        var subjects = await (from link in _db.SectionSubjects.AsNoTracking()
-            join subject in _db.Subjects on link.SubjectId equals subject.Id
-            where link.SectionId == enrollment.SectionId && link.SchoolId == student.SchoolId && link.IsActive && subject.IsActive
-            orderby subject.SubjectName
-            select new { subject.Id, subject.SubjectName }).ToListAsync();
         var timetable = await (from slot in _db.Timetables.AsNoTracking()
             join period in _db.TimetablePeriods on slot.PeriodId equals period.Id
             join subject in _db.Subjects on slot.SubjectId equals subject.Id into subjectJoin
             from subject in subjectJoin.DefaultIfEmpty()
             where slot.SectionId == enrollment.SectionId && slot.SchoolId == student.SchoolId && slot.IsActive
             orderby slot.DayOfWeek, period.PeriodNumber
-            select new { slot.DayOfWeek, period.PeriodNumber, period.StartTime, period.EndTime, period.IsBreak,
+            select new { slot.Id, slot.DayOfWeek, period.PeriodNumber, period.StartTime, period.EndTime, period.IsBreak, updatedDate = slot.Updated_Date,
                 SubjectName = subject == null ? "Break" : subject.SubjectName }).ToListAsync();
         var homework = await (from item in _db.HomeworkAssignments.AsNoTracking()
             join subject in _db.Subjects on item.SubjectId equals subject.Id
@@ -71,19 +66,21 @@ public class StudentSelfServiceController : ControllerBase
             .Select(x => new { date = x.Attendance_Date, x.Status }).ToListAsync();
         var exams = await (from schedule in _db.ExamSchedules.AsNoTracking()
             join exam in _db.Exams on schedule.ExamId equals exam.Id
+            join examTypeRecord in _db.ExamTypes on exam.ExamTypeId equals examTypeRecord.Id into examTypeJoin
+            from examType in examTypeJoin.DefaultIfEmpty()
             join subject in _db.Subjects on schedule.SubjectId equals subject.Id into subjectJoin
             from subject in subjectJoin.DefaultIfEmpty()
             where schedule.SectionId == enrollment.SectionId && schedule.ClassId == enrollment.ClassId &&
                 schedule.SchoolId == student.SchoolId && schedule.IsActive && exam.IsActive && exam.IsPublished &&
                 exam.AcademicSessionId == enrollment.SessionId
             orderby schedule.ExamDate
-            select new { schedule.Id, examName = exam.Name, schedule.ExamDate, schedule.StartTime,
+            select new { schedule.Id, examId = exam.Id, examName = exam.Name, examTypeName = examType == null ? "" : examType.Name, createdDate = exam.CreatedDate, schedule.ExamDate, schedule.StartTime,
                 schedule.EndTime, subjectName = subject == null ? "" : subject.SubjectName }).ToListAsync();
         var results = await (from result in _db.ExamResults.AsNoTracking()
             join exam in _db.Exams on result.ExamId equals exam.Id
             where result.StudentId == student.Id && result.EnrollmentId == enrollment.Id && result.SchoolId == student.SchoolId &&
                 result.Published && exam.ResultPublished && exam.IsActive
-            select new { examId = exam.Id, examName = exam.Name, result.TotalMarks, result.ObtainedMarks, result.Percentage,
+            select new { examId = exam.Id, examName = exam.Name, createdDate = result.Created_Date, result.TotalMarks, result.ObtainedMarks, result.Percentage,
                 result.Grade, result.ResultStatus }).ToListAsync();
         var parent = await _db.ParentDetails.AsNoTracking().Where(x => x.Id == student.ParentId && x.IsActive)
             .Select(x => new { x.Name, x.Relationship, x.Email, x.PhoneNumber }).FirstOrDefaultAsync();
@@ -115,7 +112,21 @@ public class StudentSelfServiceController : ControllerBase
             where allocation.StudentId == student.Id && allocation.AcademicSessionId == enrollment.SessionId &&
                 allocation.SchoolId == student.SchoolId && allocation.IsActive && assignment.IsActive
             select new { route.RouteName, vehicle.VehicleNumber, allocation.PickupStop,
-                allocation.DropStop, allocation.SeatNumber, allocation.PickupShift, allocation.DropShift }).FirstOrDefaultAsync();
+                allocation.DropStop, allocation.SeatNumber, allocation.PickupShift, allocation.DropShift, allocation.MonthlyFee, allocation.FeeType, allocation.DueDate }).FirstOrDefaultAsync();
+        var transportFees = await (from fee in _db.TransportFees.AsNoTracking()
+            join allocation in _db.StudentTransportAllocations.AsNoTracking()
+                on fee.StudentTransportAllocationId equals allocation.Id
+            where allocation.StudentId == student.Id && allocation.SchoolId == student.SchoolId &&
+                allocation.AcademicSessionId == enrollment.SessionId && fee.SchoolId == student.SchoolId
+            orderby fee.FeeYear descending, fee.FeeMonth descending
+            select new { fee.Id, fee.FeeMonth, fee.FeeYear, fee.Amount, fee.PaidAmount,
+                fee.Status, fee.DueDate }).ToListAsync();
+        var transportFeeIds = transportFees.Select(x => x.Id).ToList();
+        var transportPayments = await _db.TransportFeePayments.AsNoTracking()
+            .Where(x => transportFeeIds.Contains(x.TransportFeeId))
+            .OrderByDescending(x => x.PaymentDate).ThenByDescending(x => x.Id)
+            .Select(x => new { x.Id, x.TransportFeeId, x.Amount, x.PaymentDate,
+                x.PaymentMode, x.ReceiptNumber, x.ReferenceNumber }).ToListAsync();
         var diary = await (from entry in _db.ClassDiaryEntries.AsNoTracking()
             join subject in _db.Subjects on entry.SubjectId equals subject.Id
             join staff in _db.Staff on entry.StaffId equals staff.Id
@@ -159,8 +170,8 @@ public class StudentSelfServiceController : ControllerBase
             join staff in _db.Staff on message.StaffId equals staff.Id
             where message.SchoolId == student.SchoolId && message.StudentId == student.Id && message.IsActive
             orderby message.SentAt
-            select new { message.Id, message.StaffId, teacherName = staff.Name, message.Body,
-                message.FromStudent, message.SentAt }).ToListAsync();
+            select new { message.Id, message.StaffId, staffName = staff.Name, staff.RoleId, message.Body,
+                message.FromStudent, message.SentAt, message.ReadAt }).ToListAsync();
         var achievements = await _db.StudentAchievements.AsNoTracking()
             .Where(x => x.SchoolId == student.SchoolId && x.StudentId == student.Id && x.IsActive)
             .OrderByDescending(x => x.AwardedAt)
@@ -218,7 +229,7 @@ public class StudentSelfServiceController : ControllerBase
             var isComplete = rows.Count > 0 && configuredTotal.HasValue &&
                 rows.All(x => x.obtainedMarks.HasValue) &&
                 result.TotalMarks == configuredTotal.Value && result.ObtainedMarks == recordedObtained;
-            return new { result.examId, result.examName, result.TotalMarks, result.ObtainedMarks,
+            return new { result.examId, result.examName, result.createdDate, result.TotalMarks, result.ObtainedMarks,
                 result.Percentage, result.Grade, result.ResultStatus,
                 expectedSubjectCount = rows.Count, recordedSubjectCount = rows.Count(x => x.obtainedMarks.HasValue),
                 configuredTotalMarks = configuredTotal, recordedObtainedMarks = recordedObtained, isComplete };
@@ -235,13 +246,35 @@ public class StudentSelfServiceController : ControllerBase
             join exam in _db.Exams on ticket.ExamId equals exam.Id
             where ticket.SchoolId == student.SchoolId && ticket.StudentId == student.Id &&
                 ticket.IsActive && ticket.IsPublished && exam.IsActive && exam.IsPublished
-            select new { ticket.Id, ticket.ExamId, examName = exam.Name, ticket.SeatNumber, ticket.Room, ticket.Venue,
+            select new { ticket.Id, ticket.ExamId, examName = exam.Name, createdAt = exam.CreatedDate, ticket.SeatNumber, ticket.Room, ticket.Venue,
                 ticket.DocumentUrl }).ToListAsync();
         return Ok(new { success = true, data = new {
             profile = new { student.StudentName, student.Email, rollNumber = enrollment.RollNumber ?? student.Rollnumber,
                 schoolName = school?.SchoolName, schoolAddress = school?.Address, schoolLogoUrl, profilePictureUrl, className, sectionName },
-            subjects, timetable, homework, materials, attendance, exams, results = resultDetails, resultSubjects, parent, teachers, documents, fees, payments, transport, diary, submissions, announcements, libraryBooks, borrowedBooks, requests, messages, achievements, schoolEvents, gradeHistory, examResources, hallTickets
+            timetable, homework, materials, attendance, exams, results = resultDetails, resultSubjects, parent, teachers, documents, fees, payments, transport, transportFees, transportPayments, diary, submissions, announcements, libraryBooks, borrowedBooks, requests, messages, achievements, schoolEvents, gradeHistory, examResources, hallTickets
         } });
+    }
+    [HttpPost("change-password")]
+    public async Task<IActionResult> ChangePassword([FromBody] SchoolManagement.DTOs.ChangePasswordDto input)
+    {
+        if (!User.IsInRole("Student") || !int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var credentialId))
+            return Forbid();
+        var credential = await _db.Students_Parents_Creds.FirstOrDefaultAsync(x => x.Id == credentialId &&
+            x.IsActive && x.Status == "Active" && x.RoleName == "Student");
+        if (credential == null) return Forbid();
+        if (string.IsNullOrEmpty(input.CurrentPassword))
+            return BadRequest(new { success = false, message = "Current password is required." });
+        if (string.IsNullOrEmpty(input.NewPassword) || input.NewPassword.Length < 8 || input.NewPassword.Length > 128)
+            return BadRequest(new { success = false, message = "New password must contain 8 to 128 characters." });
+        if (input.NewPassword != input.ConfirmPassword)
+            return BadRequest(new { success = false, message = "New password and confirmation do not match." });
+        if (input.CurrentPassword == input.NewPassword)
+            return BadRequest(new { success = false, message = "New password must be different from the current password." });
+        if (!BCrypt.Net.BCrypt.Verify(input.CurrentPassword, credential.Password_Hash))
+            return BadRequest(new { success = false, message = "Current password is incorrect." });
+        credential.Password_Hash = BCrypt.Net.BCrypt.HashPassword(input.NewPassword);
+        await _db.SaveChangesAsync();
+        return Ok(new { success = true, message = "Password changed successfully." });
     }
     private async Task<(SchoolManagement.Model.Students? student, SchoolManagement.Model.StudentEnrollment? enrollment)> CurrentEnrollment()
     {
@@ -371,6 +404,52 @@ public class StudentSelfServiceController : ControllerBase
         return Ok(new { success = true, data = new { request.Id } });
     }
 
+    [HttpGet("message-recipients")]
+    public async Task<IActionResult> MessageRecipients()
+    {
+        var (student, enrollment) = await CurrentEnrollment();
+        if (student == null || enrollment == null) return Forbid();
+        var roles = await _db.Roles.AsNoTracking()
+            .Where(x => x.IsActive && x.Id != 1 && x.Id != 7 && (x.School_Id == null || x.School_Id == student.SchoolId))
+            .OrderBy(x => x.RoleName).Select(x => new { x.Id, x.RoleName }).ToListAsync();
+        var staff = await (from person in _db.Staff.AsNoTracking()
+            join account in _db.Users.AsNoTracking() on person.usersid equals account.Id
+            join role in _db.Roles.AsNoTracking() on person.RoleId equals role.Id
+            where person.SchoolId == student.SchoolId && person.IsActive && account.IsActive && account.Status &&
+                account.RoleId == person.RoleId && role.IsActive && role.Id != 1 && role.Id != 7 &&
+                (role.School_Id == null || role.School_Id == student.SchoolId)
+            orderby role.RoleName, person.Name
+            select new { id = person.Id, name = person.Name, roleId = person.RoleId }).ToListAsync();
+        return Ok(new { success = true, data = new { roles, staff } });
+    }
+
+    [HttpGet("messages")]
+    public async Task<IActionResult> Messages()
+    {
+        var (student, enrollment) = await CurrentEnrollment();
+        if (student == null || enrollment == null) return Forbid();
+        var rows = await (from message in _db.TeacherStudentMessages.AsNoTracking()
+            join staff in _db.Staff.AsNoTracking() on message.StaffId equals staff.Id
+            where message.SchoolId == student.SchoolId && message.StudentId == student.Id &&
+                staff.SchoolId == student.SchoolId && message.IsActive
+            orderby message.SentAt, message.Id
+            select new { message.Id, message.StaffId, staffName = staff.Name, staff.RoleId,
+                message.Body, message.FromStudent, message.SentAt, message.ReadAt }).ToListAsync();
+        return Ok(new { success = true, data = rows });
+    }
+
+    [HttpPost("messages/{staffId:int}/read")]
+    public async Task<IActionResult> ReadMessages(int staffId)
+    {
+        var (student, enrollment) = await CurrentEnrollment();
+        if (student == null || enrollment == null) return Forbid();
+        await _db.TeacherStudentMessages.Where(x => x.SchoolId == student.SchoolId &&
+            x.StudentId == student.Id && x.StaffId == staffId && x.IsActive &&
+            !x.FromStudent && x.ReadAt == null)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.ReadAt, DateTime.UtcNow));
+        return Ok(new { success = true });
+    }
+
     [HttpPost("messages")]
     public async Task<IActionResult> SendMessage([FromBody] StudentMessageInput input)
     {
@@ -378,9 +457,16 @@ public class StudentSelfServiceController : ControllerBase
         if (student == null || enrollment == null) return Forbid();
         if (string.IsNullOrWhiteSpace(input.Body) || input.Body.Length > 2000)
             return BadRequest(new { message = "Enter a message up to 2000 characters." });
-        if (!await _db.SectionSubjectTeachers.AnyAsync(x => x.SchoolId == student.SchoolId &&
-            x.SectionId == enrollment.SectionId && x.StaffId == input.StaffId && x.IsActive))
-            return Forbid();
+        if (input.RecipientRoleId <= 1 || input.RecipientRoleId == 7 || input.StaffId <= 0) return BadRequest(new { message = "Choose a role and staff member." });
+        var recipient = await (from staff in _db.Staff.AsNoTracking()
+            join account in _db.Users.AsNoTracking() on staff.usersid equals account.Id
+            join role in _db.Roles.AsNoTracking() on staff.RoleId equals role.Id
+            where staff.Id == input.StaffId && staff.SchoolId == student.SchoolId && staff.IsActive &&
+                staff.RoleId == input.RecipientRoleId && account.RoleId == staff.RoleId &&
+                account.IsActive && account.Status && role.IsActive && role.Id != 1 && role.Id != 7 &&
+                (role.School_Id == null || role.School_Id == student.SchoolId)
+            select staff.Id).AnyAsync();
+        if (!recipient) return BadRequest(new { message = "The selected staff member is unavailable." });
         var message = new SchoolManagement.Model.TeacherStudentMessage {
             SchoolId = student.SchoolId, StudentId = student.Id, StaffId = input.StaffId,
             Body = input.Body.Trim(), FromStudent = true
@@ -389,7 +475,6 @@ public class StudentSelfServiceController : ControllerBase
         await _db.SaveChangesAsync();
         return Ok(new { success = true, data = new { message.Id } });
     }
-
 
 }
 
@@ -401,4 +486,4 @@ public class StudentSubmissionInput { public int AssignmentId { get; set; } publ
 
 
 public class StudentRequestInput { public int? RecipientRoleId { get; set; } public int? RecipientUserId { get; set; } public string Type { get; set; } = ""; public string Subject { get; set; } = ""; public string Details { get; set; } = ""; public DateTime? FromDate { get; set; } public DateTime? ToDate { get; set; } }
-public class StudentMessageInput { public int StaffId { get; set; } public string Body { get; set; } = ""; }
+public class StudentMessageInput { public int RecipientRoleId { get; set; } public int StaffId { get; set; } public string Body { get; set; } = ""; }

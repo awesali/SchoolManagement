@@ -20,7 +20,7 @@ public class TeacherStudentContentController : ControllerBase
     {
         if (User.FindFirstValue("RoleId") != "2" ||
             !int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return null;
-        return await _db.Staff.AsNoTracking().FirstOrDefaultAsync(x => x.usersid == userId && x.IsActive);
+        return await _db.Staff.AsNoTracking().FirstOrDefaultAsync(x => x.usersid == userId && x.IsActive && x.RoleId == 2);
     }
     private Task<bool> CanTeach(Staff staff, int sectionId, int subjectId) =>
         _db.SectionSubjectTeachers.AnyAsync(x => x.StaffId == staff.Id && x.SchoolId == staff.SchoolId &&
