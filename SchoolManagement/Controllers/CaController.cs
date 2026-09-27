@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
@@ -66,7 +66,7 @@ public class CaController : ControllerBase
                 pending = salaries.Count(x => x.Status != "Paid"), count = salaries.Count };
         }
         return Ok(new { schoolId = school.Id, schoolName = school.SchoolName, academicYear = session == null ? null : $"{session.Year_Start:yyyy}-{session.Year_End:yy}",
-            date = day.ToString("yyyy-MM-dd"), generatedAt = DateTime.UtcNow, fees, payroll });
+            date = day.ToString("yyyy-MM-dd"), generatedAt = DateTime.UtcNow, fees, payroll, accounting = await _permissions.HasPermissionAsync(User, "finance.accounts.read") });
     }
 }
 

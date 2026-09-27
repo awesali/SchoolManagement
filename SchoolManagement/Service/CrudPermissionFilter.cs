@@ -66,6 +66,7 @@ public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
         if (p.StartsWith("/api/staffleaveallocations/")) return "management.staff";
         if (p.StartsWith("/api/principal/invigilation")) return "exams.academic-exam";
         if (p.StartsWith("/api/staff-career/")) return "management.staff";
+        if (p.StartsWith("/api/accounting/")) return "finance.accounts";
         if (p.StartsWith("/api/ca/")) return "dashboard.dashboard";
         if (p.StartsWith("/api/principal/")) return "dashboard.dashboard";
         if (p.Contains("/api/teacher/syllabus")) return "academics.classes";

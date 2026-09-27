@@ -1565,61 +1565,37 @@ namespace SchoolManagement.Repository
         }
         public async Task<bool> PayFeeAsync(FeePaymentDto dto)
         {
-            try
+            await using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+            var fee = await _context.StudentFees.FirstOrDefaultAsync(x => x.Id == dto.StudentFeeId && x.SchoolId == dto.SchoolId && x.IsActive);
+            if (fee == null) throw new InvalidOperationException("Fee assignment was not found.");
+            if (dto.AmountPaid <= 0) throw new InvalidOperationException("Payment amount must be greater than zero.");
+            var mode = dto.PaymentMode?.Trim();
+            if (!new[] { "Cash", "Online", "Cheque", "DD" }.Contains(mode))
+                throw new InvalidOperationException("Choose a supported payment mode.");
+            if ((mode == "Online" || mode == "Cheque") && string.IsNullOrWhiteSpace(dto.AcknowledgementId))
+                throw new InvalidOperationException("Acknowledgement ID is required for online and cheque payments.");
+            var paidBefore = await _context.FeePayments
+                .Where(x => x.StudentFeeId == dto.StudentFeeId && x.SchoolId == dto.SchoolId && x.IsActive)
+                .SumAsync(x => (decimal?)x.AmountPaid) ?? 0m;
+            if (dto.AmountPaid > fee.Amount - paidBefore)
+                throw new InvalidOperationException("Payment cannot exceed the outstanding balance.");
+            _context.FeePayments.Add(new FeePayments
             {
-                var fee = await _context.StudentFees.FirstOrDefaultAsync(x => x.Id == dto.StudentFeeId && x.SchoolId == dto.SchoolId && x.IsActive);
-                if (fee == null) throw new InvalidOperationException("Fee assignment was not found.");
-                if (dto.AmountPaid <= 0) throw new InvalidOperationException("Payment amount must be greater than zero.");
-                if ((string.Equals(dto.PaymentMode, "Online", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(dto.PaymentMode, "Cheque", StringComparison.OrdinalIgnoreCase))
-                    && string.IsNullOrWhiteSpace(dto.AcknowledgementId))
-                    throw new InvalidOperationException("Acknowledgement ID is required for online and cheque payments.");
-                var paidBefore = await _context.FeePayments.Where(x => x.StudentFeeId == dto.StudentFeeId && x.IsActive).SumAsync(x => (decimal?)x.AmountPaid) ?? 0;
-                if (dto.AmountPaid > fee.Amount - paidBefore) throw new InvalidOperationException("Payment cannot exceed the outstanding balance.");
-                var payment = new FeePayments
-                {
-                    StudentFeeId = dto.StudentFeeId,
-
-                    AmountPaid = dto.AmountPaid,
-
-                    Payment_Mode = dto.PaymentMode,
-                    AcknowledgementId = dto.AcknowledgementId,
-
-                    Payment_Date = DateTime.Now,
-
-                    Receipt_Number =
-                        "RCPT-" + Guid.NewGuid().ToString().Substring(0, 6),
-
-                    SchoolId = dto.SchoolId,
-                    Created_Date = DateTime.UtcNow,
-                    IsActive = true
-                };
-
-                _context.FeePayments.Add(payment);
-
-                await _context.SaveChangesAsync();
-
-                var totalPaid = await _context.FeePayments
-                    .Where(x => x.StudentFeeId == dto.StudentFeeId)
-                    .SumAsync(x => x.AmountPaid);
-
-                if (totalPaid == 0)
-                    fee.Status = "Pending";
-
-                else if (totalPaid < fee.Amount)
-                    fee.Status = "Partial";
-
-                else
-                    fee.Status = "Paid";
-
-                return await _context.SaveChangesAsync() > 0;
-            }
-            catch (Exception)
-            {
-                throw;
-            }
+                StudentFeeId = dto.StudentFeeId,
+                AmountPaid = dto.AmountPaid,
+                Payment_Mode = mode!,
+                AcknowledgementId = dto.AcknowledgementId?.Trim(),
+                Payment_Date = DateTime.Now,
+                Receipt_Number = "RCPT-" + Guid.NewGuid().ToString("N"),
+                SchoolId = dto.SchoolId,
+                Created_Date = DateTime.UtcNow,
+                IsActive = true
+            });
+            fee.Status = paidBefore + dto.AmountPaid < fee.Amount ? "Partial" : "Paid";
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+            return true;
         }
-
         public async Task<IEnumerable<object>> GetPaymentHistory(
             int studentId)
         {
