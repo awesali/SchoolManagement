@@ -30,6 +30,7 @@ public class TeacherStudentMessage
     [MaxLength(2000)] public string Body { get; set; } = "";
     public bool FromStudent { get; set; }
     public DateTime SentAt { get; set; } = DateTime.UtcNow;
+    public DateTime? ReadAt { get; set; }
     public bool IsActive { get; set; } = true;
 }
 public class StudentAchievement

@@ -818,11 +818,16 @@ select new ExamSubjectResponseDto
                     };
                 }
 
-                var scheduleId = await _context.ExamSchedules.AsNoTracking()
+                var schedule = await _context.ExamSchedules.AsNoTracking()
                     .Where(x => x.ExamId == examId && x.SchoolId == schoolId && x.SectionId == sectionId &&
-                        x.SubjectId == subjectId && x.IsActive).Select(x => x.Id).FirstOrDefaultAsync();
-                if (scheduleId == 0) return new ApiResponse<List<MarksEntrySheetDto>>
+                        x.SubjectId == subjectId && x.IsActive)
+                    .Select(x => new { x.Id, x.ExamDate }).FirstOrDefaultAsync();
+                if (schedule == null) return new ApiResponse<List<MarksEntrySheetDto>>
                     { Success = false, Message = "Exam schedule not found for this subject." };
+                if (schedule.ExamDate.Date >= DateTime.UtcNow.AddMinutes(330).Date)
+                    return new ApiResponse<List<MarksEntrySheetDto>>
+                    { Success = false, Message = "Marks entry opens the day after this subject exam." };
+                var scheduleId = schedule.Id;
 
                 var students =
                     await (
@@ -905,27 +910,16 @@ select new ExamSubjectResponseDto
                         Message = "Unauthorized"
                     };
                 }
-                var scheduleId = dto.ExamScheduleId;
-
-                if (scheduleId == 0)
-                {
-                    scheduleId = await _context.ExamSchedules
-                        .Where(x =>
-                            x.ExamId == dto.ExamId &&
-                            x.SectionId == dto.SectionId &&
-                            x.SubjectId == dto.SubjectId)
-                        .Select(x => x.Id)
-                        .FirstOrDefaultAsync();
-                }
-
-                if (scheduleId == 0)
-                {
-                    return new ApiResponse<string>
-                    {
-                        Success = false,
-                        Message = "Exam schedule not found"
-                    };
-                }
+                var schedule = await _context.ExamSchedules.AsNoTracking()
+                    .Where(x => x.ExamId == dto.ExamId && x.SchoolId == dto.SchoolId &&
+                        x.SectionId == dto.SectionId && x.SubjectId == dto.SubjectId && x.IsActive &&
+                        (dto.ExamScheduleId == 0 || x.Id == dto.ExamScheduleId))
+                    .Select(x => new { x.Id, x.ExamDate }).FirstOrDefaultAsync();
+                if (schedule == null)
+                    return new ApiResponse<string> { Success = false, Message = "Exam schedule not found for this subject." };
+                if (schedule.ExamDate.Date >= DateTime.UtcNow.AddMinutes(330).Date)
+                    return new ApiResponse<string> { Success = false, Message = "Marks entry opens the day after this subject exam." };
+                var scheduleId = schedule.Id;
                 // Get all existing marks for this exam + schedule + students
                 var enrollmentIds = dto.Marks.Select(m => m.EnrollmentId).Where(x => x > 0).ToList();
 
@@ -1003,6 +997,11 @@ select new ExamSubjectResponseDto
         {
             try
             {
+                var hasUpcomingPaper = await _context.ExamSchedules.AsNoTracking()
+                    .AnyAsync(x => x.ExamId == examId && x.SchoolId == schoolId && x.IsActive &&
+                        x.ExamDate >= DateTime.UtcNow.AddMinutes(330).Date);
+                if (hasUpcomingPaper)
+                    return new ApiResponse<string> { Success = false, Message = "Marks can be locked only after every scheduled paper date has passed." };
                 var marks =
                     await _context.ExamMarks
                     .Where(x =>
