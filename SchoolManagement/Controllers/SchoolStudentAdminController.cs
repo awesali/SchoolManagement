@@ -233,6 +233,16 @@ public class SchoolStudentAdminController : ControllerBase
         return Ok(new { success = true, data = rows });
     }
 
+    [HttpDelete("hall-tickets")]
+    public async Task<IActionResult> DeleteHallTickets([FromQuery] int schoolId)
+    {
+        if (!CanManage(schoolId)) return Forbid();
+        var count = await _db.StudentHallTickets
+            .Where(x => x.SchoolId == schoolId && x.IsActive)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.IsActive, false));
+        return Ok(new { success = true, data = new { count } });
+    }
+
     [HttpPost("hall-tickets")]
     public Task<IActionResult> SaveHallTicket([FromBody] HallTicketInput input) => SaveHallTicketCore(input, null);
 
