@@ -36,6 +36,8 @@ public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
         if (user.FindFirstValue("RoleId") == "1") return;
         // These principal workflows validate the caller's active Principal role and school in the action.
         if (descriptor.ControllerName == "Principal" && new[] { "Invigilation", "AssignInvigilation", "RemoveInvigilation", "DecideLeave", "LeaveHistory", "UpcomingApprovedLeave" }.Contains(descriptor.ActionName)) return;
+        // Receptionist actions enforce the active front-office role and school on every request.
+        if (descriptor.ControllerName == "Receptionist") return;
         if (descriptor.ControllerName == "StudentRequestInbox") return;
         if (descriptor.ControllerName == "StudentCommunity" && user.IsInRole("Student") && ((context.HttpContext.Request.Method == "GET" && new[] { "Overview", "DiscussionPosts" }.Contains(descriptor.ActionName)) || (context.HttpContext.Request.Method == "POST" && new[] { "JoinClub", "RegisterEvent", "CreateLostFound", "CreateDiscussionPost", "ReserveBook" }.Contains(descriptor.ActionName)))) return;
         if (descriptor.ControllerName == "StudentSelfService" && user.IsInRole("Student") && (((descriptor.ActionName == "Overview" || descriptor.ActionName == "RequestRecipients") && context.HttpContext.Request.Method == "GET") || ((descriptor.ActionName == "Submit" || descriptor.ActionName == "CreateRequest" || descriptor.ActionName == "SendMessage") && context.HttpContext.Request.Method == "POST") || ((descriptor.ActionName == "DownloadSubmissionFile") && context.HttpContext.Request.Method == "GET"))) return;
