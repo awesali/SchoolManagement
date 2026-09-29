@@ -1,4 +1,4 @@
-﻿using SchoolManagement.DTOs;
+using SchoolManagement.DTOs;
 using SchoolManagement.Model;
 
 namespace SchoolManagement.Interfaces
@@ -33,7 +33,10 @@ namespace SchoolManagement.Interfaces
         Task<ApiResponse<Exams>>
             CreateExam(CreateExamDto dto, int userId);
 
+        Task<List<ClassDetailDto>> GetTeacherUnitTestClasses(int userId);
+        Task<List<TeacherUnitTestListDto>> GetTeacherUnitTests(int userId);
         Task<ApiResponse<Exams>> CreateTeacherUnitTest(CreateTeacherUnitTestDto dto, int userId);
+        Task<ApiResponse<Exams>> UpdateTeacherUnitTest(int examId, CreateTeacherUnitTestDto dto, int userId);
 
         Task<ApiResponse<List<Exams>>>
             GetExams(int schoolId);

@@ -152,6 +152,31 @@ namespace SchoolManagement.Controllers
                 : BadRequest(result);
         }
 
+        [HttpGet("teacher/unit-test/classes")]
+        public async Task<IActionResult> GetTeacherUnitTestClasses()
+        {
+            if (!int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+                return Unauthorized();
+            var classes = await _repo.GetTeacherUnitTestClasses(userId);
+            return Ok(new ApiResponse<List<ClassDetailDto>> { Success = true, Data = classes });
+        }
+        [HttpGet("teacher/unit-test")]
+        public async Task<IActionResult> GetTeacherUnitTests()
+        {
+            if (!int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+                return Unauthorized();
+            var tests = await _repo.GetTeacherUnitTests(userId);
+            return Ok(new ApiResponse<List<TeacherUnitTestListDto>> { Success = true, Data = tests });
+        }
+
+        [HttpPut("teacher/unit-test/{examId:int}")]
+        public async Task<IActionResult> UpdateTeacherUnitTest(int examId, CreateTeacherUnitTestDto dto)
+        {
+            if (!int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+                return Unauthorized();
+            var result = await _repo.UpdateTeacherUnitTest(examId, dto, userId);
+            return result.Success ? Ok(result) : BadRequest(result);
+        }
         [HttpPost("teacher/unit-test")]
         public async Task<IActionResult> CreateTeacherUnitTest(CreateTeacherUnitTestDto dto)
         {

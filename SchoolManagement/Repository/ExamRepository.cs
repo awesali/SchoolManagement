@@ -374,6 +374,155 @@ namespace SchoolManagement.Repository
             }
         }
 
+        public async Task<List<ClassDetailDto>> GetTeacherUnitTestClasses(int userId)
+        {
+            var staff = await _context.Staff
+                .Where(s => EF.Property<int?>(s, nameof(Staff.usersid)) == userId && s.IsActive)
+                .Select(s => new { s.Id, SchoolId = EF.Property<int?>(s, nameof(Staff.SchoolId)) })
+                .FirstOrDefaultAsync();
+            if (staff == null || !staff.SchoolId.HasValue)
+                return new List<ClassDetailDto>();
+
+            var rows = await (
+                from mapping in _context.SectionSubjectTeachers.AsNoTracking()
+                join section in _context.SectionDetails on mapping.SectionId equals section.Id
+                join schoolClass in _context.Classes on section.ClassId equals schoolClass.Id
+                join subject in _context.Subjects on mapping.SubjectId equals subject.Id
+                where mapping.StaffId == staff.Id && mapping.SchoolId == staff.SchoolId.Value && mapping.IsActive
+                    && section.SchoolId == staff.SchoolId.Value && section.IsActive
+                    && schoolClass.SchoolId == staff.SchoolId.Value && schoolClass.IsActive && subject.IsActive
+                    && _context.SectionSubjects.Any(link => link.SectionId == section.Id
+                        && link.SubjectId == subject.Id && link.SchoolId == staff.SchoolId.Value && link.IsActive)
+                    && _context.Timetables.Any(slot => slot.SectionId == section.Id
+                        && slot.SubjectId == subject.Id && slot.SchoolId == staff.SchoolId.Value && slot.IsActive)
+                select new { ClassId = schoolClass.Id, schoolClass.ClassName, SectionId = section.Id,
+                    section.SectionName, section.StaffId, SubjectId = subject.Id, subject.SubjectName }
+            ).Distinct().ToListAsync();
+
+            return rows.GroupBy(row => new { row.ClassId, row.ClassName })
+                .OrderBy(group => group.Key.ClassName)
+                .Select(group => new ClassDetailDto
+                {
+                    Id = group.Key.ClassId,
+                    ClassName = group.Key.ClassName,
+                    SchoolId = staff.SchoolId.Value,
+                    IsActive = true,
+                    SectionCount = group.Select(row => row.SectionId).Distinct().Count(),
+                    Sections = group.GroupBy(row => new { row.SectionId, row.SectionName, row.StaffId })
+                        .OrderBy(section => section.Key.SectionName)
+                        .Select(section => new GetSectionDto
+                        {
+                            Id = section.Key.SectionId,
+                            SectionName = section.Key.SectionName,
+                            StaffId = section.Key.StaffId,
+                            Subjects = section.OrderBy(row => row.SubjectName)
+                                .Select(row => new SectionSubjectDto
+                                {
+                                    SubjectId = row.SubjectId,
+                                    SubjectName = row.SubjectName,
+                                    TeacherId = staff.Id
+                                }).ToList()
+                        }).ToList()
+                }).ToList();
+        }
+        public async Task<List<TeacherUnitTestListDto>> GetTeacherUnitTests(int userId)
+        {
+            var staff = await _context.Staff.AsNoTracking()
+                .Where(s => EF.Property<int?>(s, nameof(Staff.usersid)) == userId && s.IsActive)
+                .Select(s => new { s.Id, SchoolId = EF.Property<int?>(s, nameof(Staff.SchoolId)) })
+                .FirstOrDefaultAsync();
+            if (staff == null || !staff.SchoolId.HasValue)
+                return new List<TeacherUnitTestListDto>();
+
+            return await (
+                from exam in _context.Exams.AsNoTracking()
+                join type in _context.ExamTypes on exam.ExamTypeId equals type.Id
+                join item in _context.ExamSubjects on exam.Id equals item.ExamId
+                join schoolClass in _context.Classes on item.ClassId equals schoolClass.Id
+                join section in _context.SectionDetails on item.SectionId equals (int?)section.Id
+                join subject in _context.Subjects on item.SubjectId equals subject.Id
+                where exam.CreatedBy == userId && exam.SchoolId == staff.SchoolId.Value && exam.IsActive
+                    && type.schoolId == staff.SchoolId.Value && type.Name.ToLower() == "unit test"
+                    && item.SchoolId == staff.SchoolId.Value && item.IsActive
+                orderby exam.CreatedDate descending
+                select new TeacherUnitTestListDto
+                {
+                    Id = exam.Id, Name = exam.Name, ClassId = schoolClass.Id,
+                    ClassName = schoolClass.ClassName, SectionId = section.Id,
+                    SectionName = section.SectionName, SubjectId = subject.Id,
+                    SubjectName = subject.SubjectName, TestDate = exam.StartDate ?? DateTime.MinValue,
+                    MaxMarks = item.MaxMarks, PassingMarks = item.PassingMarks,
+                    CanEdit = !exam.ResultPublished && !_context.ExamMarks.Any(mark => mark.ExamId == exam.Id)
+                        && !_context.ExamResults.Any(result => result.ExamId == exam.Id)
+                        && !_context.ExamSchedules.Any(schedule => schedule.ExamId == exam.Id)
+                }
+            ).ToListAsync();
+        }
+
+        public async Task<ApiResponse<Exams>> UpdateTeacherUnitTest(int examId, CreateTeacherUnitTestDto dto, int userId)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Name))
+                return new ApiResponse<Exams> { Success = false, Message = "Unit test name is required" };
+            if (dto.MaxMarks <= 0 || dto.PassingMarks < 0 || dto.PassingMarks >= dto.MaxMarks)
+                return new ApiResponse<Exams> { Success = false, Message = "Passing marks must be less than total marks" };
+
+            var staff = await _context.Staff
+                .Where(s => EF.Property<int?>(s, nameof(Staff.usersid)) == userId && s.IsActive)
+                .Select(s => new { s.Id, SchoolId = EF.Property<int?>(s, nameof(Staff.SchoolId)) })
+                .FirstOrDefaultAsync();
+            if (staff == null || !staff.SchoolId.HasValue)
+                return new ApiResponse<Exams> { Success = false, Message = "Teacher profile or school not found" };
+
+            var exam = await (
+                from record in _context.Exams
+                join type in _context.ExamTypes on record.ExamTypeId equals type.Id
+                where record.Id == examId && record.CreatedBy == userId
+                    && record.SchoolId == staff.SchoolId.Value && record.IsActive
+                    && type.schoolId == staff.SchoolId.Value && type.Name.ToLower() == "unit test"
+                select record
+            ).FirstOrDefaultAsync();
+            if (exam == null)
+                return new ApiResponse<Exams> { Success = false, Message = "Unit test not found or not owned by this teacher" };
+
+            var item = await _context.ExamSubjects.FirstOrDefaultAsync(subject =>
+                subject.ExamId == examId && subject.SchoolId == staff.SchoolId.Value && subject.IsActive);
+            if (item == null)
+                return new ApiResponse<Exams> { Success = false, Message = "Unit test subject not found" };
+            if (exam.ResultPublished || await _context.ExamMarks.AnyAsync(mark => mark.ExamId == examId)
+                || await _context.ExamResults.AnyAsync(result => result.ExamId == examId)
+                || await _context.ExamSchedules.AnyAsync(schedule => schedule.ExamId == examId))
+                return new ApiResponse<Exams> { Success = false, Message = "This test already has marks, results or a schedule and cannot be edited" };
+
+            var allowed = await (
+                from mapping in _context.SectionSubjectTeachers
+                join section in _context.SectionDetails on mapping.SectionId equals section.Id
+                join schoolClass in _context.Classes on section.ClassId equals schoolClass.Id
+                join subject in _context.Subjects on mapping.SubjectId equals subject.Id
+                where mapping.StaffId == staff.Id && mapping.SchoolId == staff.SchoolId.Value && mapping.IsActive
+                    && section.Id == dto.SectionId && section.ClassId == dto.ClassId
+                    && section.SchoolId == staff.SchoolId.Value && section.IsActive
+                    && schoolClass.SchoolId == staff.SchoolId.Value && schoolClass.IsActive
+                    && subject.Id == dto.SubjectId && subject.IsActive
+                    && _context.SectionSubjects.Any(link => link.SectionId == section.Id
+                        && link.SubjectId == subject.Id && link.SchoolId == staff.SchoolId.Value && link.IsActive)
+                    && _context.Timetables.Any(slot => slot.SectionId == section.Id
+                        && slot.SubjectId == subject.Id && slot.SchoolId == staff.SchoolId.Value && slot.IsActive)
+                select mapping.Id
+            ).AnyAsync();
+            if (!allowed)
+                return new ApiResponse<Exams> { Success = false, Message = "Choose a subject you teach in that section's timetable" };
+
+            exam.Name = dto.Name.Trim();
+            exam.StartDate = dto.TestDate.Date;
+            exam.EndDate = dto.TestDate.Date;
+            item.ClassId = dto.ClassId;
+            item.SectionId = dto.SectionId;
+            item.SubjectId = dto.SubjectId;
+            item.MaxMarks = dto.MaxMarks;
+            item.PassingMarks = dto.PassingMarks;
+            await _context.SaveChangesAsync();
+            return new ApiResponse<Exams> { Success = true, Message = "Unit test updated successfully", Data = exam };
+        }
         public async Task<ApiResponse<Exams>> CreateTeacherUnitTest(CreateTeacherUnitTestDto dto, int userId)
         {
             if (string.IsNullOrWhiteSpace(dto.Name))
@@ -388,13 +537,24 @@ namespace SchoolManagement.Repository
             if (staff == null || !staff.SchoolId.HasValue)
                 return new ApiResponse<Exams> { Success = false, Message = "Teacher profile or school not found" };
 
-            var assigned = await _context.SectionDetails.AnyAsync(s => s.Id == dto.SectionId &&
-                s.ClassId == dto.ClassId && s.StaffId == staff.Id && s.SchoolId == staff.SchoolId.Value && s.IsActive);
-            var subjectAssigned = await _context.SectionSubjects.AnyAsync(s =>
-                s.SectionId == dto.SectionId && s.SubjectId == dto.SubjectId && s.IsActive);
-            if (!assigned || !subjectAssigned)
-                return new ApiResponse<Exams> { Success = false, Message = "You can add a unit test only for your assigned class, section and subject" };
-
+            var allowed = await (
+                from mapping in _context.SectionSubjectTeachers
+                join section in _context.SectionDetails on mapping.SectionId equals section.Id
+                join schoolClass in _context.Classes on section.ClassId equals schoolClass.Id
+                join subject in _context.Subjects on mapping.SubjectId equals subject.Id
+                where mapping.StaffId == staff.Id && mapping.SchoolId == staff.SchoolId.Value && mapping.IsActive
+                    && section.Id == dto.SectionId && section.ClassId == dto.ClassId
+                    && section.SchoolId == staff.SchoolId.Value && section.IsActive
+                    && schoolClass.SchoolId == staff.SchoolId.Value && schoolClass.IsActive
+                    && subject.Id == dto.SubjectId && subject.IsActive
+                    && _context.SectionSubjects.Any(link => link.SectionId == section.Id
+                        && link.SubjectId == subject.Id && link.SchoolId == staff.SchoolId.Value && link.IsActive)
+                    && _context.Timetables.Any(slot => slot.SectionId == section.Id
+                        && slot.SubjectId == subject.Id && slot.SchoolId == staff.SchoolId.Value && slot.IsActive)
+                select mapping.Id
+            ).AnyAsync();
+            if (!allowed)
+                return new ApiResponse<Exams> { Success = false, Message = "You can create a unit test only for a subject you teach in that section's timetable" };
             var unitTestType = await _context.ExamTypes.FirstOrDefaultAsync(x =>
                 x.schoolId == staff.SchoolId.Value && x.IsActive && x.Name.ToLower() == "unit test");
             if (unitTestType == null)

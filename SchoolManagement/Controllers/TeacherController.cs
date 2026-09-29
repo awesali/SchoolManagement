@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
 using SchoolManagement.DTOs;
+using SchoolManagement.Interfaces;
 using SchoolManagement.Model;
 using SchoolManagement.Service;
 using System.Security.Claims;
@@ -16,7 +17,8 @@ public class TeacherController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IPermissionService _permissions;
-    public TeacherController(AppDbContext db, IPermissionService permissions) { _db = db; _permissions = permissions; }
+    private readonly IStudentRepository _students;
+    public TeacherController(AppDbContext db, IPermissionService permissions, IStudentRepository students) { _db = db; _permissions = permissions; _students = students; }
 
     private async Task<Staff?> CurrentStaff()
     {
@@ -108,7 +110,7 @@ public class TeacherController : ControllerBase
                 && section.SchoolId == staff.SchoolId && section.IsActive
                 && classroom.SchoolId == staff.SchoolId && classroom.IsActive
             orderby classroom.ClassName, section.SectionName
-            select new { sectionId = section.Id, sectionName = section.SectionName, className = classroom.ClassName })
+            select new { sectionId = section.Id, sectionName = section.SectionName, className = classroom.ClassName, schoolId = section.SchoolId })
             .ToListAsync();
         return Ok(new { success = true, sections = assignedSections });
     }
@@ -143,6 +145,39 @@ public class TeacherController : ControllerBase
         return Ok(new { success = true, data = rows });
     }
 
+    [HttpGet("students/{studentId:int}/profile")]
+    public async Task<IActionResult> StudentProfile(int studentId, DateTime? from, DateTime? to)
+    {
+        var staff = await CurrentStaff();
+        if (staff == null) return Forbid();
+
+        var enrollmentId = await (from enrollment in _db.StudentEnrollment.AsNoTracking()
+            join section in _db.SectionDetails on enrollment.SectionId equals section.Id
+            join record in _db.Students on enrollment.StudentId equals record.Id
+            where record.Id == studentId && record.IsActive && record.SchoolId == staff.SchoolId
+                && enrollment.SchoolId == staff.SchoolId && enrollment.IsActive
+                && enrollment.EnrollmentStatus == "Active"
+                && section.StaffId == staff.Id && section.SchoolId == staff.SchoolId && section.IsActive
+            orderby enrollment.EnrollmentDate descending
+            select (int?)enrollment.Id).FirstOrDefaultAsync();
+        if (!enrollmentId.HasValue)
+            return NotFound(new { success = false, message = "Student is not in your assigned class." });
+
+        var profile = await _students.GetStudentByIdAsync(studentId);
+        if (!profile.Success || profile.Data == null || profile.Data.SchoolId != staff.SchoolId
+            || profile.Data.EnrollmentId != enrollmentId)
+            return NotFound(new { success = false, message = "Student profile is unavailable." });
+
+        if (from.HasValue || to.HasValue)
+        {
+            if (!from.HasValue || !to.HasValue || from > to || (to.Value - from.Value).TotalDays > 366)
+                return BadRequest(new { success = false, message = "Select a valid attendance date range." });
+            var attendance = await _students.GetStudentProfileAttendanceAsync(staff.SchoolId, studentId, from.Value, to.Value);
+            return Ok(new { success = true, data = profile.Data,
+                attendance = attendance.Where(row => row.EnrollmentId == enrollmentId).ToList() });
+        }
+        return Ok(new { success = true, data = profile.Data });
+    }
     [HttpGet("student-attendance-history")]
     public async Task<IActionResult> AttendanceHistory(int sectionId, DateTime date)
     {

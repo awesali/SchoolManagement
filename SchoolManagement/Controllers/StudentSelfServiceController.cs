@@ -74,8 +74,28 @@ public class StudentSelfServiceController : ControllerBase
                 schedule.SchoolId == student.SchoolId && schedule.IsActive && exam.IsActive && exam.IsPublished &&
                 exam.AcademicSessionId == enrollment.SessionId
             orderby schedule.ExamDate
-            select new { schedule.Id, examId = exam.Id, examName = exam.Name, examTypeName = examType == null ? "" : examType.Name, createdDate = exam.CreatedDate, schedule.ExamDate, schedule.StartTime,
-                schedule.EndTime, subjectName = subject == null ? "" : subject.SubjectName }).ToListAsync();
+            select new { schedule.Id, examId = exam.Id, examName = exam.Name, examTypeName = examType == null ? "" : examType.Name, createdDate = exam.CreatedDate, schedule.ExamDate, StartTime = (TimeSpan?)schedule.StartTime,
+                EndTime = (TimeSpan?)schedule.EndTime, subjectName = subject == null ? "" : subject.SubjectName }).ToListAsync();
+        // Unit tests are dated when teachers create them but have no ExamSchedule until a time is set.
+        // Include these published tests so students can see them and receive the exam notification.
+        var unscheduledUnitTests = await (from item in _db.ExamSubjects.AsNoTracking()
+            join exam in _db.Exams on item.ExamId equals exam.Id
+            join examType in _db.ExamTypes on exam.ExamTypeId equals examType.Id
+            join subject in _db.Subjects on item.SubjectId equals subject.Id
+            where item.SectionId == enrollment.SectionId && item.ClassId == enrollment.ClassId &&
+                item.SchoolId == student.SchoolId && item.IsActive &&
+                exam.SchoolId == student.SchoolId && exam.AcademicSessionId == enrollment.SessionId &&
+                exam.IsActive && exam.IsPublished && exam.StartDate.HasValue &&
+                examType.schoolId == student.SchoolId && examType.Name.ToLower() == "unit test" &&
+                !_db.ExamSchedules.Any(schedule => schedule.ExamId == exam.Id &&
+                    schedule.SectionId == enrollment.SectionId && schedule.IsActive)
+            orderby exam.StartDate
+            select new { Id = -item.Id, examId = exam.Id, examName = exam.Name,
+                examTypeName = examType.Name, createdDate = exam.CreatedDate,
+                ExamDate = exam.StartDate.Value, StartTime = (TimeSpan?)null,
+                EndTime = (TimeSpan?)null, subjectName = subject.SubjectName }).ToListAsync();
+        exams.AddRange(unscheduledUnitTests);
+        exams = exams.OrderBy(exam => exam.ExamDate).ToList();
         var results = await (from result in _db.ExamResults.AsNoTracking()
             join exam in _db.Exams on result.ExamId equals exam.Id
             where result.StudentId == student.Id && result.EnrollmentId == enrollment.Id && result.SchoolId == student.SchoolId &&
