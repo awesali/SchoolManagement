@@ -1,5 +1,7 @@
-﻿namespace SchoolManagement.Model
+// Backend section: domain and database models.
+namespace SchoolManagement.Model
 {
+    // Represents staff document domain data.
     public class StaffDocument
     {
         public int Id { get; set; }

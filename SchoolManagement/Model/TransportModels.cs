@@ -1,5 +1,7 @@
+// Backend section: domain and database models.
 namespace SchoolManagement.Model
 {
+    // Represents transport domain data.
     public class VehicleType
     {
         public int Id { get; set; }

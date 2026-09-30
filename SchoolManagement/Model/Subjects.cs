@@ -1,9 +1,11 @@
+// Backend section: domain and database models.
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace SchoolManagement.Model
 {
     [Table("Subjects")]
+    // Represents subjects domain data.
     public class Subjects
     {
         [Key]

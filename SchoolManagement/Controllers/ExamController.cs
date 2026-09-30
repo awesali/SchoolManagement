@@ -1,3 +1,5 @@
+// Backend section: HTTP endpoints and request handling.
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -5,17 +7,19 @@ using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
 using SchoolManagement.Model;
 using SchoolManagement.Repository;
-using System.Security.Claims;
 
 namespace SchoolManagement.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
     [Authorize]
+    // Exposes exam HTTP endpoints and handles their requests.
     public class ExamController : ControllerBase
     {
+        // Dependencies and state used by this component.
         private readonly IExamRepository _repo;
 
+        // Creates the component with its required dependencies.
         public ExamController(IExamRepository repo)
         {
             _repo = repo;
@@ -107,16 +111,14 @@ namespace SchoolManagement.Controllers
         //}
 
         [HttpPost("CreateExamType")]
+        // API actions that validate requests and return responses.
         public async Task<IActionResult> CreateExamType(CreateExamTypeDto dto)
         {
-            var userId = int.Parse(
-                User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
 
             var result = await _repo.CreateExamType(dto, userId);
 
-            return result.Success
-                ? Ok(result)
-                : BadRequest(result);
+            return result.Success ? Ok(result) : BadRequest(result);
         }
 
         [HttpGet("GetExamTypes")]
@@ -124,22 +126,17 @@ namespace SchoolManagement.Controllers
         {
             var result = await _repo.GetExamTypes(schoolId);
 
-            return result.Success
-                ? Ok(result)
-                : BadRequest(result);
+            return result.Success ? Ok(result) : BadRequest(result);
         }
 
         [HttpPost("CreateExam")]
         public async Task<IActionResult> CreateExam(CreateExamDto dto)
         {
-            var userId = int.Parse(
-                User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
 
             var result = await _repo.CreateExam(dto, userId);
 
-            return result.Success
-                ? Ok(result)
-                : BadRequest(result);
+            return result.Success ? Ok(result) : BadRequest(result);
         }
 
         [HttpGet("GetExams")]
@@ -147,9 +144,7 @@ namespace SchoolManagement.Controllers
         {
             var result = await _repo.GetExams(schoolId);
 
-            return result.Success
-                ? Ok(result)
-                : BadRequest(result);
+            return result.Success ? Ok(result) : BadRequest(result);
         }
 
         [HttpGet("teacher/unit-test/classes")]
@@ -160,23 +155,30 @@ namespace SchoolManagement.Controllers
             var classes = await _repo.GetTeacherUnitTestClasses(userId);
             return Ok(new ApiResponse<List<ClassDetailDto>> { Success = true, Data = classes });
         }
+
         [HttpGet("teacher/unit-test")]
         public async Task<IActionResult> GetTeacherUnitTests()
         {
             if (!int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
                 return Unauthorized();
             var tests = await _repo.GetTeacherUnitTests(userId);
-            return Ok(new ApiResponse<List<TeacherUnitTestListDto>> { Success = true, Data = tests });
+            return Ok(
+                new ApiResponse<List<TeacherUnitTestListDto>> { Success = true, Data = tests }
+            );
         }
 
         [HttpPut("teacher/unit-test/{examId:int}")]
-        public async Task<IActionResult> UpdateTeacherUnitTest(int examId, CreateTeacherUnitTestDto dto)
+        public async Task<IActionResult> UpdateTeacherUnitTest(
+            int examId,
+            CreateTeacherUnitTestDto dto
+        )
         {
             if (!int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
                 return Unauthorized();
             var result = await _repo.UpdateTeacherUnitTest(examId, dto, userId);
             return result.Success ? Ok(result) : BadRequest(result);
         }
+
         [HttpPost("teacher/unit-test")]
         public async Task<IActionResult> CreateTeacherUnitTest(CreateTeacherUnitTestDto dto)
         {
@@ -190,35 +192,25 @@ namespace SchoolManagement.Controllers
         {
             var result = await _repo.PublishExam(examId);
 
-            return result.Success
-                ? Ok(result)
-                : BadRequest(result);
+            return result.Success ? Ok(result) : BadRequest(result);
         }
+
         [HttpPost("AddExamSubject")]
-        public async Task<IActionResult>
-           AddExamSubject(AddExamSubjectDto dto)
+        public async Task<IActionResult> AddExamSubject(AddExamSubjectDto dto)
         {
-            var userId = int.Parse(
-                User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
 
-            var result = await _repo
-                .AddExamSubject(dto, userId);
+            var result = await _repo.AddExamSubject(dto, userId);
 
-            return result.Success
-                ? Ok(result)
-                : BadRequest(result);
+            return result.Success ? Ok(result) : BadRequest(result);
         }
 
         [HttpGet("GetExamSubjects")]
-        public async Task<IActionResult>
-            GetExamSubjects(int examId)
+        public async Task<IActionResult> GetExamSubjects(int examId)
         {
-            var result = await _repo
-                .GetExamSubjects(examId);
+            var result = await _repo.GetExamSubjects(examId);
 
-            return result.Success
-                ? Ok(result)
-                : BadRequest(result);
+            return result.Success ? Ok(result) : BadRequest(result);
         }
 
         [HttpPost("CreateExamSchedule")]
@@ -230,54 +222,41 @@ namespace SchoolManagement.Controllers
 
         [HttpGet("GetMarksEntrySheet")]
         public async Task<IActionResult> GetMarksEntrySheet(
-          int schoolId,
-          int examId,
-          int sectionId,
-          int subjectId)
+            int schoolId,
+            int examId,
+            int sectionId,
+            int subjectId
+        )
         {
-            int userId = int.Parse(
-     User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+            int userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
 
             var result = await _repo.GetMarksEntrySheet(
                 schoolId,
                 examId,
                 sectionId,
                 subjectId,
-                userId);
+                userId
+            );
 
-            return result.Success
-                ? Ok(result)
-                : BadRequest(result);
+            return result.Success ? Ok(result) : BadRequest(result);
         }
 
         [HttpPost("SaveMarks")]
-        public async Task<IActionResult> SaveMarks(
-            SaveMarksDto dto)
+        public async Task<IActionResult> SaveMarks(SaveMarksDto dto)
         {
-            int userId = int.Parse(
-     User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+            int userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
 
+            var result = await _repo.SaveMarks(dto, userId);
 
-            var result = await _repo.SaveMarks(
-                dto,
-                userId);
-
-            return result.Success
-                ? Ok(result)
-                : BadRequest(result);
+            return result.Success ? Ok(result) : BadRequest(result);
         }
 
         [HttpPut("LockMarks")]
-        public async Task<IActionResult> LockMarks(
-            int examId,
-            int schoolId)
+        public async Task<IActionResult> LockMarks(int examId, int schoolId)
         {
-            var result =
-                await _repo.LockMarks(examId, schoolId);
+            var result = await _repo.LockMarks(examId, schoolId);
 
-            return result.Success
-                ? Ok(result)
-                : BadRequest(result);
+            return result.Success ? Ok(result) : BadRequest(result);
         }
 
         [HttpPost("GenerateResults")]
@@ -307,10 +286,15 @@ namespace SchoolManagement.Controllers
             var result = await _repo.PublishResults(examId, schoolId);
             return result.Success ? Ok(result) : BadRequest(result);
         }
+
         [HttpGet("student-result-detail")]
-        public async Task<IActionResult> GetStudentResultDetail(int studentId,int examId,int schoolId)
+        public async Task<IActionResult> GetStudentResultDetail(
+            int studentId,
+            int examId,
+            int schoolId
+        )
         {
-            var result = await _repo.GetStudentResultDetail(studentId,examId,schoolId);
+            var result = await _repo.GetStudentResultDetail(studentId, examId, schoolId);
             return Ok(result);
         }
     }

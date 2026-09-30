@@ -1,30 +1,36 @@
+// Backend section: database queries and persistence.
 using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
 using SchoolManagement.DTOs;
+using SchoolManagement.Interfaces;
 using SchoolManagement.Model;
 using SchoolManagement.Service;
-using SchoolManagement.Interfaces;
 
 namespace SchoolManagement.Repository
 {
+    // Reads and updates student parent data.
     public class StudentParentRepository : IStudentParentRepository
     {
+        // Dependencies and state used by this component.
         private readonly AppDbContext _context;
         private readonly IJwtService _jwtService;
 
+        // Creates the component with its required dependencies.
         public StudentParentRepository(AppDbContext context, IJwtService jwtService)
         {
             _context = context;
             _jwtService = jwtService;
         }
 
+        // Repository operations for querying and updating stored data.
         public async Task<bool> RegisterStudentParentAsync(StudentParentRegisterDto dto)
         {
             try
             {
                 // Check if email already exists
-                var existingUser = await _context.Students_Parents_Creds
-                    .FirstOrDefaultAsync(u => u.Email == dto.Email);
+                var existingUser = await _context.Students_Parents_Creds.FirstOrDefaultAsync(u =>
+                    u.Email == dto.Email
+                );
 
                 if (existingUser != null)
                     return false;
@@ -43,7 +49,7 @@ namespace SchoolManagement.Repository
                     School_Id = dto.School_Id,
                     Status = dto.Status ?? "Active",
                     Created_At = DateTime.Now,
-                    IsActive = true
+                    IsActive = true,
                 };
 
                 _context.Students_Parents_Creds.Add(user);
@@ -59,8 +65,9 @@ namespace SchoolManagement.Repository
 
         public async Task<string> LoginStudentParentAsync(StudentParentLoginDto dto)
         {
-            var user = await _context.Students_Parents_Creds
-                .FirstOrDefaultAsync(u => u.Email == dto.Email && u.IsActive);
+            var user = await _context.Students_Parents_Creds.FirstOrDefaultAsync(u =>
+                u.Email == dto.Email && u.IsActive
+            );
 
             if (user == null)
                 throw new Exception("Invalid Email");
@@ -82,16 +89,16 @@ namespace SchoolManagement.Repository
 
         public async Task<Students_Parents_Creds> GetByEmailAsync(string email)
         {
-            return await _context.Students_Parents_Creds
-                .FirstOrDefaultAsync(u => u.Email == email);
+            return await _context.Students_Parents_Creds.FirstOrDefaultAsync(u => u.Email == email);
         }
 
         public async Task<bool> UpdateLastLoginAsync(int id)
         {
             try
             {
-                var user = await _context.Students_Parents_Creds
-                    .FirstOrDefaultAsync(u => u.Id == id);
+                var user = await _context.Students_Parents_Creds.FirstOrDefaultAsync(u =>
+                    u.Id == id
+                );
 
                 if (user == null)
                     return false;

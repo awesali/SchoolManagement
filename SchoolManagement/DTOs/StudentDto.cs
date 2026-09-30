@@ -1,5 +1,7 @@
+// Backend section: request and response data contracts.
 namespace SchoolManagement.DTOs
 {
+    // Defines the student request and response data.
     public class StudentDto
     {
         public int Id { get; set; }
@@ -9,22 +11,52 @@ namespace SchoolManagement.DTOs
         public string? GenderCode { get; set; }
         public string Email { get; set; }
         public string PhoneNumber { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(500)] public string? Address { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(200)] public string? AddressLine2 { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(200)] public string? Landmark { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(100)] public string? City { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(100)] public string? District { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(100)] public string? State { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(100)] public string? Country { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(6)] public string? PinCode { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(50)] public string? AdmissionType { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(200)] public string? PreviousSchoolName { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(500)] public string? PreviousSchoolAddress { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(50)] public string? PreviousClass { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(100)] public string? PreviousBoard { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(100)] public string? TransferCertificateNumber { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(500)]
+        public string? Address { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(200)]
+        public string? AddressLine2 { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(200)]
+        public string? Landmark { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string? City { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string? District { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string? State { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string? Country { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(6)]
+        public string? PinCode { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(50)]
+        public string? AdmissionType { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(200)]
+        public string? PreviousSchoolName { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(500)]
+        public string? PreviousSchoolAddress { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(50)]
+        public string? PreviousClass { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string? PreviousBoard { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string? TransferCertificateNumber { get; set; }
         public DateTime? TransferCertificateDate { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(500)] public string? ReasonForLeaving { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(500)]
+        public string? ReasonForLeaving { get; set; }
         public int ParentId { get; set; }
         public string? ParentName { get; set; }
         public string? ParentRelationship { get; set; }
@@ -34,7 +66,7 @@ namespace SchoolManagement.DTOs
         public int? SessionId { get; set; }
         public string ClassName { get; set; }
         public string SectionName { get; set; }
-        public string RollNumber  { get; set; }
+        public string RollNumber { get; set; }
         public DateTime? AcademicSession { get; set; }
         public bool IsActive { get; set; }
         public string? ProfilePictureUrl { get; set; }

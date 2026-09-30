@@ -1,5 +1,7 @@
-﻿namespace SchoolManagement.DTOs
+// Backend section: request and response data contracts.
+namespace SchoolManagement.DTOs
 {
+    // Defines the student marks request and response data.
     public class StudentMarksDto
     {
         public int StudentId { get; set; }

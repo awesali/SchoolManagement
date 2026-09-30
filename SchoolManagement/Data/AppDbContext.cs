@@ -1,15 +1,23 @@
-using Microsoft.EntityFrameworkCore;
-using SchoolManagement.Model;
+// Backend section: database context and change tracking.
 using System.Collections.Generic;
 using System.Data;
 using System.Reflection.Emit;
+using Microsoft.EntityFrameworkCore;
+using SchoolManagement.Model;
 
 namespace SchoolManagement.Data
 {
+    // Configures app db data access.
     public partial class AppDbContext : DbContext
     {
+        // Dependencies and state used by this component.
         private readonly IHttpContextAccessor? _staffHistoryHttp;
-        public AppDbContext(DbContextOptions<AppDbContext> options, IHttpContextAccessor? httpContextAccessor = null)
+
+        // Creates the component with its required dependencies.
+        public AppDbContext(
+            DbContextOptions<AppDbContext> options,
+            IHttpContextAccessor? httpContextAccessor = null
+        )
             : base(options)
         {
             _staffHistoryHttp = httpContextAccessor;
@@ -121,50 +129,114 @@ namespace SchoolManagement.Data
         public DbSet<InventoryPayment> InventoryPayments { get; set; }
         public DbSet<InventoryReturn> InventoryReturns { get; set; }
         public DbSet<InventoryReturnItem> InventoryReturnItems { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
-            
+
             // Configure Students_Parents_Creds table name
-            modelBuilder.Entity<Students_Parents_Creds>()
-                .ToTable("Students_Parents_Creds");
+            modelBuilder.Entity<Students_Parents_Creds>().ToTable("Students_Parents_Creds");
 
-            modelBuilder.Entity<Schools>()
-                .Property(s => s.Latitude)
+            modelBuilder.Entity<Schools>().Property(s => s.Latitude).HasColumnType("decimal(9,6)");
+
+            modelBuilder.Entity<Schools>().Property(s => s.Longitude).HasColumnType("decimal(9,6)");
+
+            modelBuilder
+                .Entity<TransportGpsLocation>()
+                .Property(x => x.Latitude)
                 .HasColumnType("decimal(9,6)");
-
-            modelBuilder.Entity<Schools>()
-                .Property(s => s.Longitude)
+            modelBuilder
+                .Entity<TransportGpsLocation>()
+                .Property(x => x.Longitude)
                 .HasColumnType("decimal(9,6)");
-
-            modelBuilder.Entity<TransportGpsLocation>().Property(x => x.Latitude).HasColumnType("decimal(9,6)");
-            modelBuilder.Entity<TransportGpsLocation>().Property(x => x.Longitude).HasColumnType("decimal(9,6)");
             modelBuilder.Entity<ErpModule>().HasIndex(x => x.Key).IsUnique();
             modelBuilder.Entity<ErpPage>().HasIndex(x => x.Key).IsUnique();
             modelBuilder.Entity<ErpAction>().HasIndex(x => x.Key).IsUnique();
             modelBuilder.Entity<Permission>().HasIndex(x => x.Key).IsUnique();
-            modelBuilder.Entity<RolePermission>().HasIndex(x => new { x.RoleId, x.PermissionId }).IsUnique();
-            modelBuilder.Entity<EmployeeRole>().HasIndex(x => new { x.UserId, x.RoleId }).IsUnique();
-            modelBuilder.Entity<PermissionOverride>().HasIndex(x => new { x.UserId, x.PermissionId }).IsUnique();
-            modelBuilder.Entity<StudentEnrollment>().HasIndex(x => new { x.StudentId, x.SessionId }).IsUnique();
-            modelBuilder.Entity<StudentEnrollment>().HasIndex(x => new { x.SchoolId, x.SessionId, x.ClassId, x.SectionId, x.IsActive });
-            modelBuilder.Entity<StudentAttendance>().HasIndex(x => new { x.EnrollmentId, x.Attendance_Date }).IsUnique();
-            modelBuilder.Entity<HomeworkAssignment>().HasIndex(x => new { x.StaffId, x.SectionId, x.DueDate });
-            modelBuilder.Entity<TeacherStudyMaterial>().HasIndex(x => new { x.StaffId, x.SectionId, x.SubjectId });
-            modelBuilder.Entity<StaffLeaveRequest>().HasIndex(x => new { x.StaffId, x.FromDate, x.ToDate });
-            modelBuilder.Entity<ExamMarks>().HasIndex(x => new { x.EnrollmentId, x.ExamScheduleId }).IsUnique();
-            modelBuilder.Entity<ExamResults>().HasIndex(x => new { x.EnrollmentId, x.ExamId }).IsUnique();
-            modelBuilder.Entity<StudentFee>().HasIndex(x => new { x.EnrollmentId, x.FeeTypeId }).IsUnique();
+            modelBuilder
+                .Entity<RolePermission>()
+                .HasIndex(x => new { x.RoleId, x.PermissionId })
+                .IsUnique();
+            modelBuilder
+                .Entity<EmployeeRole>()
+                .HasIndex(x => new { x.UserId, x.RoleId })
+                .IsUnique();
+            modelBuilder
+                .Entity<PermissionOverride>()
+                .HasIndex(x => new { x.UserId, x.PermissionId })
+                .IsUnique();
+            modelBuilder
+                .Entity<StudentEnrollment>()
+                .HasIndex(x => new { x.StudentId, x.SessionId })
+                .IsUnique();
+            modelBuilder
+                .Entity<StudentEnrollment>()
+                .HasIndex(x => new
+                {
+                    x.SchoolId,
+                    x.SessionId,
+                    x.ClassId,
+                    x.SectionId,
+                    x.IsActive,
+                });
+            modelBuilder
+                .Entity<StudentAttendance>()
+                .HasIndex(x => new { x.EnrollmentId, x.Attendance_Date })
+                .IsUnique();
+            modelBuilder
+                .Entity<HomeworkAssignment>()
+                .HasIndex(x => new
+                {
+                    x.StaffId,
+                    x.SectionId,
+                    x.DueDate,
+                });
+            modelBuilder
+                .Entity<TeacherStudyMaterial>()
+                .HasIndex(x => new
+                {
+                    x.StaffId,
+                    x.SectionId,
+                    x.SubjectId,
+                });
+            modelBuilder
+                .Entity<StaffLeaveRequest>()
+                .HasIndex(x => new
+                {
+                    x.StaffId,
+                    x.FromDate,
+                    x.ToDate,
+                });
+            modelBuilder
+                .Entity<ExamMarks>()
+                .HasIndex(x => new { x.EnrollmentId, x.ExamScheduleId })
+                .IsUnique();
+            modelBuilder
+                .Entity<ExamResults>()
+                .HasIndex(x => new { x.EnrollmentId, x.ExamId })
+                .IsUnique();
+            modelBuilder
+                .Entity<StudentFee>()
+                .HasIndex(x => new { x.EnrollmentId, x.FeeTypeId })
+                .IsUnique();
             modelBuilder.Entity<Students>().Property(x => x.GenderCode).HasMaxLength(1);
-            modelBuilder.Entity<Students>().ToTable(t => t.HasCheckConstraint(
-                "CK_Students_GenderCode", "[GenderCode] IS NULL OR [GenderCode] IN ('M','F','O','N')"));
+            modelBuilder
+                .Entity<Students>()
+                .ToTable(t =>
+                    t.HasCheckConstraint(
+                        "CK_Students_GenderCode",
+                        "[GenderCode] IS NULL OR [GenderCode] IN ('M','F','O','N')"
+                    )
+                );
             modelBuilder.Entity<Staff>().Property(x => x.GenderCode).HasMaxLength(1);
-            modelBuilder.Entity<Staff>().ToTable(t => t.HasCheckConstraint(
-                "CK_Staff_GenderCode", "[GenderCode] IS NULL OR [GenderCode] IN ('M','F','O','N')"));
+            modelBuilder
+                .Entity<Staff>()
+                .ToTable(t =>
+                    t.HasCheckConstraint(
+                        "CK_Staff_GenderCode",
+                        "[GenderCode] IS NULL OR [GenderCode] IN ('M','F','O','N')"
+                    )
+                );
         }
     }
 }
-
-
-
-

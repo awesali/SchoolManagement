@@ -1,5 +1,7 @@
+// Backend section: request and response data contracts.
 namespace SchoolManagement.DTOs
 {
+    // Defines the exam schedule list request and response data.
     public class ExamScheduleListDto
     {
         public int ExamId { get; set; }
@@ -8,6 +10,6 @@ namespace SchoolManagement.DTOs
         public DateTime StartDate { get; set; }
         public DateTime EndDate { get; set; }
 
-        public int ClassCount { get; set; }   
+        public int ClassCount { get; set; }
     }
 }

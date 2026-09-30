@@ -1,5 +1,7 @@
-﻿namespace SchoolManagement.DTOs
+// Backend section: request and response data contracts.
+namespace SchoolManagement.DTOs
 {
+    // Defines the create class with sections request and response data.
     public class CreateClassWithSectionsDto
     {
         public string ClassName { get; set; }

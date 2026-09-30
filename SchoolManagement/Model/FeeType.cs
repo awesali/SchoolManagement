@@ -1,5 +1,7 @@
-﻿namespace SchoolManagement.Model
+// Backend section: domain and database models.
+namespace SchoolManagement.Model
 {
+    // Represents fee type domain data.
     public class FeeType
     {
         public int Id { get; set; }

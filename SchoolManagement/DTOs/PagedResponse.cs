@@ -1,5 +1,7 @@
+// Backend section: request and response data contracts.
 namespace SchoolManagement.DTOs
 {
+    // Defines the paged response request and response data.
     public class PagedResponse<T>
     {
         public bool Success { get; set; }

@@ -1,19 +1,22 @@
+// Backend section: HTTP endpoints and request handling.
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
-using System.Security.Claims;
 
 namespace SchoolManagement.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
     [Authorize]
-
+    // Exposes admin HTTP endpoints and handles their requests.
     public class AdminController : ControllerBase
     {
+        // Dependencies and state used by this component.
         private readonly IAdminRepository _repo;
 
+        // Creates the component with its required dependencies.
         public AdminController(IAdminRepository repo)
         {
             _repo = repo;
@@ -21,6 +24,7 @@ namespace SchoolManagement.Controllers
 
         [HttpPost("create")]
         [Consumes("multipart/form-data")]
+        // API actions that validate requests and return responses.
         public async Task<IActionResult> CreateSchool([FromForm] SchoolCreateDto dto)
         {
             var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
@@ -45,7 +49,12 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpGet("Staff-by-school")]
-        public async Task<IActionResult> GetStaffFull([FromQuery] int schoolId, int page = 1, int pageSize = 10, int? staffId = null)
+        public async Task<IActionResult> GetStaffFull(
+            [FromQuery] int schoolId,
+            int page = 1,
+            int pageSize = 10,
+            int? staffId = null
+        )
         {
             try
             {
@@ -53,31 +62,42 @@ namespace SchoolManagement.Controllers
 
                 if (page == -1)
                 {
-                    var (_, tempTotal) = await _repo.GetStaffFullAsync(schoolId, 1, pageSize, staffId);
+                    var (_, tempTotal) = await _repo.GetStaffFullAsync(
+                        schoolId,
+                        1,
+                        pageSize,
+                        staffId
+                    );
                     page = (int)Math.Ceiling((double)tempTotal / pageSize);
                 }
 
-                var (data, total) = await _repo.GetStaffFullAsync(schoolId, page, pageSize, staffId);
+                var (data, total) = await _repo.GetStaffFullAsync(
+                    schoolId,
+                    page,
+                    pageSize,
+                    staffId
+                );
                 var totalPages = (int)Math.Ceiling((double)total / pageSize);
 
-                return Ok(new PagedResponse<List<StaffListDto>>
-                {
-                    Success = true,
-                    Message = "Staff fetched successfully",
-                    Data = data,
-                    CurrentPage = page,
-                    TotalPages = totalPages,
-                    TotalRecords = total,
-                    PageSize = pageSize
-                });
+                return Ok(
+                    new PagedResponse<List<StaffListDto>>
+                    {
+                        Success = true,
+                        Message = "Staff fetched successfully",
+                        Data = data,
+                        CurrentPage = page,
+                        TotalPages = totalPages,
+                        TotalRecords = total,
+                        PageSize = pageSize,
+                    }
+                );
             }
             catch (Exception ex)
             {
-                return StatusCode(StatusCodes.Status500InternalServerError, new
-                {
-                    Success = false,
-                    Message = $"Unable to load staff: {ex.Message}"
-                });
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    new { Success = false, Message = $"Unable to load staff: {ex.Message}" }
+                );
             }
         }
 
@@ -100,11 +120,14 @@ namespace SchoolManagement.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(StatusCodes.Status500InternalServerError, new
-                {
-                    Success = false,
-                    Message = $"Unable to load existing staff emails: {ex.Message}"
-                });
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    new
+                    {
+                        Success = false,
+                        Message = $"Unable to load existing staff emails: {ex.Message}",
+                    }
+                );
             }
         }
 
@@ -120,11 +143,10 @@ namespace SchoolManagement.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(StatusCodes.Status500InternalServerError, new
-                {
-                    Success = false,
-                    Message = $"Unable to add staff: {ex.Message}"
-                });
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    new { Success = false, Message = $"Unable to add staff: {ex.Message}" }
+                );
             }
         }
 
@@ -162,10 +184,16 @@ namespace SchoolManagement.Controllers
         [HttpPut("update-parent")]
         public async Task<IActionResult> UpdateParent(UpdateParentDto dto)
         {
-            if (User.FindFirstValue("RoleId") != "1" &&
-                (!int.TryParse(User.FindFirstValue("SchoolId"), out var schoolId) || schoolId != dto.SchoolId))
+            if (
+                User.FindFirstValue("RoleId") != "1"
+                && (
+                    !int.TryParse(User.FindFirstValue("SchoolId"), out var schoolId)
+                    || schoolId != dto.SchoolId
+                )
+            )
                 return Forbid();
-            if (!int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return Unauthorized();
+            if (!int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+                return Unauthorized();
             var result = await _repo.UpdateParentAsync(dto, userId);
             return result.Success ? Ok(result) : BadRequest(result);
         }
@@ -175,7 +203,9 @@ namespace SchoolManagement.Controllers
             [FromQuery] int schoolId,
             int page = 1,
             int pageSize = 10,
-            string? search = null, int? parentId = null)
+            string? search = null,
+            int? parentId = null
+        )
         {
             if (schoolId <= 0)
                 return BadRequest("A valid schoolId is required.");
@@ -183,18 +213,26 @@ namespace SchoolManagement.Controllers
             page = Math.Max(page, 1);
             pageSize = Math.Clamp(pageSize, 1, 100);
 
-            var (data, total) = await _repo.GetParentsBySchoolAsync(schoolId, page, pageSize, search, parentId);
+            var (data, total) = await _repo.GetParentsBySchoolAsync(
+                schoolId,
+                page,
+                pageSize,
+                search,
+                parentId
+            );
 
-            return Ok(new PagedResponse<List<ParentListDto>>
-            {
-                Success = true,
-                Message = "Parents fetched successfully",
-                Data = data,
-                CurrentPage = page,
-                TotalPages = (int)Math.Ceiling((double)total / pageSize),
-                TotalRecords = total,
-                PageSize = pageSize
-            });
+            return Ok(
+                new PagedResponse<List<ParentListDto>>
+                {
+                    Success = true,
+                    Message = "Parents fetched successfully",
+                    Data = data,
+                    CurrentPage = page,
+                    TotalPages = (int)Math.Ceiling((double)total / pageSize),
+                    TotalRecords = total,
+                    PageSize = pageSize,
+                }
+            );
         }
 
         [HttpGet("academic-sessions")]
@@ -202,12 +240,14 @@ namespace SchoolManagement.Controllers
         {
             if (schoolId <= 0)
             {
-                return BadRequest(new ApiResponse<List<AcademicSessionDto>>
-                {
-                    Success = false,
-                    Message = "A valid schoolId is required",
-                    Data = new List<AcademicSessionDto>()
-                });
+                return BadRequest(
+                    new ApiResponse<List<AcademicSessionDto>>
+                    {
+                        Success = false,
+                        Message = "A valid schoolId is required",
+                        Data = new List<AcademicSessionDto>(),
+                    }
+                );
             }
 
             var result = await _repo.GetAcademicSessionsAsync(schoolId);
@@ -215,10 +255,18 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpPut("academic-session-status")]
-        public async Task<IActionResult> UpdateAcademicSessionStatus([FromBody] UpdateAcademicSessionStatusDto dto)
+        public async Task<IActionResult> UpdateAcademicSessionStatus(
+            [FromBody] UpdateAcademicSessionStatusDto dto
+        )
         {
             if (dto.SchoolId <= 0 || dto.SessionId <= 0)
-                return BadRequest(new ApiResponse<string> { Success = false, Message = "A valid school and session are required" });
+                return BadRequest(
+                    new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "A valid school and session are required",
+                    }
+                );
 
             var result = await _repo.UpdateAcademicSessionStatusAsync(dto);
             return result.Success ? Ok(result) : NotFound(result);
@@ -239,19 +287,18 @@ namespace SchoolManagement.Controllers
 
         [HttpGet("GetStaffAttendanceHistoryByDate")]
         public async Task<IActionResult> GetAttendanceHistory(
-        int schoolId,
-        DateTime fromDate,
-        DateTime toDate, int? staffId = null)
+            int schoolId,
+            DateTime fromDate,
+            DateTime toDate,
+            int? staffId = null
+        )
         {
             if (fromDate > toDate)
             {
                 return BadRequest("From date cannot be greater than To date.");
             }
 
-            var result = await _repo.GetAttendanceHistoryAsync(
-                schoolId,
-                fromDate,
-                toDate, staffId);
+            var result = await _repo.GetAttendanceHistoryAsync(schoolId, fromDate, toDate, staffId);
 
             if (!result.Any())
             {

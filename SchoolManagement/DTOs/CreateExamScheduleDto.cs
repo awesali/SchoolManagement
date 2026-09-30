@@ -1,5 +1,7 @@
-﻿namespace SchoolManagement.DTOs
+// Backend section: request and response data contracts.
+namespace SchoolManagement.DTOs
 {
+    // Defines the create exam schedule request and response data.
     public class CreateExamScheduleDto
     {
         public int ExamId { get; set; }

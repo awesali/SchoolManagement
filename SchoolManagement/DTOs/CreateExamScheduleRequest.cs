@@ -1,13 +1,15 @@
-﻿namespace SchoolManagement.DTOs
+// Backend section: request and response data contracts.
+namespace SchoolManagement.DTOs
 {
+    // Defines the create exam schedule request request and response data.
     public class CreateExamScheduleRequest
     {
         // 🔥 EXAM (GROUP LEVEL)
-        public string Name { get; set; }          // e.g. "Nursery Midterm April"
+        public string Name { get; set; } // e.g. "Nursery Midterm April"
         public int ExamTypeId { get; set; }
         public int SchoolId { get; set; }
-        public DateTime StartDate { get; set; }   // overall exam start
-        public DateTime EndDate { get; set; }     // overall exam end
+        public DateTime StartDate { get; set; } // overall exam start
+        public DateTime EndDate { get; set; } // overall exam end
 
         // 🔽 DETAILS
         public List<ClassScheduleDto> Classes { get; set; }

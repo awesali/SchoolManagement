@@ -1,15 +1,19 @@
-﻿using System.Net.Mail;
+// Backend section: application services and shared rules.
 using System.Net;
+using System.Net.Mail;
 using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
 
 namespace SchoolManagement.Service
 {
+    // Implements email application behavior.
     public class EmailService : IEmailService
     {
+        // Dependencies and state used by this component.
         private readonly IConfiguration _config;
         private readonly AppDbContext _context;
 
+        // Creates the component with its required dependencies.
         public EmailService(IConfiguration config, AppDbContext context)
         {
             _config = config;
@@ -33,14 +37,14 @@ namespace SchoolManagement.Service
                         EnableSsl = true,
                         UseDefaultCredentials = false,
                         Credentials = new NetworkCredential(fromEmail, password),
-                        DeliveryMethod = SmtpDeliveryMethod.Network
+                        DeliveryMethod = SmtpDeliveryMethod.Network,
                     };
                     using var mail = new MailMessage
                     {
                         From = new MailAddress(fromEmail!),
                         Subject = subject,
                         Body = body,
-                        IsBodyHtml = true
+                        IsBodyHtml = true,
                     };
                     mail.To.Add(toEmail);
                     await smtpClient.SendMailAsync(mail);
@@ -49,16 +53,25 @@ namespace SchoolManagement.Service
                 catch (Exception exception)
                 {
                     lastError = exception;
-                    if (attempt < 3) await Task.Delay(TimeSpan.FromSeconds(attempt * 2));
+                    if (attempt < 3)
+                        await Task.Delay(TimeSpan.FromSeconds(attempt * 2));
                 }
             }
 
-            throw new InvalidOperationException($"Email delivery to {toEmail} failed after three attempts.", lastError);
+            throw new InvalidOperationException(
+                $"Email delivery to {toEmail} failed after three attempts.",
+                lastError
+            );
         }
-        public async Task<(string subject, string body)> GetEmailTemplateAsync(string templateName, Dictionary<string, string> placeholders)
+
+        public async Task<(string subject, string body)> GetEmailTemplateAsync(
+            string templateName,
+            Dictionary<string, string> placeholders
+        )
         {
-            var template = await _context.EmailTemplates
-                .FirstOrDefaultAsync(t => t.TemplateName == templateName && t.IsActive);
+            var template = await _context.EmailTemplates.FirstOrDefaultAsync(t =>
+                t.TemplateName == templateName && t.IsActive
+            );
 
             if (template == null)
                 throw new Exception("Email template not found");

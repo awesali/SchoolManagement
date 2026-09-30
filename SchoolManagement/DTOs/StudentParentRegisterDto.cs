@@ -1,7 +1,9 @@
+// Backend section: request and response data contracts.
 using System.ComponentModel.DataAnnotations;
 
 namespace SchoolManagement.DTOs
 {
+    // Defines the student parent register request and response data.
     public class StudentParentRegisterDto
     {
         [Required]

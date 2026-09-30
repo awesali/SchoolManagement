@@ -1,5 +1,7 @@
-﻿namespace SchoolManagement.DTOs
+// Backend section: request and response data contracts.
+namespace SchoolManagement.DTOs
 {
+    // Defines the fee payment request and response data.
     public class FeePaymentDto
     {
         public int StudentFeeId { get; set; }

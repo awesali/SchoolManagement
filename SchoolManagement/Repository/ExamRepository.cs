@@ -1,18 +1,22 @@
+// Backend section: database queries and persistence.
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
 using SchoolManagement.Model;
 using SchoolManagement.Service;
-using System.Security.Claims;
 
 namespace SchoolManagement.Repository
 {
+    // Reads and updates exam data.
     public class ExamRepository : IExamRepository
     {
+        // Dependencies and state used by this component.
         private readonly AppDbContext _context;
         private readonly IEmailService _emailService;
 
+        // Creates the component with its required dependencies.
         public ExamRepository(AppDbContext context, IEmailService emailService)
         {
             _context = context;
@@ -101,7 +105,6 @@ namespace SchoolManagement.Repository
 
         //    return inv.Id;
         //}
-
 
         //// ---------------- EXAM TYPE PICKLIST ----------------
         //public async Task<List<ExamTypePicklistDto>> GetExamTypePicklistAsync(int schoolId)
@@ -226,7 +229,7 @@ namespace SchoolManagement.Repository
         //        .ToListAsync();
         //}
 
-        public async Task<ApiResponse<ExamTypes>>CreateExamType(CreateExamTypeDto dto, int userId)
+        public async Task<ApiResponse<ExamTypes>> CreateExamType(CreateExamTypeDto dto, int userId)
         {
             try
             {
@@ -234,7 +237,7 @@ namespace SchoolManagement.Repository
                 {
                     Name = dto.Name,
                     schoolId = dto.SchoolId,
-                    IsActive = true
+                    IsActive = true,
                 };
 
                 _context.ExamTypes.Add(examType);
@@ -245,47 +248,33 @@ namespace SchoolManagement.Repository
                 {
                     Success = true,
                     Message = "Exam Type Created Successfully",
-                    Data = examType
+                    Data = examType,
                 };
             }
             catch (Exception ex)
             {
-                return new ApiResponse<ExamTypes>
-                {
-                    Success = false,
-                    Message = ex.Message
-                };
+                return new ApiResponse<ExamTypes> { Success = false, Message = ex.Message };
             }
         }
 
-        public async Task<ApiResponse<List<ExamTypes>>>GetExamTypes(int schoolId)
+        public async Task<ApiResponse<List<ExamTypes>>> GetExamTypes(int schoolId)
         {
             try
             {
-                var data = await _context.ExamTypes
-                    .Where(x =>
-                        x.schoolId == schoolId &&
-                        x.IsActive)
+                var data = await _context
+                    .ExamTypes.Where(x => x.schoolId == schoolId && x.IsActive)
                     .OrderBy(x => x.Name)
                     .ToListAsync();
 
-                return new ApiResponse<List<ExamTypes>>
-                {
-                    Success = true,
-                    Data = data
-                };
+                return new ApiResponse<List<ExamTypes>> { Success = true, Data = data };
             }
             catch (Exception ex)
             {
-                return new ApiResponse<List<ExamTypes>>
-                {
-                    Success = false,
-                    Message = ex.Message
-                };
+                return new ApiResponse<List<ExamTypes>> { Success = false, Message = ex.Message };
             }
         }
 
-        public async Task<ApiResponse<Exams>>CreateExam(CreateExamDto dto, int userId)
+        public async Task<ApiResponse<Exams>> CreateExam(CreateExamDto dto, int userId)
         {
             try
             {
@@ -294,7 +283,7 @@ namespace SchoolManagement.Repository
                     return new ApiResponse<Exams>
                     {
                         Success = false,
-                        Message = "Exam end date must be the same as or later than the start date."
+                        Message = "Exam end date must be the same as or later than the start date.",
                     };
                 }
 
@@ -310,7 +299,7 @@ namespace SchoolManagement.Repository
                     ResultPublished = false,
                     CreatedDate = DateTime.Now,
                     CreatedBy = userId,
-                    IsActive = true
+                    IsActive = true,
                 };
 
                 _context.Exams.Add(exam);
@@ -321,27 +310,22 @@ namespace SchoolManagement.Repository
                 {
                     Success = true,
                     Message = "Exam Created Successfully",
-                    Data = exam
+                    Data = exam,
                 };
             }
             catch (Exception ex)
             {
-                return new ApiResponse<Exams>
-                {
-                    Success = false,
-                    Message = ex.Message
-                };
+                return new ApiResponse<Exams> { Success = false, Message = ex.Message };
             }
         }
 
-        public async Task<ApiResponse<List<Exams>>>GetExams(int schoolId)
+        public async Task<ApiResponse<List<Exams>>> GetExams(int schoolId)
         {
             try
             {
                 var exams = await (
                     from e in _context.Exams
-                    join et in _context.ExamTypes
-                        on e.ExamTypeId equals et.Id
+                    join et in _context.ExamTypes on e.ExamTypeId equals et.Id
                     where e.SchoolId == schoolId
                     select new Exams
                     {
@@ -354,30 +338,24 @@ namespace SchoolManagement.Repository
                         IsPublished = e.IsPublished,
                         ResultPublished = e.ResultPublished,
                         CreatedDate = e.CreatedDate,
-                        IsActive = e.IsActive
-                    })
-                    .ToListAsync();
+                        IsActive = e.IsActive,
+                    }
+                ).ToListAsync();
 
-                return new ApiResponse<List<Exams>>
-                {
-                    Success = true,
-                    Data = exams
-                };
+                return new ApiResponse<List<Exams>> { Success = true, Data = exams };
             }
             catch (Exception ex)
             {
-                return new ApiResponse<List<Exams>>
-                {
-                    Success = false,
-                    Message = ex.Message
-                };
+                return new ApiResponse<List<Exams>> { Success = false, Message = ex.Message };
             }
         }
 
         public async Task<List<ClassDetailDto>> GetTeacherUnitTestClasses(int userId)
         {
-            var staff = await _context.Staff
-                .Where(s => EF.Property<int?>(s, nameof(Staff.usersid)) == userId && s.IsActive)
+            var staff = await _context
+                .Staff.Where(s =>
+                    EF.Property<int?>(s, nameof(Staff.usersid)) == userId && s.IsActive
+                )
                 .Select(s => new { s.Id, SchoolId = EF.Property<int?>(s, nameof(Staff.SchoolId)) })
                 .FirstOrDefaultAsync();
             if (staff == null || !staff.SchoolId.HasValue)
@@ -388,16 +366,40 @@ namespace SchoolManagement.Repository
                 join section in _context.SectionDetails on mapping.SectionId equals section.Id
                 join schoolClass in _context.Classes on section.ClassId equals schoolClass.Id
                 join subject in _context.Subjects on mapping.SubjectId equals subject.Id
-                where mapping.StaffId == staff.Id && mapping.SchoolId == staff.SchoolId.Value && mapping.IsActive
-                    && section.SchoolId == staff.SchoolId.Value && section.IsActive
-                    && schoolClass.SchoolId == staff.SchoolId.Value && schoolClass.IsActive && subject.IsActive
-                    && _context.SectionSubjects.Any(link => link.SectionId == section.Id
-                        && link.SubjectId == subject.Id && link.SchoolId == staff.SchoolId.Value && link.IsActive)
-                    && _context.Timetables.Any(slot => slot.SectionId == section.Id
-                        && slot.SubjectId == subject.Id && slot.SchoolId == staff.SchoolId.Value && slot.IsActive)
-                select new { ClassId = schoolClass.Id, schoolClass.ClassName, SectionId = section.Id,
-                    section.SectionName, section.StaffId, SubjectId = subject.Id, subject.SubjectName }
-            ).Distinct().ToListAsync();
+                where
+                    mapping.StaffId == staff.Id
+                    && mapping.SchoolId == staff.SchoolId.Value
+                    && mapping.IsActive
+                    && section.SchoolId == staff.SchoolId.Value
+                    && section.IsActive
+                    && schoolClass.SchoolId == staff.SchoolId.Value
+                    && schoolClass.IsActive
+                    && subject.IsActive
+                    && _context.SectionSubjects.Any(link =>
+                        link.SectionId == section.Id
+                        && link.SubjectId == subject.Id
+                        && link.SchoolId == staff.SchoolId.Value
+                        && link.IsActive
+                    )
+                    && _context.Timetables.Any(slot =>
+                        slot.SectionId == section.Id
+                        && slot.SubjectId == subject.Id
+                        && slot.SchoolId == staff.SchoolId.Value
+                        && slot.IsActive
+                    )
+                select new
+                {
+                    ClassId = schoolClass.Id,
+                    schoolClass.ClassName,
+                    SectionId = section.Id,
+                    section.SectionName,
+                    section.StaffId,
+                    SubjectId = subject.Id,
+                    subject.SubjectName,
+                }
+            )
+                .Distinct()
+                .ToListAsync();
 
             return rows.GroupBy(row => new { row.ClassId, row.ClassName })
                 .OrderBy(group => group.Key.ClassName)
@@ -408,26 +410,38 @@ namespace SchoolManagement.Repository
                     SchoolId = staff.SchoolId.Value,
                     IsActive = true,
                     SectionCount = group.Select(row => row.SectionId).Distinct().Count(),
-                    Sections = group.GroupBy(row => new { row.SectionId, row.SectionName, row.StaffId })
+                    Sections = group
+                        .GroupBy(row => new
+                        {
+                            row.SectionId,
+                            row.SectionName,
+                            row.StaffId,
+                        })
                         .OrderBy(section => section.Key.SectionName)
                         .Select(section => new GetSectionDto
                         {
                             Id = section.Key.SectionId,
                             SectionName = section.Key.SectionName,
                             StaffId = section.Key.StaffId,
-                            Subjects = section.OrderBy(row => row.SubjectName)
+                            Subjects = section
+                                .OrderBy(row => row.SubjectName)
                                 .Select(row => new SectionSubjectDto
                                 {
                                     SubjectId = row.SubjectId,
                                     SubjectName = row.SubjectName,
-                                    TeacherId = staff.Id
-                                }).ToList()
-                        }).ToList()
-                }).ToList();
+                                    TeacherId = staff.Id,
+                                })
+                                .ToList(),
+                        })
+                        .ToList(),
+                })
+                .ToList();
         }
+
         public async Task<List<TeacherUnitTestListDto>> GetTeacherUnitTests(int userId)
         {
-            var staff = await _context.Staff.AsNoTracking()
+            var staff = await _context
+                .Staff.AsNoTracking()
                 .Where(s => EF.Property<int?>(s, nameof(Staff.usersid)) == userId && s.IsActive)
                 .Select(s => new { s.Id, SchoolId = EF.Property<int?>(s, nameof(Staff.SchoolId)) })
                 .FirstOrDefaultAsync();
@@ -441,76 +455,149 @@ namespace SchoolManagement.Repository
                 join schoolClass in _context.Classes on item.ClassId equals schoolClass.Id
                 join section in _context.SectionDetails on item.SectionId equals (int?)section.Id
                 join subject in _context.Subjects on item.SubjectId equals subject.Id
-                where exam.CreatedBy == userId && exam.SchoolId == staff.SchoolId.Value && exam.IsActive
-                    && type.schoolId == staff.SchoolId.Value && type.Name.ToLower() == "unit test"
-                    && item.SchoolId == staff.SchoolId.Value && item.IsActive
+                where
+                    exam.CreatedBy == userId
+                    && exam.SchoolId == staff.SchoolId.Value
+                    && exam.IsActive
+                    && type.schoolId == staff.SchoolId.Value
+                    && type.Name.ToLower() == "unit test"
+                    && item.SchoolId == staff.SchoolId.Value
+                    && item.IsActive
                 orderby exam.CreatedDate descending
                 select new TeacherUnitTestListDto
                 {
-                    Id = exam.Id, Name = exam.Name, ClassId = schoolClass.Id,
-                    ClassName = schoolClass.ClassName, SectionId = section.Id,
-                    SectionName = section.SectionName, SubjectId = subject.Id,
-                    SubjectName = subject.SubjectName, TestDate = exam.StartDate ?? DateTime.MinValue,
-                    MaxMarks = item.MaxMarks, PassingMarks = item.PassingMarks,
-                    CanEdit = !exam.ResultPublished && !_context.ExamMarks.Any(mark => mark.ExamId == exam.Id)
+                    Id = exam.Id,
+                    Name = exam.Name,
+                    ClassId = schoolClass.Id,
+                    ClassName = schoolClass.ClassName,
+                    SectionId = section.Id,
+                    SectionName = section.SectionName,
+                    SubjectId = subject.Id,
+                    SubjectName = subject.SubjectName,
+                    TestDate = exam.StartDate ?? DateTime.MinValue,
+                    MaxMarks = item.MaxMarks,
+                    PassingMarks = item.PassingMarks,
+                    CanEdit =
+                        !exam.ResultPublished
+                        && !_context.ExamMarks.Any(mark => mark.ExamId == exam.Id)
                         && !_context.ExamResults.Any(result => result.ExamId == exam.Id)
-                        && !_context.ExamSchedules.Any(schedule => schedule.ExamId == exam.Id)
+                        && !_context.ExamSchedules.Any(schedule => schedule.ExamId == exam.Id),
                 }
             ).ToListAsync();
         }
 
-        public async Task<ApiResponse<Exams>> UpdateTeacherUnitTest(int examId, CreateTeacherUnitTestDto dto, int userId)
+        public async Task<ApiResponse<Exams>> UpdateTeacherUnitTest(
+            int examId,
+            CreateTeacherUnitTestDto dto,
+            int userId
+        )
         {
             if (string.IsNullOrWhiteSpace(dto.Name))
-                return new ApiResponse<Exams> { Success = false, Message = "Unit test name is required" };
+                return new ApiResponse<Exams>
+                {
+                    Success = false,
+                    Message = "Unit test name is required",
+                };
             if (dto.MaxMarks <= 0 || dto.PassingMarks < 0 || dto.PassingMarks >= dto.MaxMarks)
-                return new ApiResponse<Exams> { Success = false, Message = "Passing marks must be less than total marks" };
+                return new ApiResponse<Exams>
+                {
+                    Success = false,
+                    Message = "Passing marks must be less than total marks",
+                };
 
-            var staff = await _context.Staff
-                .Where(s => EF.Property<int?>(s, nameof(Staff.usersid)) == userId && s.IsActive)
+            var staff = await _context
+                .Staff.Where(s =>
+                    EF.Property<int?>(s, nameof(Staff.usersid)) == userId && s.IsActive
+                )
                 .Select(s => new { s.Id, SchoolId = EF.Property<int?>(s, nameof(Staff.SchoolId)) })
                 .FirstOrDefaultAsync();
             if (staff == null || !staff.SchoolId.HasValue)
-                return new ApiResponse<Exams> { Success = false, Message = "Teacher profile or school not found" };
+                return new ApiResponse<Exams>
+                {
+                    Success = false,
+                    Message = "Teacher profile or school not found",
+                };
 
             var exam = await (
                 from record in _context.Exams
                 join type in _context.ExamTypes on record.ExamTypeId equals type.Id
-                where record.Id == examId && record.CreatedBy == userId
-                    && record.SchoolId == staff.SchoolId.Value && record.IsActive
-                    && type.schoolId == staff.SchoolId.Value && type.Name.ToLower() == "unit test"
+                where
+                    record.Id == examId
+                    && record.CreatedBy == userId
+                    && record.SchoolId == staff.SchoolId.Value
+                    && record.IsActive
+                    && type.schoolId == staff.SchoolId.Value
+                    && type.Name.ToLower() == "unit test"
                 select record
             ).FirstOrDefaultAsync();
             if (exam == null)
-                return new ApiResponse<Exams> { Success = false, Message = "Unit test not found or not owned by this teacher" };
+                return new ApiResponse<Exams>
+                {
+                    Success = false,
+                    Message = "Unit test not found or not owned by this teacher",
+                };
 
             var item = await _context.ExamSubjects.FirstOrDefaultAsync(subject =>
-                subject.ExamId == examId && subject.SchoolId == staff.SchoolId.Value && subject.IsActive);
+                subject.ExamId == examId
+                && subject.SchoolId == staff.SchoolId.Value
+                && subject.IsActive
+            );
             if (item == null)
-                return new ApiResponse<Exams> { Success = false, Message = "Unit test subject not found" };
-            if (exam.ResultPublished || await _context.ExamMarks.AnyAsync(mark => mark.ExamId == examId)
+                return new ApiResponse<Exams>
+                {
+                    Success = false,
+                    Message = "Unit test subject not found",
+                };
+            if (
+                exam.ResultPublished
+                || await _context.ExamMarks.AnyAsync(mark => mark.ExamId == examId)
                 || await _context.ExamResults.AnyAsync(result => result.ExamId == examId)
-                || await _context.ExamSchedules.AnyAsync(schedule => schedule.ExamId == examId))
-                return new ApiResponse<Exams> { Success = false, Message = "This test already has marks, results or a schedule and cannot be edited" };
+                || await _context.ExamSchedules.AnyAsync(schedule => schedule.ExamId == examId)
+            )
+                return new ApiResponse<Exams>
+                {
+                    Success = false,
+                    Message =
+                        "This test already has marks, results or a schedule and cannot be edited",
+                };
 
             var allowed = await (
                 from mapping in _context.SectionSubjectTeachers
                 join section in _context.SectionDetails on mapping.SectionId equals section.Id
                 join schoolClass in _context.Classes on section.ClassId equals schoolClass.Id
                 join subject in _context.Subjects on mapping.SubjectId equals subject.Id
-                where mapping.StaffId == staff.Id && mapping.SchoolId == staff.SchoolId.Value && mapping.IsActive
-                    && section.Id == dto.SectionId && section.ClassId == dto.ClassId
-                    && section.SchoolId == staff.SchoolId.Value && section.IsActive
-                    && schoolClass.SchoolId == staff.SchoolId.Value && schoolClass.IsActive
-                    && subject.Id == dto.SubjectId && subject.IsActive
-                    && _context.SectionSubjects.Any(link => link.SectionId == section.Id
-                        && link.SubjectId == subject.Id && link.SchoolId == staff.SchoolId.Value && link.IsActive)
-                    && _context.Timetables.Any(slot => slot.SectionId == section.Id
-                        && slot.SubjectId == subject.Id && slot.SchoolId == staff.SchoolId.Value && slot.IsActive)
+                where
+                    mapping.StaffId == staff.Id
+                    && mapping.SchoolId == staff.SchoolId.Value
+                    && mapping.IsActive
+                    && section.Id == dto.SectionId
+                    && section.ClassId == dto.ClassId
+                    && section.SchoolId == staff.SchoolId.Value
+                    && section.IsActive
+                    && schoolClass.SchoolId == staff.SchoolId.Value
+                    && schoolClass.IsActive
+                    && subject.Id == dto.SubjectId
+                    && subject.IsActive
+                    && _context.SectionSubjects.Any(link =>
+                        link.SectionId == section.Id
+                        && link.SubjectId == subject.Id
+                        && link.SchoolId == staff.SchoolId.Value
+                        && link.IsActive
+                    )
+                    && _context.Timetables.Any(slot =>
+                        slot.SectionId == section.Id
+                        && slot.SubjectId == subject.Id
+                        && slot.SchoolId == staff.SchoolId.Value
+                        && slot.IsActive
+                    )
                 select mapping.Id
             ).AnyAsync();
             if (!allowed)
-                return new ApiResponse<Exams> { Success = false, Message = "Choose a subject you teach in that section's timetable" };
+                return new ApiResponse<Exams>
+                {
+                    Success = false,
+                    Message = "Choose a subject you teach in that section's timetable",
+                };
 
             exam.Name = dto.Name.Trim();
             exam.StartDate = dto.TestDate.Date;
@@ -521,89 +608,157 @@ namespace SchoolManagement.Repository
             item.MaxMarks = dto.MaxMarks;
             item.PassingMarks = dto.PassingMarks;
             await _context.SaveChangesAsync();
-            return new ApiResponse<Exams> { Success = true, Message = "Unit test updated successfully", Data = exam };
+            return new ApiResponse<Exams>
+            {
+                Success = true,
+                Message = "Unit test updated successfully",
+                Data = exam,
+            };
         }
-        public async Task<ApiResponse<Exams>> CreateTeacherUnitTest(CreateTeacherUnitTestDto dto, int userId)
+
+        public async Task<ApiResponse<Exams>> CreateTeacherUnitTest(
+            CreateTeacherUnitTestDto dto,
+            int userId
+        )
         {
             if (string.IsNullOrWhiteSpace(dto.Name))
-                return new ApiResponse<Exams> { Success = false, Message = "Unit test name is required" };
+                return new ApiResponse<Exams>
+                {
+                    Success = false,
+                    Message = "Unit test name is required",
+                };
             if (dto.MaxMarks <= 0 || dto.PassingMarks < 0 || dto.PassingMarks >= dto.MaxMarks)
-                return new ApiResponse<Exams> { Success = false, Message = "Passing marks must be less than total marks" };
+                return new ApiResponse<Exams>
+                {
+                    Success = false,
+                    Message = "Passing marks must be less than total marks",
+                };
 
-            var staff = await _context.Staff
-                .Where(s => EF.Property<int?>(s, nameof(Staff.usersid)) == userId)
+            var staff = await _context
+                .Staff.Where(s => EF.Property<int?>(s, nameof(Staff.usersid)) == userId)
                 .Select(s => new { s.Id, SchoolId = EF.Property<int?>(s, nameof(Staff.SchoolId)) })
                 .FirstOrDefaultAsync();
             if (staff == null || !staff.SchoolId.HasValue)
-                return new ApiResponse<Exams> { Success = false, Message = "Teacher profile or school not found" };
+                return new ApiResponse<Exams>
+                {
+                    Success = false,
+                    Message = "Teacher profile or school not found",
+                };
 
             var allowed = await (
                 from mapping in _context.SectionSubjectTeachers
                 join section in _context.SectionDetails on mapping.SectionId equals section.Id
                 join schoolClass in _context.Classes on section.ClassId equals schoolClass.Id
                 join subject in _context.Subjects on mapping.SubjectId equals subject.Id
-                where mapping.StaffId == staff.Id && mapping.SchoolId == staff.SchoolId.Value && mapping.IsActive
-                    && section.Id == dto.SectionId && section.ClassId == dto.ClassId
-                    && section.SchoolId == staff.SchoolId.Value && section.IsActive
-                    && schoolClass.SchoolId == staff.SchoolId.Value && schoolClass.IsActive
-                    && subject.Id == dto.SubjectId && subject.IsActive
-                    && _context.SectionSubjects.Any(link => link.SectionId == section.Id
-                        && link.SubjectId == subject.Id && link.SchoolId == staff.SchoolId.Value && link.IsActive)
-                    && _context.Timetables.Any(slot => slot.SectionId == section.Id
-                        && slot.SubjectId == subject.Id && slot.SchoolId == staff.SchoolId.Value && slot.IsActive)
+                where
+                    mapping.StaffId == staff.Id
+                    && mapping.SchoolId == staff.SchoolId.Value
+                    && mapping.IsActive
+                    && section.Id == dto.SectionId
+                    && section.ClassId == dto.ClassId
+                    && section.SchoolId == staff.SchoolId.Value
+                    && section.IsActive
+                    && schoolClass.SchoolId == staff.SchoolId.Value
+                    && schoolClass.IsActive
+                    && subject.Id == dto.SubjectId
+                    && subject.IsActive
+                    && _context.SectionSubjects.Any(link =>
+                        link.SectionId == section.Id
+                        && link.SubjectId == subject.Id
+                        && link.SchoolId == staff.SchoolId.Value
+                        && link.IsActive
+                    )
+                    && _context.Timetables.Any(slot =>
+                        slot.SectionId == section.Id
+                        && slot.SubjectId == subject.Id
+                        && slot.SchoolId == staff.SchoolId.Value
+                        && slot.IsActive
+                    )
                 select mapping.Id
             ).AnyAsync();
             if (!allowed)
-                return new ApiResponse<Exams> { Success = false, Message = "You can create a unit test only for a subject you teach in that section's timetable" };
+                return new ApiResponse<Exams>
+                {
+                    Success = false,
+                    Message =
+                        "You can create a unit test only for a subject you teach in that section's timetable",
+                };
             var unitTestType = await _context.ExamTypes.FirstOrDefaultAsync(x =>
-                x.schoolId == staff.SchoolId.Value && x.IsActive && x.Name.ToLower() == "unit test");
+                x.schoolId == staff.SchoolId.Value && x.IsActive && x.Name.ToLower() == "unit test"
+            );
             if (unitTestType == null)
             {
-                unitTestType = new ExamTypes { Name = "Unit Test", schoolId = staff.SchoolId.Value, IsActive = true };
+                unitTestType = new ExamTypes
+                {
+                    Name = "Unit Test",
+                    schoolId = staff.SchoolId.Value,
+                    IsActive = true,
+                };
                 _context.ExamTypes.Add(unitTestType);
                 await _context.SaveChangesAsync();
             }
 
-            var session = await _context.AcademicSessions
-                .Where(x => x.SchoolId == staff.SchoolId.Value && x.IsActive)
-                .OrderByDescending(x => x.Year_Start).FirstOrDefaultAsync();
+            var session = await _context
+                .AcademicSessions.Where(x => x.SchoolId == staff.SchoolId.Value && x.IsActive)
+                .OrderByDescending(x => x.Year_Start)
+                .FirstOrDefaultAsync();
             if (session == null)
-                return new ApiResponse<Exams> { Success = false, Message = "No active academic session found" };
+                return new ApiResponse<Exams>
+                {
+                    Success = false,
+                    Message = "No active academic session found",
+                };
 
             await using var transaction = await _context.Database.BeginTransactionAsync();
             var exam = new Exams
             {
-                Name = dto.Name.Trim(), ExamTypeId = unitTestType.Id, SchoolId = staff.SchoolId.Value,
-                AcademicSessionId = session.Id, StartDate = dto.TestDate.Date, EndDate = dto.TestDate.Date,
-                IsPublished = true, ResultPublished = false, CreatedDate = DateTime.Now, CreatedBy = userId, IsActive = true
+                Name = dto.Name.Trim(),
+                ExamTypeId = unitTestType.Id,
+                SchoolId = staff.SchoolId.Value,
+                AcademicSessionId = session.Id,
+                StartDate = dto.TestDate.Date,
+                EndDate = dto.TestDate.Date,
+                IsPublished = true,
+                ResultPublished = false,
+                CreatedDate = DateTime.Now,
+                CreatedBy = userId,
+                IsActive = true,
             };
             _context.Exams.Add(exam);
             await _context.SaveChangesAsync();
-            _context.ExamSubjects.Add(new ExamSubjects
-            {
-                SchoolId = staff.SchoolId.Value, ExamId = exam.Id, ClassId = dto.ClassId,
-                SectionId = dto.SectionId, SubjectId = dto.SubjectId, MaxMarks = dto.MaxMarks,
-                PassingMarks = dto.PassingMarks, Created_Date = DateTime.Now, IsActive = true
-            });
+            _context.ExamSubjects.Add(
+                new ExamSubjects
+                {
+                    SchoolId = staff.SchoolId.Value,
+                    ExamId = exam.Id,
+                    ClassId = dto.ClassId,
+                    SectionId = dto.SectionId,
+                    SubjectId = dto.SubjectId,
+                    MaxMarks = dto.MaxMarks,
+                    PassingMarks = dto.PassingMarks,
+                    Created_Date = DateTime.Now,
+                    IsActive = true,
+                }
+            );
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
-            return new ApiResponse<Exams> { Success = true, Message = "Unit test created successfully", Data = exam };
+            return new ApiResponse<Exams>
+            {
+                Success = true,
+                Message = "Unit test created successfully",
+                Data = exam,
+            };
         }
 
-        public async Task<ApiResponse<Exams>>PublishExam(int examId)
+        public async Task<ApiResponse<Exams>> PublishExam(int examId)
         {
             try
             {
-                var exam = await _context.Exams
-                    .FirstOrDefaultAsync(x => x.Id == examId);
+                var exam = await _context.Exams.FirstOrDefaultAsync(x => x.Id == examId);
 
                 if (exam == null)
                 {
-                    return new ApiResponse<Exams>
-                    {
-                        Success = false,
-                        Message = "Exam not found"
-                    };
+                    return new ApiResponse<Exams> { Success = false, Message = "Exam not found" };
                 }
 
                 exam.IsPublished = true;
@@ -615,36 +770,39 @@ namespace SchoolManagement.Repository
                 {
                     Success = true,
                     Message = "Exam Published Successfully",
-                    Data = exam
+                    Data = exam,
                 };
             }
             catch (Exception ex)
             {
-                return new ApiResponse<Exams>
-                {
-                    Success = false,
-                    Message = ex.Message
-                };
+                return new ApiResponse<Exams> { Success = false, Message = ex.Message };
             }
         }
 
         private async Task SendExamPublishEmailsAsync(Exams exam)
         {
-            var classSections = await _context.ExamSubjects
-                .Where(x => x.ExamId == exam.Id && x.IsActive)
-                .Select(x => new { x.ClassId, x.SectionId, x.SubjectId })
+            var classSections = await _context
+                .ExamSubjects.Where(x => x.ExamId == exam.Id && x.IsActive)
+                .Select(x => new
+                {
+                    x.ClassId,
+                    x.SectionId,
+                    x.SubjectId,
+                })
                 .Distinct()
                 .ToListAsync();
 
             foreach (var cs in classSections)
             {
-                var subject = await _context.Subjects
-                    .FirstOrDefaultAsync(x => x.Id == cs.SubjectId);
+                var subject = await _context.Subjects.FirstOrDefaultAsync(x =>
+                    x.Id == cs.SubjectId
+                );
 
                 var students = await (
                     from se in _context.StudentEnrollment
                     join st in _context.Students on se.StudentId equals st.Id
-                    where se.ClassId == cs.ClassId
+                    where
+                        se.ClassId == cs.ClassId
                         && se.SectionId == cs.SectionId
                         && se.SchoolId == exam.SchoolId
                         && se.IsActive
@@ -656,20 +814,19 @@ namespace SchoolManagement.Repository
                 {
                     try
                     {
-                        var (emailSubject, body) = await _emailService.GetEmailTemplateAsync("ExamPublished",
+                        var (emailSubject, body) = await _emailService.GetEmailTemplateAsync(
+                            "ExamPublished",
                             new Dictionary<string, string>
                             {
-                        { "StudentName", student.StudentName },
-                        { "ExamName", exam.Name },
-                        { "SubjectName", subject?.SubjectName ?? "" },
-                        { "StartDate", exam.StartDate?.ToString("dd MMM yyyy") ?? "" },
-                        { "EndDate", exam.EndDate?.ToString("dd MMM yyyy") ?? "" }
-                            });
+                                { "StudentName", student.StudentName },
+                                { "ExamName", exam.Name },
+                                { "SubjectName", subject?.SubjectName ?? "" },
+                                { "StartDate", exam.StartDate?.ToString("dd MMM yyyy") ?? "" },
+                                { "EndDate", exam.EndDate?.ToString("dd MMM yyyy") ?? "" },
+                            }
+                        );
 
-                        await _emailService.SendEmailAsync(
-                            student.Email,
-                            emailSubject,
-                            body);
+                        await _emailService.SendEmailAsync(student.Email, emailSubject, body);
                     }
                     catch
                     {
@@ -679,29 +836,40 @@ namespace SchoolManagement.Repository
             }
         }
 
-        public async Task<ApiResponse<ExamSubjects>>AddExamSubject(AddExamSubjectDto dto, int userId)
+        public async Task<ApiResponse<ExamSubjects>> AddExamSubject(
+            AddExamSubjectDto dto,
+            int userId
+        )
         {
             try
             {
                 if (dto.MaxMarks <= 0)
-                    return new ApiResponse<ExamSubjects> { Success = false, Message = "Total marks must be greater than zero." };
+                    return new ApiResponse<ExamSubjects>
+                    {
+                        Success = false,
+                        Message = "Total marks must be greater than zero.",
+                    };
 
                 if (dto.PassingMarks < 0 || dto.PassingMarks >= dto.MaxMarks)
-                    return new ApiResponse<ExamSubjects> { Success = false, Message = "Passing marks must be less than total marks." };
+                    return new ApiResponse<ExamSubjects>
+                    {
+                        Success = false,
+                        Message = "Passing marks must be less than total marks.",
+                    };
 
-                var exists = await _context.ExamSubjects
-                    .AnyAsync(x =>
-                        x.ExamId == dto.ExamId &&
-                        x.SubjectId == dto.SubjectId &&
-                        x.ClassId == dto.ClassId &&
-                        x.SectionId == dto.SectionId);
+                var exists = await _context.ExamSubjects.AnyAsync(x =>
+                    x.ExamId == dto.ExamId
+                    && x.SubjectId == dto.SubjectId
+                    && x.ClassId == dto.ClassId
+                    && x.SectionId == dto.SectionId
+                );
 
                 if (exists)
                 {
                     return new ApiResponse<ExamSubjects>
                     {
                         Success = false,
-                        Message = "Subject already added"
+                        Message = "Subject already added",
                     };
                 }
 
@@ -715,7 +883,7 @@ namespace SchoolManagement.Repository
                     MaxMarks = dto.MaxMarks,
                     PassingMarks = dto.PassingMarks,
                     Created_Date = DateTime.Now,
-                    IsActive = true
+                    IsActive = true,
                 };
 
                 _context.ExamSubjects.Add(entity);
@@ -726,71 +894,64 @@ namespace SchoolManagement.Repository
                 {
                     Success = true,
                     Message = "Subject Added",
-                    Data = entity
+                    Data = entity,
                 };
             }
             catch (Exception ex)
             {
-                return new ApiResponse<ExamSubjects>
-                {
-                    Success = false,
-                    Message = ex.Message
-                };
+                return new ApiResponse<ExamSubjects> { Success = false, Message = ex.Message };
             }
         }
 
-        public async Task<ApiResponse<List<ExamSubjectResponseDto>>>GetExamSubjects(int examId)
+        public async Task<ApiResponse<List<ExamSubjectResponseDto>>> GetExamSubjects(int examId)
         {
             try
             {
                 var data = await (
-from es in _context.ExamSubjects
+                    from es in _context.ExamSubjects
 
-join s in _context.Subjects
-    on es.SubjectId equals s.Id
+                    join s in _context.Subjects on es.SubjectId equals s.Id
 
-join c in _context.Classes
-    on es.ClassId equals c.Id
+                    join c in _context.Classes on es.ClassId equals c.Id
 
-join sec in _context.SectionDetails
-    on es.SectionId equals sec.Id into secJoin
-from sec in secJoin.DefaultIfEmpty()
+                    join sec in _context.SectionDetails on es.SectionId equals sec.Id into secJoin
+                    from sec in secJoin.DefaultIfEmpty()
+                    from sch in _context
+                        .ExamSchedules.Where(x =>
+                            x.ExamId == es.ExamId
+                            && x.ClassId == es.ClassId
+                            && x.SubjectId == es.SubjectId
+                            && x.SectionId == es.SectionId
+                        )
+                        .DefaultIfEmpty()
 
-from sch in _context.ExamSchedules
-    .Where(x =>
-        x.ExamId == es.ExamId &&
-        x.ClassId == es.ClassId &&
-        x.SubjectId == es.SubjectId &&
-        x.SectionId == es.SectionId)
-    .DefaultIfEmpty()
+                    where es.ExamId == examId
 
-where es.ExamId == examId
+                    select new ExamSubjectResponseDto
+                    {
+                        Id = es.Id,
+                        SubjectId = es.SubjectId,
+                        SubjectName = s.SubjectName,
 
-select new ExamSubjectResponseDto
-{
-    Id = es.Id,
-    SubjectId = es.SubjectId,
-    SubjectName = s.SubjectName,
+                        ClassId = c.Id,
+                        ClassName = c.ClassName,
 
-    ClassId = c.Id,
-    ClassName = c.ClassName,
+                        SectionId = sec != null ? sec.Id : (int?)null,
+                        SectionName = sec != null ? sec.SectionName : null,
 
-    SectionId = sec != null ? sec.Id : (int?)null,
-    SectionName = sec != null ? sec.SectionName : null,
+                        MaxMarks = es.MaxMarks,
+                        PassingMarks = es.PassingMarks,
 
-    MaxMarks = es.MaxMarks,
-    PassingMarks = es.PassingMarks,
-
-    ExamDate = sch != null ? sch.ExamDate : null,
-    StartTime = sch != null ? sch.StartTime : null,
-    EndTime = sch != null ? sch.EndTime : null
-}
+                        ExamDate = sch != null ? sch.ExamDate : null,
+                        StartTime = sch != null ? sch.StartTime : null,
+                        EndTime = sch != null ? sch.EndTime : null,
+                    }
                 ).ToListAsync();
 
                 return new ApiResponse<List<ExamSubjectResponseDto>>
                 {
                     Success = true,
-                    Data = data
+                    Data = data,
                 };
             }
             catch (Exception ex)
@@ -798,27 +959,27 @@ select new ExamSubjectResponseDto
                 return new ApiResponse<List<ExamSubjectResponseDto>>
                 {
                     Success = false,
-                    Message = ex.Message
+                    Message = ex.Message,
                 };
             }
         }
-        public async Task<ApiResponse<ExamSchedules>>CreateExamSchedule(CreateExamScheduleDto dto)
+
+        public async Task<ApiResponse<ExamSchedules>> CreateExamSchedule(CreateExamScheduleDto dto)
         {
             try
             {
-                var exam = await _context.Exams
-                    .AsNoTracking()
+                var exam = await _context
+                    .Exams.AsNoTracking()
                     .FirstOrDefaultAsync(x =>
-                        x.Id == dto.ExamId &&
-                        x.SchoolId == dto.SchoolId &&
-                        x.IsActive);
+                        x.Id == dto.ExamId && x.SchoolId == dto.SchoolId && x.IsActive
+                    );
 
                 if (exam == null)
                 {
                     return new ApiResponse<ExamSchedules>
                     {
                         Success = false,
-                        Message = "Exam not found for the selected school."
+                        Message = "Exam not found for the selected school.",
                     };
                 }
 
@@ -827,7 +988,7 @@ select new ExamSubjectResponseDto
                     return new ApiResponse<ExamSchedules>
                     {
                         Success = false,
-                        Message = "The selected exam does not have a valid duration."
+                        Message = "The selected exam does not have a valid duration.",
                     };
                 }
 
@@ -837,7 +998,8 @@ select new ExamSubjectResponseDto
                     return new ApiResponse<ExamSchedules>
                     {
                         Success = false,
-                        Message = $"Exam date must be between {exam.StartDate.Value:dd MMM yyyy} and {exam.EndDate.Value:dd MMM yyyy}."
+                        Message =
+                            $"Exam date must be between {exam.StartDate.Value:dd MMM yyyy} and {exam.EndDate.Value:dd MMM yyyy}.",
                     };
                 }
 
@@ -846,47 +1008,50 @@ select new ExamSubjectResponseDto
                     return new ApiResponse<ExamSchedules>
                     {
                         Success = false,
-                        Message = "Exam end time must be later than the start time."
+                        Message = "Exam end time must be later than the start time.",
                     };
                 }
 
-                var existingSchedule = await _context.ExamSchedules
-                    .FirstOrDefaultAsync(x =>
-                        x.IsActive &&
-                        x.ExamId == dto.ExamId &&
-                        x.SchoolId == dto.SchoolId &&
-                        x.ClassId == dto.ClassId &&
-                        x.SectionId == dto.SectionId &&
-                        x.SubjectId == dto.SubjectId);
+                var existingSchedule = await _context.ExamSchedules.FirstOrDefaultAsync(x =>
+                    x.IsActive
+                    && x.ExamId == dto.ExamId
+                    && x.SchoolId == dto.SchoolId
+                    && x.ClassId == dto.ClassId
+                    && x.SectionId == dto.SectionId
+                    && x.SubjectId == dto.SubjectId
+                );
 
-                var conflict = await _context.ExamSchedules
-                    .AnyAsync(x =>
-                        x.IsActive &&
-                        (existingSchedule == null || x.Id != existingSchedule.Id) &&
-                        x.SchoolId == dto.SchoolId &&
-                        x.ClassId == dto.ClassId &&
-                        x.SectionId == dto.SectionId &&
-                        x.ExamDate.Date == examDate);
+                var conflict = await _context.ExamSchedules.AnyAsync(x =>
+                    x.IsActive
+                    && (existingSchedule == null || x.Id != existingSchedule.Id)
+                    && x.SchoolId == dto.SchoolId
+                    && x.ClassId == dto.ClassId
+                    && x.SectionId == dto.SectionId
+                    && x.ExamDate.Date == examDate
+                );
 
                 if (conflict)
                 {
                     return new ApiResponse<ExamSchedules>
                     {
                         Success = false,
-                        Message = "Another subject is already scheduled for this class and section on the selected date."
+                        Message =
+                            "Another subject is already scheduled for this class and section on the selected date.",
                     };
                 }
 
-                var schedule = existingSchedule ?? new ExamSchedules
-                {
-                    ExamId = dto.ExamId,
-                    SchoolId = dto.SchoolId,
-                    ClassId = dto.ClassId,
-                    SectionId = dto.SectionId,
-                    SubjectId = dto.SubjectId,
-                    Status = "Scheduled",
-                    IsActive = true
-                };
+                var schedule =
+                    existingSchedule
+                    ?? new ExamSchedules
+                    {
+                        ExamId = dto.ExamId,
+                        SchoolId = dto.SchoolId,
+                        ClassId = dto.ClassId,
+                        SectionId = dto.SectionId,
+                        SubjectId = dto.SubjectId,
+                        Status = "Scheduled",
+                        IsActive = true,
+                    };
 
                 schedule.ExamDate = examDate;
                 schedule.StartTime = dto.StartTime;
@@ -902,23 +1067,20 @@ select new ExamSubjectResponseDto
                 return new ApiResponse<ExamSchedules>
                 {
                     Success = true,
-                    Message = existingSchedule == null
-                        ? "Schedule created successfully."
-                        : "Schedule updated successfully.",
-                    Data = schedule
+                    Message =
+                        existingSchedule == null
+                            ? "Schedule created successfully."
+                            : "Schedule updated successfully.",
+                    Data = schedule,
                 };
             }
             catch (Exception ex)
             {
-                return new ApiResponse<ExamSchedules>
-                {
-                    Success = false,
-                    Message = ex.Message
-                };
+                return new ApiResponse<ExamSchedules> { Success = false, Message = ex.Message };
             }
         }
 
-        public async Task<ApiResponse<ExamInvigilators>>AssignInvigilator(AssignInvigilatorDto dto)
+        public async Task<ApiResponse<ExamInvigilators>> AssignInvigilator(AssignInvigilatorDto dto)
         {
             try
             {
@@ -926,7 +1088,7 @@ select new ExamSubjectResponseDto
                 {
                     ExamScheduleId = dto.ExamScheduleId,
                     StaffId = dto.StaffId,
-                    DutyType = dto.DutyType
+                    DutyType = dto.DutyType,
                 };
 
                 _context.ExamInvigilators.Add(entity);
@@ -937,69 +1099,85 @@ select new ExamSubjectResponseDto
                 {
                     Success = true,
                     Message = "Invigilator Assigned",
-                    Data = entity
+                    Data = entity,
                 };
             }
             catch (Exception ex)
             {
-                return new ApiResponse<ExamInvigilators>
-                {
-                    Success = false,
-                    Message = ex.Message
-                };
+                return new ApiResponse<ExamInvigilators> { Success = false, Message = ex.Message };
             }
         }
-        public async Task<ApiResponse<List<MarksEntrySheetDto>>>GetMarksEntrySheet(int schoolId, int examId, int sectionId, int subjectId, int userId)
-        {
-         
 
-            var teacherId = await _context.Staff
-                .Where(x => x.usersid == userId)
+        public async Task<ApiResponse<List<MarksEntrySheetDto>>> GetMarksEntrySheet(
+            int schoolId,
+            int examId,
+            int sectionId,
+            int subjectId,
+            int userId
+        )
+        {
+            var teacherId = await _context
+                .Staff.Where(x => x.usersid == userId)
                 .Select(x => x.Id)
                 .FirstOrDefaultAsync();
             try
             {
-                var examSessionId = await _context.Exams.Where(x => x.Id == examId && x.SchoolId == schoolId).Select(x => x.AcademicSessionId).FirstOrDefaultAsync();
-                var isAllowed =
-                    await _context.SectionSubjectTeachers
-                    .AnyAsync(x =>
-                        x.StaffId == teacherId &&
-                        x.SectionId == sectionId &&
-                        x.SubjectId == subjectId &&
-                        x.SchoolId == schoolId &&
-                        x.IsActive);
+                var examSessionId = await _context
+                    .Exams.Where(x => x.Id == examId && x.SchoolId == schoolId)
+                    .Select(x => x.AcademicSessionId)
+                    .FirstOrDefaultAsync();
+                var isAllowed = await _context.SectionSubjectTeachers.AnyAsync(x =>
+                    x.StaffId == teacherId
+                    && x.SectionId == sectionId
+                    && x.SubjectId == subjectId
+                    && x.SchoolId == schoolId
+                    && x.IsActive
+                );
 
                 if (!isAllowed)
                 {
                     return new ApiResponse<List<MarksEntrySheetDto>>
                     {
                         Success = false,
-                        Message = "You are not assigned to this subject"
+                        Message = "You are not assigned to this subject",
                     };
                 }
 
-                var schedule = await _context.ExamSchedules.AsNoTracking()
-                    .Where(x => x.ExamId == examId && x.SchoolId == schoolId && x.SectionId == sectionId &&
-                        x.SubjectId == subjectId && x.IsActive)
-                    .Select(x => new { x.Id, x.ExamDate }).FirstOrDefaultAsync();
-                if (schedule == null) return new ApiResponse<List<MarksEntrySheetDto>>
-                    { Success = false, Message = "Exam schedule not found for this subject." };
+                var schedule = await _context
+                    .ExamSchedules.AsNoTracking()
+                    .Where(x =>
+                        x.ExamId == examId
+                        && x.SchoolId == schoolId
+                        && x.SectionId == sectionId
+                        && x.SubjectId == subjectId
+                        && x.IsActive
+                    )
+                    .Select(x => new { x.Id, x.ExamDate })
+                    .FirstOrDefaultAsync();
+                if (schedule == null)
+                    return new ApiResponse<List<MarksEntrySheetDto>>
+                    {
+                        Success = false,
+                        Message = "Exam schedule not found for this subject.",
+                    };
                 if (schedule.ExamDate.Date >= DateTime.UtcNow.AddMinutes(330).Date)
                     return new ApiResponse<List<MarksEntrySheetDto>>
-                    { Success = false, Message = "Marks entry opens the day after this subject exam." };
+                    {
+                        Success = false,
+                        Message = "Marks entry opens the day after this subject exam.",
+                    };
                 var scheduleId = schedule.Id;
 
-                var students =
-                    await (
+                var students = await (
                     from se in _context.StudentEnrollment
 
-                    join st in _context.Students
-                    on se.StudentId equals st.Id
+                    join st in _context.Students on se.StudentId equals st.Id
 
-                    where se.SectionId == sectionId
-                    && se.SchoolId == schoolId
-                    && se.SessionId == examSessionId
-                    && se.IsActive
+                    where
+                        se.SectionId == sectionId
+                        && se.SchoolId == schoolId
+                        && se.SessionId == examSessionId
+                        && se.IsActive
 
                     select new MarksEntrySheetDto
                     {
@@ -1008,29 +1186,32 @@ select new ExamSubjectResponseDto
                         StudentName = st.StudentName,
                         RollNumber = se.RollNumber ?? st.Rollnumber,
 
-                        Marks = _context.ExamMarks
-                            .Where(m =>
-                                m.EnrollmentId == se.Id &&
-                                m.ExamId == examId &&
-                                m.ExamScheduleId == scheduleId)
+                        Marks = _context
+                            .ExamMarks.Where(m =>
+                                m.EnrollmentId == se.Id
+                                && m.ExamId == examId
+                                && m.ExamScheduleId == scheduleId
+                            )
                             .Select(m => (decimal?)m.ObtainedMarks)
                             .FirstOrDefault(),
 
-                        Remarks = _context.ExamMarks
-                            .Where(m =>
-                                m.EnrollmentId == se.Id &&
-                                m.ExamId == examId &&
-                                m.ExamScheduleId == scheduleId)
+                        Remarks = _context
+                            .ExamMarks.Where(m =>
+                                m.EnrollmentId == se.Id
+                                && m.ExamId == examId
+                                && m.ExamScheduleId == scheduleId
+                            )
                             .Select(m => m.Remarks)
-                            .FirstOrDefault()
-                    })
+                            .FirstOrDefault(),
+                    }
+                )
                     .OrderBy(x => x.StudentName)
                     .ToListAsync();
 
                 return new ApiResponse<List<MarksEntrySheetDto>>
                 {
                     Success = true,
-                    Data = students
+                    Data = students,
                 };
             }
             catch (Exception ex)
@@ -1038,7 +1219,7 @@ select new ExamSubjectResponseDto
                 return new ApiResponse<List<MarksEntrySheetDto>>
                 {
                     Success = false,
-                    Message = ex.Message
+                    Message = ex.Message,
                 };
             }
         }
@@ -1048,66 +1229,82 @@ select new ExamSubjectResponseDto
             try
             {
                 // Get teacherId
-                var teacherId = await _context.Staff
-                    .Where(x => x.usersid == userId)
+                var teacherId = await _context
+                    .Staff.Where(x => x.usersid == userId)
                     .Select(x => x.Id)
                     .FirstOrDefaultAsync();
 
                 // Check permission
-                var isAllowed = await _context.SectionSubjectTeachers
-                    .AnyAsync(x =>
-                        x.StaffId == teacherId &&
-                        x.SectionId == dto.SectionId &&
-                        x.SubjectId == dto.SubjectId &&
-                        x.SchoolId == dto.SchoolId &&
-                        x.IsActive);
+                var isAllowed = await _context.SectionSubjectTeachers.AnyAsync(x =>
+                    x.StaffId == teacherId
+                    && x.SectionId == dto.SectionId
+                    && x.SubjectId == dto.SubjectId
+                    && x.SchoolId == dto.SchoolId
+                    && x.IsActive
+                );
 
                 if (!isAllowed)
                 {
+                    return new ApiResponse<string> { Success = false, Message = "Unauthorized" };
+                }
+                var schedule = await _context
+                    .ExamSchedules.AsNoTracking()
+                    .Where(x =>
+                        x.ExamId == dto.ExamId
+                        && x.SchoolId == dto.SchoolId
+                        && x.SectionId == dto.SectionId
+                        && x.SubjectId == dto.SubjectId
+                        && x.IsActive
+                        && (dto.ExamScheduleId == 0 || x.Id == dto.ExamScheduleId)
+                    )
+                    .Select(x => new { x.Id, x.ExamDate })
+                    .FirstOrDefaultAsync();
+                if (schedule == null)
                     return new ApiResponse<string>
                     {
                         Success = false,
-                        Message = "Unauthorized"
+                        Message = "Exam schedule not found for this subject.",
                     };
-                }
-                var schedule = await _context.ExamSchedules.AsNoTracking()
-                    .Where(x => x.ExamId == dto.ExamId && x.SchoolId == dto.SchoolId &&
-                        x.SectionId == dto.SectionId && x.SubjectId == dto.SubjectId && x.IsActive &&
-                        (dto.ExamScheduleId == 0 || x.Id == dto.ExamScheduleId))
-                    .Select(x => new { x.Id, x.ExamDate }).FirstOrDefaultAsync();
-                if (schedule == null)
-                    return new ApiResponse<string> { Success = false, Message = "Exam schedule not found for this subject." };
                 if (schedule.ExamDate.Date >= DateTime.UtcNow.AddMinutes(330).Date)
-                    return new ApiResponse<string> { Success = false, Message = "Marks entry opens the day after this subject exam." };
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Marks entry opens the day after this subject exam.",
+                    };
                 var scheduleId = schedule.Id;
                 // Get all existing marks for this exam + schedule + students
-                var enrollmentIds = dto.Marks.Select(m => m.EnrollmentId).Where(x => x > 0).ToList();
+                var enrollmentIds = dto
+                    .Marks.Select(m => m.EnrollmentId)
+                    .Where(x => x > 0)
+                    .ToList();
 
-                var existingMarks = await _context.ExamMarks
-                    .Where(x =>
-                        x.ExamId == dto.ExamId &&
-                        x.ExamScheduleId == scheduleId &&
-                        enrollmentIds.Contains(x.EnrollmentId))
+                var existingMarks = await _context
+                    .ExamMarks.Where(x =>
+                        x.ExamId == dto.ExamId
+                        && x.ExamScheduleId == scheduleId
+                        && enrollmentIds.Contains(x.EnrollmentId)
+                    )
                     .ToListAsync();
 
                 // Check if any are locked
-                var locked = existingMarks
-                    .FirstOrDefault(x => x.IsLocked);
+                var locked = existingMarks.FirstOrDefault(x => x.IsLocked);
 
                 if (locked != null)
                 {
                     return new ApiResponse<string>
                     {
                         Success = false,
-                        Message = $"Marks are locked for StudentId {locked.StudentId}. Update not allowed."
+                        Message =
+                            $"Marks are locked for StudentId {locked.StudentId}. Update not allowed.",
                     };
                 }
 
                 // Update existing + insert new
                 foreach (var mark in dto.Marks)
                 {
-                    var existing = existingMarks
-                        .FirstOrDefault(x => x.EnrollmentId == mark.EnrollmentId);
+                    var existing = existingMarks.FirstOrDefault(x =>
+                        x.EnrollmentId == mark.EnrollmentId
+                    );
 
                     if (existing != null)
                     {
@@ -1128,7 +1325,7 @@ select new ExamSubjectResponseDto
                             EnteredBy = teacherId,
                             EnteredDate = DateTime.UtcNow,
                             IsLocked = false,
-                            IsActive = true
+                            IsActive = true,
                         };
 
                         _context.ExamMarks.Add(entity);
@@ -1140,33 +1337,36 @@ select new ExamSubjectResponseDto
                 return new ApiResponse<string>
                 {
                     Success = true,
-                    Message = "Marks Saved Successfully"
+                    Message = "Marks Saved Successfully",
                 };
             }
             catch (Exception ex)
             {
-                return new ApiResponse<string>
-                {
-                    Success = false,
-                    Message = ex.Message
-                };
+                return new ApiResponse<string> { Success = false, Message = ex.Message };
             }
         }
 
-        public async Task<ApiResponse<string>>LockMarks(int examId, int schoolId)
+        public async Task<ApiResponse<string>> LockMarks(int examId, int schoolId)
         {
             try
             {
-                var hasUpcomingPaper = await _context.ExamSchedules.AsNoTracking()
-                    .AnyAsync(x => x.ExamId == examId && x.SchoolId == schoolId && x.IsActive &&
-                        x.ExamDate >= DateTime.UtcNow.AddMinutes(330).Date);
+                var hasUpcomingPaper = await _context
+                    .ExamSchedules.AsNoTracking()
+                    .AnyAsync(x =>
+                        x.ExamId == examId
+                        && x.SchoolId == schoolId
+                        && x.IsActive
+                        && x.ExamDate >= DateTime.UtcNow.AddMinutes(330).Date
+                    );
                 if (hasUpcomingPaper)
-                    return new ApiResponse<string> { Success = false, Message = "Marks can be locked only after every scheduled paper date has passed." };
-                var marks =
-                    await _context.ExamMarks
-                    .Where(x =>
-                        x.ExamId == examId &&
-                        x.SchoolId == schoolId)
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message =
+                            "Marks can be locked only after every scheduled paper date has passed.",
+                    };
+                var marks = await _context
+                    .ExamMarks.Where(x => x.ExamId == examId && x.SchoolId == schoolId)
                     .ToListAsync();
 
                 foreach (var item in marks)
@@ -1179,16 +1379,12 @@ select new ExamSubjectResponseDto
                 return new ApiResponse<string>
                 {
                     Success = true,
-                    Message = "Marks Locked Successfully"
+                    Message = "Marks Locked Successfully",
                 };
             }
             catch (Exception ex)
             {
-                return new ApiResponse<string>
-                {
-                    Success = false,
-                    Message = ex.Message
-                };
+                return new ApiResponse<string> { Success = false, Message = ex.Message };
             }
         }
 
@@ -1196,79 +1392,207 @@ select new ExamSubjectResponseDto
         {
             try
             {
-                var exam = await _context.Exams.AsNoTracking().FirstOrDefaultAsync(x =>
-                    x.Id == dto.ExamId && x.SchoolId == dto.SchoolId && x.IsActive);
-                if (exam == null) return new ApiResponse<string> { Success = false, Message = "Exam not found." };
+                var exam = await _context
+                    .Exams.AsNoTracking()
+                    .FirstOrDefaultAsync(x =>
+                        x.Id == dto.ExamId && x.SchoolId == dto.SchoolId && x.IsActive
+                    );
+                if (exam == null)
+                    return new ApiResponse<string> { Success = false, Message = "Exam not found." };
 
-                var schedules = await _context.ExamSchedules.AsNoTracking()
-                    .Where(x => x.ExamId == dto.ExamId && x.SchoolId == dto.SchoolId && x.IsActive && x.SubjectId.HasValue)
-                    .Select(x => new { x.Id, x.ClassId, x.SectionId, x.SubjectId }).ToListAsync();
-                if (schedules.Count == 0) return new ApiResponse<string> { Success = false, Message = "Add exam schedules before generating results." };
+                var schedules = await _context
+                    .ExamSchedules.AsNoTracking()
+                    .Where(x =>
+                        x.ExamId == dto.ExamId
+                        && x.SchoolId == dto.SchoolId
+                        && x.IsActive
+                        && x.SubjectId.HasValue
+                    )
+                    .Select(x => new
+                    {
+                        x.Id,
+                        x.ClassId,
+                        x.SectionId,
+                        x.SubjectId,
+                    })
+                    .ToListAsync();
+                if (schedules.Count == 0)
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Add exam schedules before generating results.",
+                    };
 
-                var enrollments = await _context.StudentEnrollment.AsNoTracking()
-                    .Where(x => x.SchoolId == dto.SchoolId && x.SessionId == exam.AcademicSessionId &&
-                        x.IsActive && x.EnrollmentStatus == "Active")
-                    .Select(x => new { x.Id, x.StudentId, x.ClassId, x.SectionId }).ToListAsync();
-                var eligible = enrollments.Where(x => schedules.Any(schedule =>
-                    schedule.ClassId == x.ClassId && schedule.SectionId == x.SectionId)).ToList();
-                if (eligible.Count == 0) return new ApiResponse<string> { Success = false, Message = "No active students are enrolled in scheduled classes for this exam session." };
+                var enrollments = await _context
+                    .StudentEnrollment.AsNoTracking()
+                    .Where(x =>
+                        x.SchoolId == dto.SchoolId
+                        && x.SessionId == exam.AcademicSessionId
+                        && x.IsActive
+                        && x.EnrollmentStatus == "Active"
+                    )
+                    .Select(x => new
+                    {
+                        x.Id,
+                        x.StudentId,
+                        x.ClassId,
+                        x.SectionId,
+                    })
+                    .ToListAsync();
+                var eligible = enrollments
+                    .Where(x =>
+                        schedules.Any(schedule =>
+                            schedule.ClassId == x.ClassId && schedule.SectionId == x.SectionId
+                        )
+                    )
+                    .ToList();
+                if (eligible.Count == 0)
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message =
+                            "No active students are enrolled in scheduled classes for this exam session.",
+                    };
 
-                var settings = await _context.ExamSubjects.AsNoTracking()
+                var settings = await _context
+                    .ExamSubjects.AsNoTracking()
                     .Where(x => x.ExamId == dto.ExamId && x.SchoolId == dto.SchoolId && x.IsActive)
-                    .Select(x => new { x.ClassId, x.SectionId, x.SubjectId, x.MaxMarks, x.PassingMarks }).ToListAsync();
+                    .Select(x => new
+                    {
+                        x.ClassId,
+                        x.SectionId,
+                        x.SubjectId,
+                        x.MaxMarks,
+                        x.PassingMarks,
+                    })
+                    .ToListAsync();
                 var enrollmentIds = eligible.Select(x => x.Id).ToList();
-                var marks = await _context.ExamMarks.AsNoTracking()
-                    .Where(x => x.ExamId == dto.ExamId && x.SchoolId == dto.SchoolId && x.IsActive &&
-                        enrollmentIds.Contains(x.EnrollmentId))
-                    .Select(x => new { x.EnrollmentId, x.ExamScheduleId, x.ObtainedMarks }).ToListAsync();
+                var marks = await _context
+                    .ExamMarks.AsNoTracking()
+                    .Where(x =>
+                        x.ExamId == dto.ExamId
+                        && x.SchoolId == dto.SchoolId
+                        && x.IsActive
+                        && enrollmentIds.Contains(x.EnrollmentId)
+                    )
+                    .Select(x => new
+                    {
+                        x.EnrollmentId,
+                        x.ExamScheduleId,
+                        x.ObtainedMarks,
+                    })
+                    .ToListAsync();
 
                 var missing = 0;
                 var invalid = 0;
-                var summaries = new List<(int EnrollmentId, int StudentId, decimal Total, decimal Obtained, decimal Percentage, string Grade, string Status)>();
+                var summaries =
+                    new List<(
+                        int EnrollmentId,
+                        int StudentId,
+                        decimal Total,
+                        decimal Obtained,
+                        decimal Percentage,
+                        string Grade,
+                        string Status
+                    )>();
                 foreach (var enrollment in eligible)
                 {
-                    var subjectSchedules = schedules.Where(x => x.ClassId == enrollment.ClassId && x.SectionId == enrollment.SectionId)
-                        .GroupBy(x => x.SubjectId).Select(group => group.First()).ToList();
+                    var subjectSchedules = schedules
+                        .Where(x =>
+                            x.ClassId == enrollment.ClassId && x.SectionId == enrollment.SectionId
+                        )
+                        .GroupBy(x => x.SubjectId)
+                        .Select(group => group.First())
+                        .ToList();
                     decimal total = 0;
                     decimal obtained = 0;
                     var passed = true;
                     foreach (var schedule in subjectSchedules)
                     {
-                        var setting = settings.Where(x => x.ClassId == enrollment.ClassId && x.SubjectId == schedule.SubjectId &&
-                                (x.SectionId == null || x.SectionId == enrollment.SectionId))
-                            .OrderByDescending(x => x.SectionId == enrollment.SectionId).FirstOrDefault();
-                        if (setting == null || setting.MaxMarks <= 0 || setting.PassingMarks < 0 || setting.PassingMarks > setting.MaxMarks)
+                        var setting = settings
+                            .Where(x =>
+                                x.ClassId == enrollment.ClassId
+                                && x.SubjectId == schedule.SubjectId
+                                && (x.SectionId == null || x.SectionId == enrollment.SectionId)
+                            )
+                            .OrderByDescending(x => x.SectionId == enrollment.SectionId)
+                            .FirstOrDefault();
+                        if (
+                            setting == null
+                            || setting.MaxMarks <= 0
+                            || setting.PassingMarks < 0
+                            || setting.PassingMarks > setting.MaxMarks
+                        )
                         {
                             invalid++;
                             continue;
                         }
-                        var mark = marks.FirstOrDefault(x => x.EnrollmentId == enrollment.Id && x.ExamScheduleId == schedule.Id);
-                        if (mark == null) { missing++; continue; }
-                        if (mark.ObtainedMarks < 0 || mark.ObtainedMarks > setting.MaxMarks) { invalid++; continue; }
+                        var mark = marks.FirstOrDefault(x =>
+                            x.EnrollmentId == enrollment.Id && x.ExamScheduleId == schedule.Id
+                        );
+                        if (mark == null)
+                        {
+                            missing++;
+                            continue;
+                        }
+                        if (mark.ObtainedMarks < 0 || mark.ObtainedMarks > setting.MaxMarks)
+                        {
+                            invalid++;
+                            continue;
+                        }
                         total += setting.MaxMarks;
                         obtained += mark.ObtainedMarks;
-                        if (mark.ObtainedMarks < setting.PassingMarks) passed = false;
+                        if (mark.ObtainedMarks < setting.PassingMarks)
+                            passed = false;
                     }
                     if (total > 0)
                     {
                         var percentage = Math.Round(obtained * 100 / total, 2);
-                        summaries.Add((enrollment.Id, enrollment.StudentId, total, obtained, percentage,
-                            GetGrade(percentage), passed ? "PASS" : "FAIL"));
+                        summaries.Add(
+                            (
+                                enrollment.Id,
+                                enrollment.StudentId,
+                                total,
+                                obtained,
+                                percentage,
+                                GetGrade(percentage),
+                                passed ? "PASS" : "FAIL"
+                            )
+                        );
                     }
                 }
-                if (invalid > 0) return new ApiResponse<string> { Success = false,
-                    Message = $"Check max marks and entered marks for {invalid} subject entries before generating results." };
-                if (missing > 0) return new ApiResponse<string> { Success = false,
-                    Message = $"Save marks for all scheduled subjects first. {missing} student-subject entries are missing." };
+                if (invalid > 0)
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message =
+                            $"Check max marks and entered marks for {invalid} subject entries before generating results.",
+                    };
+                if (missing > 0)
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message =
+                            $"Save marks for all scheduled subjects first. {missing} student-subject entries are missing.",
+                    };
 
                 foreach (var summary in summaries)
                 {
-                    var result = await _context.ExamResults.FirstOrDefaultAsync(x => x.SchoolId == dto.SchoolId &&
-                        x.ExamId == dto.ExamId && x.EnrollmentId == summary.EnrollmentId);
+                    var result = await _context.ExamResults.FirstOrDefaultAsync(x =>
+                        x.SchoolId == dto.SchoolId
+                        && x.ExamId == dto.ExamId
+                        && x.EnrollmentId == summary.EnrollmentId
+                    );
                     if (result == null)
                     {
-                        result = new ExamResults { SchoolId = dto.SchoolId, ExamId = dto.ExamId,
-                            StudentId = summary.StudentId, EnrollmentId = summary.EnrollmentId, Published = false };
+                        result = new ExamResults
+                        {
+                            SchoolId = dto.SchoolId,
+                            ExamId = dto.ExamId,
+                            StudentId = summary.StudentId,
+                            EnrollmentId = summary.EnrollmentId,
+                            Published = false,
+                        };
                         _context.ExamResults.Add(result);
                     }
                     result.TotalMarks = summary.Total;
@@ -1278,20 +1602,30 @@ select new ExamSubjectResponseDto
                     result.ResultStatus = summary.Status;
                 }
                 await _context.SaveChangesAsync();
-                return new ApiResponse<string> { Success = true, Message = "Results generated from complete subject marks." };
+                return new ApiResponse<string>
+                {
+                    Success = true,
+                    Message = "Results generated from complete subject marks.",
+                };
             }
             catch (Exception ex)
             {
                 return new ApiResponse<string> { Success = false, Message = ex.Message };
             }
         }
+
         private string GetGrade(decimal percentage)
         {
-            if (percentage >= 90) return "A+";
-            if (percentage >= 80) return "A";
-            if (percentage >= 70) return "B";
-            if (percentage >= 60) return "C";
-            if (percentage >= 35) return "D";
+            if (percentage >= 90)
+                return "A+";
+            if (percentage >= 80)
+                return "A";
+            if (percentage >= 70)
+                return "B";
+            if (percentage >= 60)
+                return "C";
+            if (percentage >= 35)
+                return "D";
             return "F";
         }
 
@@ -1301,8 +1635,7 @@ select new ExamSubjectResponseDto
             {
                 var results = await (
                     from r in _context.ExamResults
-                    join s in _context.Students
-                        on r.StudentId equals s.Id
+                    join s in _context.Students on r.StudentId equals s.Id
                     where r.ExamId == examId && r.SchoolId == schoolId
                     select new StudentResultDto
                     {
@@ -1313,37 +1646,33 @@ select new ExamSubjectResponseDto
                         Percentage = r.Percentage,
                         Grade = r.Grade,
                         Rank = r.RankPosition,
-                        ResultStatus = r.ResultStatus
+                        ResultStatus = r.ResultStatus,
                     }
                 ).ToListAsync();
 
-                return new ApiResponse<List<StudentResultDto>>
-                {
-                    Success = true,
-                    Data = results
-                };
+                return new ApiResponse<List<StudentResultDto>> { Success = true, Data = results };
             }
             catch (Exception ex)
             {
                 return new ApiResponse<List<StudentResultDto>>
                 {
                     Success = false,
-                    Message = ex.Message
+                    Message = ex.Message,
                 };
             }
         }
 
-        public async Task<ApiResponse<StudentResultDto>> GetStudentResult(int studentId, int examId, int schoolId)
+        public async Task<ApiResponse<StudentResultDto>> GetStudentResult(
+            int studentId,
+            int examId,
+            int schoolId
+        )
         {
             var result = await (
                 from r in _context.ExamResults
-                join s in _context.Students
-                    on r.StudentId equals s.Id
-                join e in _context.Exams
-                    on r.ExamId equals e.Id
-                where r.StudentId == studentId
-                      && r.ExamId == examId
-                      && r.SchoolId == schoolId
+                join s in _context.Students on r.StudentId equals s.Id
+                join e in _context.Exams on r.ExamId equals e.Id
+                where r.StudentId == studentId && r.ExamId == examId && r.SchoolId == schoolId
                 select new StudentResultDto
                 {
                     StudentName = s.StudentName,
@@ -1353,127 +1682,218 @@ select new ExamSubjectResponseDto
                     Percentage = r.Percentage,
                     Grade = r.Grade,
                     Rank = r.RankPosition,
-                    ResultStatus = r.ResultStatus
+                    ResultStatus = r.ResultStatus,
                 }
             ).FirstOrDefaultAsync();
 
-            return new ApiResponse<StudentResultDto>
-            {
-                Success = true,
-                Data = result
-            };
+            return new ApiResponse<StudentResultDto> { Success = true, Data = result };
         }
 
         public async Task<ApiResponse<string>> PublishResults(int examId, int schoolId)
         {
             // Recalculate and validate every scheduled subject for every enrolled student
             // before changing any publication flag.
-            var generation = await GenerateResults(new GenerateResultDto { ExamId = examId, SchoolId = schoolId });
-            if (!generation.Success) return generation;
+            var generation = await GenerateResults(
+                new GenerateResultDto { ExamId = examId, SchoolId = schoolId }
+            );
+            if (!generation.Success)
+                return generation;
 
-            var results = await _context.ExamResults
-                .Where(x => x.ExamId == examId && x.SchoolId == schoolId)
+            var results = await _context
+                .ExamResults.Where(x => x.ExamId == examId && x.SchoolId == schoolId)
                 .ToListAsync();
             if (results.Count == 0)
-                return new ApiResponse<string> { Success = false, Message = "No results were generated." };
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "No results were generated.",
+                };
 
-            var exam = await _context.Exams.FirstOrDefaultAsync(x => x.Id == examId && x.SchoolId == schoolId && x.IsActive);
+            var exam = await _context.Exams.FirstOrDefaultAsync(x =>
+                x.Id == examId && x.SchoolId == schoolId && x.IsActive
+            );
             if (exam == null)
                 return new ApiResponse<string> { Success = false, Message = "Exam not found." };
 
-            foreach (var result in results) result.Published = true;
+            foreach (var result in results)
+                result.Published = true;
             exam.ResultPublished = true;
             await _context.SaveChangesAsync();
 
-            return new ApiResponse<string> { Success = true, Message = "Results published successfully." };
+            return new ApiResponse<string>
+            {
+                Success = true,
+                Message = "Results published successfully.",
+            };
         }
-        public async Task<ApiResponse<StudentResultDetailDto>>GetStudentResultDetail(int studentId, int examId, int schoolId)
+
+        public async Task<ApiResponse<StudentResultDetailDto>> GetStudentResultDetail(
+            int studentId,
+            int examId,
+            int schoolId
+        )
         {
             try
             {
-                var student = await _context.Students
-                    .FirstOrDefaultAsync(x => x.Id == studentId);
+                var student = await _context.Students.FirstOrDefaultAsync(x => x.Id == studentId);
 
                 if (student == null)
                 {
                     return new ApiResponse<StudentResultDetailDto>
                     {
                         Success = false,
-                        Message = "Student not found"
+                        Message = "Student not found",
                     };
                 }
 
-                var result = await _context.ExamResults
-                    .FirstOrDefaultAsync(x =>
-                        x.StudentId == studentId &&
-                        x.ExamId == examId &&
-                        x.SchoolId == schoolId);
+                var result = await _context.ExamResults.FirstOrDefaultAsync(x =>
+                    x.StudentId == studentId && x.ExamId == examId && x.SchoolId == schoolId
+                );
 
                 if (result == null)
                 {
                     return new ApiResponse<StudentResultDetailDto>
                     {
                         Success = false,
-                        Message = "Result not generated"
+                        Message = "Result not generated",
                     };
                 }
 
-                var examName = await _context.Exams
-                    .Where(x => x.Id == examId)
+                var examName = await _context
+                    .Exams.Where(x => x.Id == examId)
                     .Select(x => x.Name)
                     .FirstOrDefaultAsync();
 
-                var enrollment = await _context.StudentEnrollment.AsNoTracking()
-                    .FirstOrDefaultAsync(x => x.Id == result.EnrollmentId && x.StudentId == studentId && x.SchoolId == schoolId);
+                var enrollment = await _context
+                    .StudentEnrollment.AsNoTracking()
+                    .FirstOrDefaultAsync(x =>
+                        x.Id == result.EnrollmentId
+                        && x.StudentId == studentId
+                        && x.SchoolId == schoolId
+                    );
                 if (enrollment == null)
-                    return new ApiResponse<StudentResultDetailDto> { Success = false, Message = "Student enrollment not found." };
+                    return new ApiResponse<StudentResultDetailDto>
+                    {
+                        Success = false,
+                        Message = "Student enrollment not found.",
+                    };
                 var scheduleRows = await (
                     from schedule in _context.ExamSchedules.AsNoTracking()
-                    join subject in _context.Subjects.AsNoTracking() on schedule.SubjectId equals subject.Id
-                    where schedule.ExamId == examId && schedule.SchoolId == schoolId &&
-                        schedule.ClassId == enrollment.ClassId && schedule.SectionId == enrollment.SectionId && schedule.IsActive
-                    select new { schedule.Id, SubjectId = subject.Id, SubjectName = subject.SubjectName }
-                ).ToListAsync();
-                var marks = await _context.ExamMarks.AsNoTracking()
-                    .Where(x => x.ExamId == examId && x.SchoolId == schoolId && x.EnrollmentId == result.EnrollmentId && x.IsActive)
-                    .Select(x => new { x.ExamScheduleId, x.ObtainedMarks, x.Remarks }).ToListAsync();
-                var settings = await _context.ExamSubjects.AsNoTracking()
-                    .Where(x => x.ExamId == examId && x.SchoolId == schoolId && x.ClassId == enrollment.ClassId &&
-                        (x.SectionId == null || x.SectionId == enrollment.SectionId) && x.IsActive)
-                    .Select(x => new { x.SubjectId, x.SectionId, x.MaxMarks, x.PassingMarks }).ToListAsync();
-                var subjects = scheduleRows.GroupBy(x => x.SubjectId).Select(group =>
-                {
-                    var scheduled = group.First();
-                    var setting = settings?.Where(x => x.SubjectId == group.Key)
-                        .OrderByDescending(x => x.SectionId == enrollment.SectionId).FirstOrDefault();
-                    var mark = marks.FirstOrDefault(x => group.Any(schedule => schedule.Id == x.ExamScheduleId));
-                    return new StudentSubjectResultDto
+                    join subject in _context.Subjects.AsNoTracking()
+                        on schedule.SubjectId equals subject.Id
+                    where
+                        schedule.ExamId == examId
+                        && schedule.SchoolId == schoolId
+                        && schedule.ClassId == enrollment.ClassId
+                        && schedule.SectionId == enrollment.SectionId
+                        && schedule.IsActive
+                    select new
                     {
-                        SubjectId = group.Key,
-                        SubjectName = scheduled.SubjectName,
-                        MaxMarks = setting?.MaxMarks ?? 0,
-                        PassingMarks = setting?.PassingMarks ?? 0,
-                        ObtainedMarks = mark?.ObtainedMarks,
-                        Status = mark == null ? "Pending" : mark.ObtainedMarks >= (setting?.PassingMarks ?? 0) ? "PASS" : "FAIL",
-                        Remarks = mark?.Remarks
-                    };
-                }).OrderBy(x => x.SubjectName).ToList();
+                        schedule.Id,
+                        SubjectId = subject.Id,
+                        SubjectName = subject.SubjectName,
+                    }
+                ).ToListAsync();
+                var marks = await _context
+                    .ExamMarks.AsNoTracking()
+                    .Where(x =>
+                        x.ExamId == examId
+                        && x.SchoolId == schoolId
+                        && x.EnrollmentId == result.EnrollmentId
+                        && x.IsActive
+                    )
+                    .Select(x => new
+                    {
+                        x.ExamScheduleId,
+                        x.ObtainedMarks,
+                        x.Remarks,
+                    })
+                    .ToListAsync();
+                var settings = await _context
+                    .ExamSubjects.AsNoTracking()
+                    .Where(x =>
+                        x.ExamId == examId
+                        && x.SchoolId == schoolId
+                        && x.ClassId == enrollment.ClassId
+                        && (x.SectionId == null || x.SectionId == enrollment.SectionId)
+                        && x.IsActive
+                    )
+                    .Select(x => new
+                    {
+                        x.SubjectId,
+                        x.SectionId,
+                        x.MaxMarks,
+                        x.PassingMarks,
+                    })
+                    .ToListAsync();
+                var subjects = scheduleRows
+                    .GroupBy(x => x.SubjectId)
+                    .Select(group =>
+                    {
+                        var scheduled = group.First();
+                        var setting = settings
+                            ?.Where(x => x.SubjectId == group.Key)
+                            .OrderByDescending(x => x.SectionId == enrollment.SectionId)
+                            .FirstOrDefault();
+                        var mark = marks.FirstOrDefault(x =>
+                            group.Any(schedule => schedule.Id == x.ExamScheduleId)
+                        );
+                        return new StudentSubjectResultDto
+                        {
+                            SubjectId = group.Key,
+                            SubjectName = scheduled.SubjectName,
+                            MaxMarks = setting?.MaxMarks ?? 0,
+                            PassingMarks = setting?.PassingMarks ?? 0,
+                            ObtainedMarks = mark?.ObtainedMarks,
+                            Status =
+                                mark == null ? "Pending"
+                                : mark.ObtainedMarks >= (setting?.PassingMarks ?? 0) ? "PASS"
+                                : "FAIL",
+                            Remarks = mark?.Remarks,
+                        };
+                    })
+                    .OrderBy(x => x.SubjectName)
+                    .ToList();
                 var scheduledSubjects = scheduleRows.Select(x => x.SubjectId).Distinct().ToList();
-                var school = await _context.Schools.AsNoTracking().Where(x => x.Id == schoolId)
-                    .Select(x => new { x.SchoolName, x.Address }).FirstOrDefaultAsync();
-                var schoolLogoUrl = await _context.ProfilePictures.AsNoTracking()
+                var school = await _context
+                    .Schools.AsNoTracking()
+                    .Where(x => x.Id == schoolId)
+                    .Select(x => new { x.SchoolName, x.Address })
+                    .FirstOrDefaultAsync();
+                var schoolLogoUrl = await _context
+                    .ProfilePictures.AsNoTracking()
                     .Where(x => x.PersonType == "School" && x.PersonId == schoolId && x.IsActive)
-                    .OrderByDescending(x => x.CreatedDate).Select(x => x.FileUrl).FirstOrDefaultAsync();
-                var className = enrollment == null ? null : await _context.Classes.AsNoTracking()
-                    .Where(x => x.Id == enrollment.ClassId).Select(x => x.ClassName).FirstOrDefaultAsync();
-                var sectionName = enrollment == null ? null : await _context.SectionDetails.AsNoTracking()
-                    .Where(x => x.Id == enrollment.SectionId).Select(x => x.SectionName).FirstOrDefaultAsync();
-                var parentName = await _context.ParentDetails.AsNoTracking()
-                    .Where(x => x.Id == student.ParentId && x.IsActive).Select(x => x.Name).FirstOrDefaultAsync();
-                var isComplete = subjects.Count > 0 && subjects.Count == scheduledSubjects.Count &&
-                    subjects.All(x => x.MaxMarks > 0 && x.ObtainedMarks.HasValue) &&
-                    subjects.Sum(x => x.MaxMarks) == result.TotalMarks &&
-                    subjects.Sum(x => x.ObtainedMarks ?? 0) == result.ObtainedMarks;                var dto = new StudentResultDetailDto
+                    .OrderByDescending(x => x.CreatedDate)
+                    .Select(x => x.FileUrl)
+                    .FirstOrDefaultAsync();
+                var className =
+                    enrollment == null
+                        ? null
+                        : await _context
+                            .Classes.AsNoTracking()
+                            .Where(x => x.Id == enrollment.ClassId)
+                            .Select(x => x.ClassName)
+                            .FirstOrDefaultAsync();
+                var sectionName =
+                    enrollment == null
+                        ? null
+                        : await _context
+                            .SectionDetails.AsNoTracking()
+                            .Where(x => x.Id == enrollment.SectionId)
+                            .Select(x => x.SectionName)
+                            .FirstOrDefaultAsync();
+                var parentName = await _context
+                    .ParentDetails.AsNoTracking()
+                    .Where(x => x.Id == student.ParentId && x.IsActive)
+                    .Select(x => x.Name)
+                    .FirstOrDefaultAsync();
+                var isComplete =
+                    subjects.Count > 0
+                    && subjects.Count == scheduledSubjects.Count
+                    && subjects.All(x => x.MaxMarks > 0 && x.ObtainedMarks.HasValue)
+                    && subjects.Sum(x => x.MaxMarks) == result.TotalMarks
+                    && subjects.Sum(x => x.ObtainedMarks ?? 0) == result.ObtainedMarks;
+                var dto = new StudentResultDetailDto
                 {
                     StudentId = student.Id,
                     StudentName = student.StudentName,
@@ -1497,21 +1917,17 @@ select new ExamSubjectResponseDto
                     Grade = result.Grade,
                     ResultStatus = result.ResultStatus,
 
-                    Subjects = subjects
+                    Subjects = subjects,
                 };
 
-                return new ApiResponse<StudentResultDetailDto>
-                {
-                    Success = true,
-                    Data = dto
-                };
+                return new ApiResponse<StudentResultDetailDto> { Success = true, Data = dto };
             }
             catch (Exception ex)
             {
                 return new ApiResponse<StudentResultDetailDto>
                 {
                     Success = false,
-                    Message = ex.Message
+                    Message = ex.Message,
                 };
             }
         }

@@ -1,12 +1,17 @@
-﻿using SchoolManagement.DTOs;
+// Backend section: contracts for backend services and repositories.
+using SchoolManagement.DTOs;
 using SchoolManagement.Model;
 
 namespace SchoolManagement.Interfaces
 {
+    // Defines the i staff operations used by the backend.
     public interface IStaffRepository
     {
         Task<ApiResponse<string>> MarkStaffAttendanceAsync(MarkStaffAttendanceDto dto);
-        Task<List<StaffAttendanceHistoryDto>> GetStaffAttendanceHistoryAsync(DateTime fromDate, DateTime toDate);
+        Task<List<StaffAttendanceHistoryDto>> GetStaffAttendanceHistoryAsync(
+            DateTime fromDate,
+            DateTime toDate
+        );
         Task<StaffAttendanceNotificationDto> CheckTodayAttendanceAsync();
         Task<object> AssignSalary(AssignSalaryDto dto);
         Task<object> GetAssignedSalary(int staffId);

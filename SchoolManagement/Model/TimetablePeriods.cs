@@ -1,9 +1,11 @@
-﻿using System.ComponentModel.DataAnnotations.Schema;
+// Backend section: domain and database models.
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace SchoolManagement.Model
 {
     [Table("TimetablePeriods")]
+    // Represents timetable periods domain data.
     public class TimetablePeriods
     {
         [Key]

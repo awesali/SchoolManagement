@@ -1,5 +1,7 @@
+// Backend section: request and response data contracts.
 namespace SchoolManagement.DTOs;
 
+// Defines the student promotion dtos request and response data.
 public class PromotionStudentsQuery
 {
     public int SchoolId { get; set; }

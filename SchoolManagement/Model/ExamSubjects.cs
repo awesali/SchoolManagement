@@ -1,5 +1,7 @@
-﻿namespace SchoolManagement.Model
+// Backend section: domain and database models.
+namespace SchoolManagement.Model
 {
+    // Represents exam subjects domain data.
     public class ExamSubjects
     {
         public int Id { get; set; }

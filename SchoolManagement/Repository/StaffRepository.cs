@@ -1,22 +1,34 @@
-﻿using Microsoft.EntityFrameworkCore;
+// Backend section: database queries and persistence.
+using System.Security.Claims;
+using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
 using SchoolManagement.Model;
 using SchoolManagement.Service;
-using System.Security.Claims;
 
 namespace SchoolManagement.Repository
 {
+    // Reads and updates staff data.
     public class StaffRepository : IStaffRepository
     {
+        // Dependencies and state used by this component.
         private readonly AppDbContext _context;
         private readonly ICommonRepository _common;
         private readonly IUserRepository _user;
         private readonly IWebHostEnvironment _env;
         private readonly IEmailService _emailService;
         private readonly IHttpContextAccessor _httpContextAccessor;
-        public StaffRepository(AppDbContext context, IUserRepository user, ICommonRepository common, IWebHostEnvironment env, IEmailService emailService, IHttpContextAccessor httpContextAccessor)
+
+        // Creates the component with its required dependencies.
+        public StaffRepository(
+            AppDbContext context,
+            IUserRepository user,
+            ICommonRepository common,
+            IWebHostEnvironment env,
+            IEmailService emailService,
+            IHttpContextAccessor httpContextAccessor
+        )
         {
             _context = context;
             _user = user;
@@ -25,6 +37,7 @@ namespace SchoolManagement.Repository
             _emailService = emailService;
             _httpContextAccessor = httpContextAccessor;
         }
+
         //public async Task<ApiResponse<string>> MarkStaffAttendanceAsync(MarkStaffAttendanceDto dto)
         //{
         //    var staffId = int.Parse(_httpContextAccessor.HttpContext.User
@@ -80,10 +93,9 @@ namespace SchoolManagement.Repository
         public async Task<ApiResponse<string>> MarkStaffAttendanceAsync(MarkStaffAttendanceDto dto)
         {
             // ✅ Step 0: Get staffId from claims
-            var staffIdClaim = _httpContextAccessor.HttpContext?.User?
-                .FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-
+            var staffIdClaim = _httpContextAccessor
+                .HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier)
+                ?.Value;
 
             if (string.IsNullOrEmpty(staffIdClaim))
                 return new ApiResponse<string> { Success = false, Message = "Unauthorized" };
@@ -95,18 +107,18 @@ namespace SchoolManagement.Repository
             // the required nullable-safe columns so legacy NULL staff fields do
             // not break attendance marking while EF materializes the entity.
 
-            var staff = await _context.Staff
-                .Where(u => EF.Property<int?>(u, nameof(Staff.usersid)) == userId)
-                .Select(u => new
-                {
-                    u.Id,
-                    SchoolId = EF.Property<int?>(u, nameof(Staff.SchoolId))
-                })
+            var staff = await _context
+                .Staff.Where(u => EF.Property<int?>(u, nameof(Staff.usersid)) == userId)
+                .Select(u => new { u.Id, SchoolId = EF.Property<int?>(u, nameof(Staff.SchoolId)) })
                 .FirstOrDefaultAsync();
             if (staff == null)
                 return new ApiResponse<string> { Success = false, Message = "Staff not found" };
             if (!staff.SchoolId.HasValue)
-                return new ApiResponse<string> { Success = false, Message = "Staff school is not assigned" };
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Staff school is not assigned",
+                };
 
             var schoolId = staff.SchoolId.Value;
 
@@ -114,20 +126,19 @@ namespace SchoolManagement.Repository
             var attendanceDate = dto.AttendanceDate.Date;
 
             // ✅ Step 3: Strong check (same day restriction)
-            var alreadyMarked = await _context.StaffAttendance
-                .AnyAsync(a =>
-                    a.Staff_Id == staff.Id &&
-                    a.School_Id == schoolId &&
-                    a.Attendance_Date >= attendanceDate &&
-                    a.Attendance_Date < attendanceDate.AddDays(1)
-                );
+            var alreadyMarked = await _context.StaffAttendance.AnyAsync(a =>
+                a.Staff_Id == staff.Id
+                && a.School_Id == schoolId
+                && a.Attendance_Date >= attendanceDate
+                && a.Attendance_Date < attendanceDate.AddDays(1)
+            );
 
             if (alreadyMarked)
             {
                 return new ApiResponse<string>
                 {
                     Success = false,
-                    Message = "Attendance already marked for this date"
+                    Message = "Attendance already marked for this date",
                 };
             }
 
@@ -140,7 +151,7 @@ namespace SchoolManagement.Repository
                 School_Id = schoolId,
                 Created_At = DateTime.Now,
                 Created_By = userId,
-                IsActive = true
+                IsActive = true,
             };
 
             _context.StaffAttendance.Add(attendance);
@@ -149,41 +160,43 @@ namespace SchoolManagement.Repository
             return new ApiResponse<string>
             {
                 Success = true,
-                Message = "Attendance marked successfully"
+                Message = "Attendance marked successfully",
             };
         }
 
-        public async Task<List<StaffAttendanceHistoryDto>> GetStaffAttendanceHistoryAsync(DateTime fromDate, DateTime toDate)
+        public async Task<List<StaffAttendanceHistoryDto>> GetStaffAttendanceHistoryAsync(
+            DateTime fromDate,
+            DateTime toDate
+        )
         {
-            var userId = int.Parse(_httpContextAccessor.HttpContext.User
-                .FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+            var userId = int.Parse(
+                _httpContextAccessor.HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                    ?? "0"
+            );
 
             if (userId == 0)
                 throw new Exception("Unauthorized");
 
-            var staff = await _context.Staff
-                .Where(s => EF.Property<int?>(s, nameof(Staff.usersid)) == userId)
-                .Select(s => new
-                {
-                    s.Id,
-                    SchoolId = EF.Property<int?>(s, nameof(Staff.SchoolId))
-                })
+            var staff = await _context
+                .Staff.Where(s => EF.Property<int?>(s, nameof(Staff.usersid)) == userId)
+                .Select(s => new { s.Id, SchoolId = EF.Property<int?>(s, nameof(Staff.SchoolId)) })
                 .FirstOrDefaultAsync();
 
             if (staff == null || !staff.SchoolId.HasValue)
                 return new List<StaffAttendanceHistoryDto>();
 
-            var history = await _context.StaffAttendance
-                .Where(a =>
-                    a.Staff_Id == staff.Id &&
-                    a.School_Id == staff.SchoolId.Value &&
-                    a.Attendance_Date.Date >= fromDate.Date &&
-                    a.Attendance_Date.Date <= toDate.Date)
+            var history = await _context
+                .StaffAttendance.Where(a =>
+                    a.Staff_Id == staff.Id
+                    && a.School_Id == staff.SchoolId.Value
+                    && a.Attendance_Date.Date >= fromDate.Date
+                    && a.Attendance_Date.Date <= toDate.Date
+                )
                 .OrderByDescending(a => a.Attendance_Date)
                 .Select(a => new StaffAttendanceHistoryDto
                 {
                     AttendanceDate = a.Attendance_Date,
-                    Status = a.Status
+                    Status = a.Status,
                 })
                 .ToListAsync();
 
@@ -192,22 +205,23 @@ namespace SchoolManagement.Repository
 
         public async Task<StaffAttendanceNotificationDto> CheckTodayAttendanceAsync()
         {
-            var staffIdClaim = _httpContextAccessor.HttpContext?.User?
-                .FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var staffIdClaim = _httpContextAccessor
+                .HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier)
+                ?.Value;
 
             if (string.IsNullOrEmpty(staffIdClaim))
             {
                 return new StaffAttendanceNotificationDto
                 {
                     ShouldMarkAttendance = false,
-                    Message = "Unauthorized"
+                    Message = "Unauthorized",
                 };
             }
 
             int userId = int.Parse(staffIdClaim);
 
-            var staff = await _context.Staff
-                .Where(u => EF.Property<int?>(u, nameof(Staff.usersid)) == userId)
+            var staff = await _context
+                .Staff.Where(u => EF.Property<int?>(u, nameof(Staff.usersid)) == userId)
                 .Select(u => new { u.Id, SchoolId = EF.Property<int?>(u, nameof(Staff.SchoolId)) })
                 .FirstOrDefaultAsync();
             if (staff == null)
@@ -215,49 +229,49 @@ namespace SchoolManagement.Repository
                 return new StaffAttendanceNotificationDto
                 {
                     ShouldMarkAttendance = false,
-                    Message = "Staff not found"
+                    Message = "Staff not found",
                 };
             }
 
             if (!staff.SchoolId.HasValue)
-                return new StaffAttendanceNotificationDto { ShouldMarkAttendance = false, Message = "Staff school is not assigned" };
+                return new StaffAttendanceNotificationDto
+                {
+                    ShouldMarkAttendance = false,
+                    Message = "Staff school is not assigned",
+                };
 
             var schoolId = staff.SchoolId.Value;
 
             var today = DateTime.Today;
 
-            var alreadyMarked = await _context.StaffAttendance
-                .AnyAsync(a =>
-                    a.Staff_Id == staff.Id &&
-                    a.School_Id == schoolId &&
-                    a.Attendance_Date >= today &&
-                    a.Attendance_Date < today.AddDays(1)
-                );
+            var alreadyMarked = await _context.StaffAttendance.AnyAsync(a =>
+                a.Staff_Id == staff.Id
+                && a.School_Id == schoolId
+                && a.Attendance_Date >= today
+                && a.Attendance_Date < today.AddDays(1)
+            );
 
             if (alreadyMarked)
             {
                 return new StaffAttendanceNotificationDto
                 {
                     ShouldMarkAttendance = false,
-                    Message = "Attendance already marked"
+                    Message = "Attendance already marked",
                 };
             }
 
             return new StaffAttendanceNotificationDto
             {
                 ShouldMarkAttendance = true,
-                Message = "Please mark your attendance for today"
+                Message = "Please mark your attendance for today",
             };
         }
+
         public async Task<object> AssignSalary(AssignSalaryDto dto)
         {
             if (dto.BasicSalary <= 0)
             {
-                return new
-                {
-                    Success = false,
-                    Message = "Basic salary must be greater than zero."
-                };
+                return new { Success = false, Message = "Basic salary must be greater than zero." };
             }
 
             if (dto.SalaryGenerationDay < 1 || dto.SalaryGenerationDay > 28)
@@ -265,25 +279,21 @@ namespace SchoolManagement.Repository
                 return new
                 {
                     Success = false,
-                    Message = "Salary generation date must be between 1 and 28."
+                    Message = "Salary generation date must be between 1 and 28.",
                 };
             }
-            var staff = await _context.Staff
-                .FirstOrDefaultAsync(x => x.Id == dto.StaffId && x.IsActive);
+            var staff = await _context.Staff.FirstOrDefaultAsync(x =>
+                x.Id == dto.StaffId && x.IsActive
+            );
 
             if (staff == null)
             {
-                return new
-                {
-                    Success = false,
-                    Message = "Active employee not found."
-                };
+                return new { Success = false, Message = "Active employee not found." };
             }
 
-            var salary = await _context.StaffSalaryStructure
-                .FirstOrDefaultAsync(x =>
-                    x.StaffId == dto.StaffId &&
-                    x.IsActive);
+            var salary = await _context.StaffSalaryStructure.FirstOrDefaultAsync(x =>
+                x.StaffId == dto.StaffId && x.IsActive
+            );
 
             if (salary != null && !dto.IsUpdate)
             {
@@ -291,7 +301,7 @@ namespace SchoolManagement.Repository
                 {
                     Success = false,
                     AlreadyAssigned = true,
-                    Message = "Salary is already assigned to this employee. Use Edit Salary to make changes."
+                    Message = "Salary is already assigned to this employee. Use Edit Salary to make changes.",
                 };
             }
 
@@ -300,7 +310,7 @@ namespace SchoolManagement.Repository
                 return new
                 {
                     Success = false,
-                    Message = "Assigned salary was not found. Assign salary before editing it."
+                    Message = "Assigned salary was not found. Assign salary before editing it.",
                 };
             }
 
@@ -317,7 +327,7 @@ namespace SchoolManagement.Repository
                 SalaryType = dto.SalaryType,
                 SalaryGenerationDay = dto.SalaryGenerationDay,
                 EffectiveFrom = DateTime.Now.Date,
-                IsActive = true
+                IsActive = true,
             };
 
             _context.StaffSalaryStructure.Add(newSalary);
@@ -329,14 +339,14 @@ namespace SchoolManagement.Repository
                 Success = true,
                 Message = salary == null
                     ? "Salary assigned successfully."
-                    : "Salary updated successfully."
+                    : "Salary updated successfully.",
             };
         }
 
         public async Task<object> GetAssignedSalary(int staffId)
         {
-            var salary = await _context.StaffSalaryStructure
-                .AsNoTracking()
+            var salary = await _context
+                .StaffSalaryStructure.AsNoTracking()
                 .Where(x => x.StaffId == staffId && x.IsActive)
                 .Select(x => new
                 {
@@ -345,12 +355,12 @@ namespace SchoolManagement.Repository
                     x.BasicSalary,
                     x.SalaryType,
                     x.SalaryGenerationDay,
-                    x.EffectiveFrom
+                    x.EffectiveFrom,
                 })
                 .FirstOrDefaultAsync();
 
-            var salaryHistory = await _context.StaffSalaryStructure
-                .AsNoTracking()
+            var salaryHistory = await _context
+                .StaffSalaryStructure.AsNoTracking()
                 .Where(x => x.StaffId == staffId)
                 .OrderByDescending(x => x.EffectiveFrom)
                 .ThenByDescending(x => x.Id)
@@ -362,7 +372,7 @@ namespace SchoolManagement.Repository
                     x.SalaryGenerationDay,
                     x.EffectiveFrom,
                     x.CreatedDate,
-                    x.IsActive
+                    x.IsActive,
                 })
                 .ToListAsync();
             return new
@@ -373,51 +383,47 @@ namespace SchoolManagement.Repository
                 History = salaryHistory,
                 Message = salary == null
                     ? "Salary has not been assigned."
-                    : "Salary is already assigned."
+                    : "Salary is already assigned.",
             };
         }
+
         public async Task<object> GenerateMonthlySalary(int month, int year, int schoolId)
         {
             var salaries = await (
                 from salary in _context.StaffSalaryStructure
                 join staff in _context.Staff on salary.StaffId equals staff.Id
-                where salary.IsActive &&
-                      staff.IsActive &&
-                      staff.SchoolId == schoolId
-                select salary)
-                .ToListAsync();
+                where salary.IsActive && staff.IsActive && staff.SchoolId == schoolId
+                select salary
+            ).ToListAsync();
 
             foreach (var salary in salaries)
             {
-                bool exists = await _context.SalaryPayment
-                    .AnyAsync(x =>
-                        x.StaffId == salary.StaffId &&
-                        x.SalaryMonth == month &&
-                        x.SalaryYear == year);
+                bool exists = await _context.SalaryPayment.AnyAsync(x =>
+                    x.StaffId == salary.StaffId && x.SalaryMonth == month && x.SalaryYear == year
+                );
 
                 if (exists)
                     continue;
 
-                _context.SalaryPayment.Add(new SalaryPayment
-                {
-                    StaffId = salary.StaffId,
-                    schoolId = schoolId,
-                    SalaryMonth = month,
-                    SalaryYear = year,
-                    BasicSalary = salary.BasicSalary,
-                    NetSalary = salary.BasicSalary,
-                    Status = "Pending"
-                });
+                _context.SalaryPayment.Add(
+                    new SalaryPayment
+                    {
+                        StaffId = salary.StaffId,
+                        schoolId = schoolId,
+                        SalaryMonth = month,
+                        SalaryYear = year,
+                        BasicSalary = salary.BasicSalary,
+                        NetSalary = salary.BasicSalary,
+                        Status = "Pending",
+                    }
+                );
             }
 
             await _context.SaveChangesAsync();
 
-            return new
-            {
-                Success = true,
-                Message = "Salary Generated Successfully"
-            };
+            return new { Success = true, Message = "Salary Generated Successfully" };
         }
+
         public async Task<object> PaySalary(PaySalaryDto dto)
         {
             var paidCount = 0;
@@ -425,33 +431,30 @@ namespace SchoolManagement.Repository
 
             foreach (var item in dto.Salaries)
             {
-                var salary = await _context.SalaryPayment
-                    .FirstOrDefaultAsync(x =>
-                        x.StaffId == item.StaffId &&
-                        x.SalaryMonth == item.Month &&
-                        x.SalaryYear == item.Year);
+                var salary = await _context.SalaryPayment.FirstOrDefaultAsync(x =>
+                    x.StaffId == item.StaffId
+                    && x.SalaryMonth == item.Month
+                    && x.SalaryYear == item.Year
+                );
 
                 if (salary == null)
                 {
-                    failedRecords.Add(
-                        $"StaffId {item.StaffId} - Salary Record Not Found");
+                    failedRecords.Add($"StaffId {item.StaffId} - Salary Record Not Found");
                     continue;
                 }
 
                 if (salary.Status == "Paid")
                 {
                     failedRecords.Add(
-                        $"StaffId {item.StaffId} - Salary already paid for {item.Month}/{item.Year}");
+                        $"StaffId {item.StaffId} - Salary already paid for {item.Month}/{item.Year}"
+                    );
                     continue;
                 }
 
                 salary.Bonus = item.Bonus;
                 salary.Deduction = item.Deduction;
 
-                salary.NetSalary =
-                    salary.BasicSalary +
-                    item.Bonus -
-                    item.Deduction;
+                salary.NetSalary = salary.BasicSalary + item.Bonus - item.Deduction;
 
                 salary.PaymentMethod = item.PaymentMethod;
                 salary.PaymentDate = DateTime.Now;
@@ -460,8 +463,10 @@ namespace SchoolManagement.Repository
                     : $"Payment reference: {item.PaymentReference.Trim()}";
                 salary.Remarks = string.Join(
                     Environment.NewLine,
-                    new[] { reference, item.Remarks?.Trim() }
-                        .Where(x => !string.IsNullOrWhiteSpace(x)));
+                    new[] { reference, item.Remarks?.Trim() }.Where(x =>
+                        !string.IsNullOrWhiteSpace(x)
+                    )
+                );
                 salary.Status = "Paid";
 
                 paidCount++;
@@ -475,18 +480,17 @@ namespace SchoolManagement.Repository
                 PaidCount = paidCount,
                 FailedCount = failedRecords.Count,
                 FailedRecords = failedRecords,
-                Message = $"{paidCount} Salary Paid Successfully"
+                Message = $"{paidCount} Salary Paid Successfully",
             };
         }
+
         public async Task<object> GetPendingSalary(int schoolId)
         {
             return await (
                 from salary in _context.SalaryPayment
                 join staff in _context.Staff on salary.StaffId equals staff.Id
                 join role in _context.Roles on staff.RoleId equals role.Id
-                where salary.Status == "Pending" &&
-                      staff.SchoolId == schoolId &&
-                      staff.IsActive
+                where salary.Status == "Pending" && staff.SchoolId == schoolId && staff.IsActive
                 select new
                 {
                     salary.Id,
@@ -499,25 +503,24 @@ namespace SchoolManagement.Repository
                     salary.BasicSalary,
                     salary.NetSalary,
                     salary.Status,
-                    salary.CreatedDate
-                })
+                    salary.CreatedDate,
+                }
+            )
                 .OrderBy(x => x.StaffName)
                 .ToListAsync();
         }
+
         public async Task<object> GetPendingSalaryByStaff(int staffId)
         {
-            return await _context.SalaryPayment
-                .Where(x =>
-                    x.StaffId == staffId &&
-                    x.Status == "Pending")
+            return await _context
+                .SalaryPayment.Where(x => x.StaffId == staffId && x.Status == "Pending")
                 .ToListAsync();
         }
+
         public async Task<object> GetSalaryHistory(int staffId)
         {
-            return await _context.SalaryPayment
-                .Where(x =>
-                    x.StaffId == staffId &&
-                    x.Status == "Paid")
+            return await _context
+                .SalaryPayment.Where(x => x.StaffId == staffId && x.Status == "Paid")
                 .OrderByDescending(x => x.PaymentDate)
                 .ToListAsync();
         }
@@ -531,10 +534,11 @@ namespace SchoolManagement.Repository
                 from payment in _context.SalaryPayment.AsNoTracking()
                 join staff in _context.Staff.AsNoTracking() on payment.StaffId equals staff.Id
                 join role in _context.Roles.AsNoTracking() on staff.RoleId equals role.Id
-                where staff.SchoolId == schoolId &&
-                      payment.Status == "Paid" &&
-                      payment.SalaryMonth == month &&
-                      payment.SalaryYear == year
+                where
+                    staff.SchoolId == schoolId
+                    && payment.Status == "Paid"
+                    && payment.SalaryMonth == month
+                    && payment.SalaryYear == year
                 orderby staff.Name
                 select new
                 {
@@ -552,13 +556,16 @@ namespace SchoolManagement.Repository
                     payment.Status,
                     payment.PaymentDate,
                     payment.PaymentMethod,
-                    payment.Remarks
-                }).ToListAsync();
+                    payment.Remarks,
+                }
+            ).ToListAsync();
         }
+
         public async Task<object> GetDashboard(int schoolId)
         {
-            var totalStaff = await _context.Staff
-                .CountAsync(x => x.SchoolId == schoolId && x.IsActive);
+            var totalStaff = await _context.Staff.CountAsync(x =>
+                x.SchoolId == schoolId && x.IsActive
+            );
 
             // Use the staff record as the source of school ownership. Legacy salary
             // payments were created without SchoolId and otherwise disappear here.
@@ -568,13 +575,17 @@ namespace SchoolManagement.Repository
                 where staff.SchoolId == schoolId && staff.IsActive
                 select payment;
 
-            var paidSalary = await schoolPayments
-                .Where(x => x.Status == "Paid")
-                .SumAsync(x => (decimal?)x.NetSalary) ?? 0;
+            var paidSalary =
+                await schoolPayments
+                    .Where(x => x.Status == "Paid")
+                    .SumAsync(x => (decimal?)x.NetSalary)
+                ?? 0;
 
-            var pendingSalary = await schoolPayments
-                .Where(x => x.Status == "Pending")
-                .SumAsync(x => (decimal?)x.NetSalary) ?? 0;
+            var pendingSalary =
+                await schoolPayments
+                    .Where(x => x.Status == "Pending")
+                    .SumAsync(x => (decimal?)x.NetSalary)
+                ?? 0;
 
             var pendingEmployees = await schoolPayments
                 .Where(x => x.Status == "Pending")
@@ -587,7 +598,7 @@ namespace SchoolManagement.Repository
                 TotalStaff = totalStaff,
                 PaidSalary = paidSalary,
                 PendingSalary = pendingSalary,
-                PendingEmployees = pendingEmployees
+                PendingEmployees = pendingEmployees,
             };
         }
     }

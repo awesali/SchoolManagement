@@ -1,5 +1,7 @@
+// Backend section: application startup and configuration.
 namespace SchoolManagement
 {
+    // Sets up weather forecast backend behavior.
     public class WeatherForecast
     {
         public DateOnly Date { get; set; }

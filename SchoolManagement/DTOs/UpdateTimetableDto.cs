@@ -1,5 +1,7 @@
+// Backend section: request and response data contracts.
 namespace SchoolManagement.DTOs
 {
+    // Defines the update timetable request and response data.
     public class UpdateTimetableDto
     {
         public int SectionId { get; set; }

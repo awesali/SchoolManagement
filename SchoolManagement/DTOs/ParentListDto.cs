@@ -1,5 +1,7 @@
+// Backend section: request and response data contracts.
 namespace SchoolManagement.DTOs
 {
+    // Defines the parent list request and response data.
     public class ParentListDto
     {
         public int Id { get; set; }
@@ -7,13 +9,27 @@ namespace SchoolManagement.DTOs
         public string Email { get; set; }
         public string PhoneNumber { get; set; }
         public string Address { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(200)] public string? AddressLine2 { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(200)] public string? Landmark { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(100)] public string? City { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(100)] public string? District { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(100)] public string? State { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(100)] public string? Country { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(6)] public string? PinCode { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(200)]
+        public string? AddressLine2 { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(200)]
+        public string? Landmark { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string? City { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string? District { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string? State { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string? Country { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(6)]
+        public string? PinCode { get; set; }
         public string Relationship { get; set; }
         public bool IsActive { get; set; }
         public List<ParentStudentDto> Students { get; set; } = new();

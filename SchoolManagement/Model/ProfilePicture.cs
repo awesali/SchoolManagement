@@ -1,5 +1,7 @@
+// Backend section: domain and database models.
 namespace SchoolManagement.Model
 {
+    // Represents profile picture domain data.
     public class ProfilePicture
     {
         public int Id { get; set; }

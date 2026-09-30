@@ -1,7 +1,9 @@
+// Backend section: domain and database models.
 using System.ComponentModel.DataAnnotations;
 
 namespace SchoolManagement.Model
 {
+    // Represents students parents creds domain data.
     public class Students_Parents_Creds
     {
         public int Id { get; set; }

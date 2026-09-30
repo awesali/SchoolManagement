@@ -1,5 +1,7 @@
+// Backend section: request and response data contracts.
 namespace SchoolManagement.DTOs
 {
+    // Defines the staff attendance history by date request and response data.
     public class StaffAttendanceHistoryByDateDto
     {
         public int StaffId { get; set; }

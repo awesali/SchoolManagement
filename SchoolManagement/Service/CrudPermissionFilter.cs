@@ -1,8 +1,9 @@
+// Backend section: application services and shared rules.
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Filters;
-using System.Security.Claims;
 
 namespace SchoolManagement.Service;
 
@@ -14,99 +15,271 @@ namespace SchoolManagement.Service;
 /// </summary>
 public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
 {
+    // Dependencies and state used by this component.
     private readonly IPermissionService _permissions;
     private readonly IConfiguration _configuration;
+
+    // Creates the component with its required dependencies.
     public CrudPermissionFilter(IPermissionService permissions, IConfiguration configuration)
-    { _permissions = permissions; _configuration = configuration; }
+    {
+        _permissions = permissions;
+        _configuration = configuration;
+    }
 
     public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
         var descriptor = context.ActionDescriptor as ControllerActionDescriptor;
-        if (descriptor == null || descriptor.ControllerName is "Auth" or "StudentParentAuth" or "Permissions") return;
-        if (descriptor.MethodInfo.GetCustomAttributes(true).OfType<AllowAnonymousAttribute>().Any()) return;
+        if (
+            descriptor == null
+            || descriptor.ControllerName is "Auth" or "StudentParentAuth" or "Permissions"
+        )
+            return;
+        if (descriptor.MethodInfo.GetCustomAttributes(true).OfType<AllowAnonymousAttribute>().Any())
+            return;
 
         var user = context.HttpContext.User;
         if (user.Identity?.IsAuthenticated != true)
         {
-            context.Result = new UnauthorizedObjectResult(new { success = false, message = "Authentication is required." });
+            context.Result = new UnauthorizedObjectResult(
+                new { success = false, message = "Authentication is required." }
+            );
             return;
         }
         // Temporarily bypass custom CRUD grants only; authentication above stays active.
-        if (!_configuration.GetValue<bool>("Security:CrudPermissionsEnabled", true)) return;
-        if (user.FindFirstValue("RoleId") == "1") return;
+        if (!_configuration.GetValue<bool>("Security:CrudPermissionsEnabled", true))
+            return;
+        if (user.FindFirstValue("RoleId") == "1")
+            return;
         // These principal workflows validate the caller's active Principal role and school in the action.
-        if (descriptor.ControllerName == "Principal" && new[] { "Invigilation", "AssignInvigilation", "RemoveInvigilation", "DecideLeave", "LeaveHistory", "UpcomingApprovedLeave" }.Contains(descriptor.ActionName)) return;
+        if (
+            descriptor.ControllerName == "Principal"
+            && new[]
+            {
+                "Invigilation",
+                "AssignInvigilation",
+                "RemoveInvigilation",
+                "DecideLeave",
+                "LeaveHistory",
+                "UpcomingApprovedLeave",
+            }.Contains(descriptor.ActionName)
+        )
+            return;
         // Receptionist actions enforce the active front-office role and school on every request.
-        if (descriptor.ControllerName == "Receptionist") return;
-        if (descriptor.ControllerName == "StudentRequestInbox") return;
-        if (descriptor.ControllerName == "StaffMessages") return;
-        if (descriptor.ControllerName == "StudentCommunity" && user.IsInRole("Student") && ((context.HttpContext.Request.Method == "GET" && new[] { "Overview", "DiscussionPosts" }.Contains(descriptor.ActionName)) || (context.HttpContext.Request.Method == "POST" && new[] { "JoinClub", "RegisterEvent", "CreateLostFound", "CreateDiscussionPost", "ReserveBook" }.Contains(descriptor.ActionName)))) return;
-        if (descriptor.ControllerName == "StudentSelfService" && user.IsInRole("Student") && (((descriptor.ActionName == "Overview" || descriptor.ActionName == "RequestRecipients" || descriptor.ActionName == "MessageRecipients" || descriptor.ActionName == "Messages") && context.HttpContext.Request.Method == "GET") || ((descriptor.ActionName == "Submit" || descriptor.ActionName == "CreateRequest" || descriptor.ActionName == "SendMessage" || descriptor.ActionName == "ReadMessages" || descriptor.ActionName == "ChangePassword") && context.HttpContext.Request.Method == "POST") || ((descriptor.ActionName == "DownloadSubmissionFile") && context.HttpContext.Request.Method == "GET"))) return;
+        if (descriptor.ControllerName == "Receptionist")
+            return;
+        if (descriptor.ControllerName == "StudentRequestInbox")
+            return;
+        if (descriptor.ControllerName == "StaffMessages")
+            return;
+        if (
+            descriptor.ControllerName == "StudentCommunity"
+            && user.IsInRole("Student")
+            && (
+                (
+                    context.HttpContext.Request.Method == "GET"
+                    && new[] { "Overview", "DiscussionPosts" }.Contains(descriptor.ActionName)
+                )
+                || (
+                    context.HttpContext.Request.Method == "POST"
+                    && new[]
+                    {
+                        "JoinClub",
+                        "RegisterEvent",
+                        "CreateLostFound",
+                        "CreateDiscussionPost",
+                        "ReserveBook",
+                    }.Contains(descriptor.ActionName)
+                )
+            )
+        )
+            return;
+        if (
+            descriptor.ControllerName == "StudentSelfService"
+            && user.IsInRole("Student")
+            && (
+                (
+                    (
+                        descriptor.ActionName == "Overview"
+                        || descriptor.ActionName == "RequestRecipients"
+                        || descriptor.ActionName == "MessageRecipients"
+                        || descriptor.ActionName == "Messages"
+                    )
+                    && context.HttpContext.Request.Method == "GET"
+                )
+                || (
+                    (
+                        descriptor.ActionName == "Submit"
+                        || descriptor.ActionName == "CreateRequest"
+                        || descriptor.ActionName == "SendMessage"
+                        || descriptor.ActionName == "ReadMessages"
+                        || descriptor.ActionName == "ChangePassword"
+                    )
+                    && context.HttpContext.Request.Method == "POST"
+                )
+                || (
+                    (descriptor.ActionName == "DownloadSubmissionFile")
+                    && context.HttpContext.Request.Method == "GET"
+                )
+            )
+        )
+            return;
 
         var page = ResolvePage(context.HttpContext.Request.Path.Value ?? "");
-        var action = ResolveAction(context.HttpContext.Request.Method, context.HttpContext.Request.Path.Value ?? "");
+        var action = ResolveAction(
+            context.HttpContext.Request.Method,
+            context.HttpContext.Request.Path.Value ?? ""
+        );
         var key = page == null ? null : $"{page}.{action}";
         if (key == null || !await _permissions.HasPermissionAsync(user, key))
-            context.Result = new ObjectResult(new { success = false, message = "You do not have permission to perform this action.", permission = key ?? "unmapped-endpoint" }) { StatusCode = StatusCodes.Status403Forbidden };
+            context.Result = new ObjectResult(
+                new
+                {
+                    success = false,
+                    message = "You do not have permission to perform this action.",
+                    permission = key ?? "unmapped-endpoint",
+                }
+            )
+            {
+                StatusCode = StatusCodes.Status403Forbidden,
+            };
     }
 
     private static string ResolveAction(string method, string path)
     {
         path = path.ToLowerInvariant();
-        if (method == HttpMethods.Get) return "read";
-        if (method == HttpMethods.Delete) return "delete";
-        if (method is "PUT" or "PATCH") return "update";
-        if (path.Contains("attendance") || path.Contains("payfee") || path.Contains("assignstudentfees") ||
-            path.Contains("/promote") || path.Contains("publish") || path.Contains("generate") ||
-            path.Contains("savemarks") || path.Contains("lockmarks") || path.Contains("/issue")) return "update";
+        if (method == HttpMethods.Get)
+            return "read";
+        if (method == HttpMethods.Delete)
+            return "delete";
+        if (method is "PUT" or "PATCH")
+            return "update";
+        if (
+            path.Contains("attendance")
+            || path.Contains("payfee")
+            || path.Contains("assignstudentfees")
+            || path.Contains("/promote")
+            || path.Contains("publish")
+            || path.Contains("generate")
+            || path.Contains("savemarks")
+            || path.Contains("lockmarks")
+            || path.Contains("/issue")
+        )
+            return "update";
         return "create";
     }
 
     private static string? ResolvePage(string rawPath)
     {
         var p = rawPath.ToLowerInvariant();
-        if (p.StartsWith("/api/staffleaveallocations/mine")) return "dashboard.dashboard";
-        if (p.StartsWith("/api/staffleaveallocations/")) return "management.staff";
-        if (p.StartsWith("/api/principal/invigilation")) return "exams.academic-exam";
-        if (p.StartsWith("/api/staff-career/")) return "management.staff";
-        if (p.StartsWith("/api/accounting/")) return "finance.accounts";
-        if (p.StartsWith("/api/ca/")) return "dashboard.dashboard";
-        if (p.StartsWith("/api/principal/")) return "dashboard.dashboard";
-        if (p.Contains("/api/teacher/syllabus")) return "academics.classes";
-        if (p.Contains("/api/teacher/classes")) return "academics.classes";
-        if (p.Contains("/api/teacher/timetable")) return "academics.class-schedule";
-        if (p.Contains("/api/teacher/workspace")) return "dashboard.dashboard";
-        if (p.Contains("/api/teacher/section-students")) return "attendance.students";
-        if (p.Contains("/api/teacher/student-leave-requests")) return "academics.classes";
-        if (p.Contains("/api/teacher/discussions")) return "academics.classes";
-        if (p.Contains("/api/teacher/teaching-options") || p.Contains("/api/teacher/homework") || p.Contains("/api/teacher/study-materials") || p.Contains("/api/teacher/exam-options") || p.Contains("/api/teacher/exam-resources") || p.Contains("/api/teacher/diary") || p.Contains("/api/teacher/submissions") || p.Contains("/api/teacher/announcements") || p.Contains("/api/teacher/messages")) return "academics.classes";
-        if (p.Contains("/api/teacher/calendar")) return "academics.class-schedule";
-        if (p.Contains("/api/teacher/profile-summary") || p.Contains("/api/teacher/leave") || p.Contains("/api/teacher/payslips") || p.Contains("/api/teacher/documents")) return "dashboard.dashboard";
-        if (p.Contains("student-promotion")) return p.Contains("history") || p.Contains("passed-out") ? "academics.promotion-history" : "academics.student-promotion";
-        if (p.Contains("attendance")) return p.Contains("student") ? "attendance.students" : "attendance.staff";
-        if (p.Contains("fee") || p.Contains("receipt")) return "finance.fees";
-        if (p.Contains("salary") || p.Contains("/staff/assign") || p.Contains("/staff/generate") || p.Contains("/staff/pay") || p.Contains("/staff/history") || p.Contains("/staff/pending")) return "finance.salary";
-        if (p.Contains("/api/schoolcommunityadmin")) return "management.students";
-        if (p.Contains("/api/schoolstudentadmin")) return "management.students";
-        if (p.Contains("/api/student")) return "management.students";
-        if (p.Contains("add-staff") || p.Contains("update-staff") || p.Contains("staff-by-school") || p.Contains("staff-emails") || p.Contains("delete-document") || p.Contains("get-roles")) return "management.staff";
-        if (p.Contains("parent")) return "management.parents";
-        if (p.StartsWith("/api/academicholidays/")) return "academics.sessions";
-        if (p.Contains("academic-session") || p.Contains("create-session")) return "academics.sessions";
-        if (p.Contains("/api/class")) return "academics.classes";
-        if (p.Contains("/api/subject")) return "academics.subjects";
-        if (p.Contains("/api/timetable")) return "academics.class-schedule";
-        if (p.Contains("/api/exam")) return "exams.academic-exam";
-        if (p.Contains("/api/transport")) return "management.transport";
-        if (p.Contains("school-by-superadmin") || p.Contains("/api/admin/create") || p.Contains("update-school")) return "management.schools";
-        if (p.Contains("dashboardcard")) return "dashboard.dashboard";
-        if (p.Contains("/api/common/subjects")) return "academics.subjects";
-        if (p.Contains("/api/common/by-school")) return "academics.classes";
+        if (p.StartsWith("/api/staffleaveallocations/mine"))
+            return "dashboard.dashboard";
+        if (p.StartsWith("/api/staffleaveallocations/"))
+            return "management.staff";
+        if (p.StartsWith("/api/principal/invigilation"))
+            return "exams.academic-exam";
+        if (p.StartsWith("/api/staff-career/"))
+            return "management.staff";
+        if (p.StartsWith("/api/accounting/"))
+            return "finance.accounts";
+        if (p.StartsWith("/api/ca/"))
+            return "dashboard.dashboard";
+        if (p.StartsWith("/api/principal/"))
+            return "dashboard.dashboard";
+        if (p.Contains("/api/teacher/syllabus"))
+            return "academics.classes";
+        if (p.Contains("/api/teacher/classes"))
+            return "academics.classes";
+        if (p.Contains("/api/teacher/timetable"))
+            return "academics.class-schedule";
+        if (p.Contains("/api/teacher/workspace"))
+            return "dashboard.dashboard";
+        if (p.Contains("/api/teacher/section-students"))
+            return "attendance.students";
+        if (p.Contains("/api/teacher/student-leave-requests"))
+            return "academics.classes";
+        if (p.Contains("/api/teacher/discussions"))
+            return "academics.classes";
+        if (
+            p.Contains("/api/teacher/teaching-options")
+            || p.Contains("/api/teacher/homework")
+            || p.Contains("/api/teacher/study-materials")
+            || p.Contains("/api/teacher/exam-options")
+            || p.Contains("/api/teacher/exam-resources")
+            || p.Contains("/api/teacher/diary")
+            || p.Contains("/api/teacher/submissions")
+            || p.Contains("/api/teacher/announcements")
+            || p.Contains("/api/teacher/messages")
+        )
+            return "academics.classes";
+        if (p.Contains("/api/teacher/calendar"))
+            return "academics.class-schedule";
+        if (
+            p.Contains("/api/teacher/profile-summary")
+            || p.Contains("/api/teacher/leave")
+            || p.Contains("/api/teacher/payslips")
+            || p.Contains("/api/teacher/documents")
+        )
+            return "dashboard.dashboard";
+        if (p.Contains("student-promotion"))
+            return p.Contains("history") || p.Contains("passed-out")
+                ? "academics.promotion-history"
+                : "academics.student-promotion";
+        if (p.Contains("attendance"))
+            return p.Contains("student") ? "attendance.students" : "attendance.staff";
+        if (p.Contains("fee") || p.Contains("receipt"))
+            return "finance.fees";
+        if (
+            p.Contains("salary")
+            || p.Contains("/staff/assign")
+            || p.Contains("/staff/generate")
+            || p.Contains("/staff/pay")
+            || p.Contains("/staff/history")
+            || p.Contains("/staff/pending")
+        )
+            return "finance.salary";
+        if (p.Contains("/api/schoolcommunityadmin"))
+            return "management.students";
+        if (p.Contains("/api/schoolstudentadmin"))
+            return "management.students";
+        if (p.Contains("/api/student"))
+            return "management.students";
+        if (
+            p.Contains("add-staff")
+            || p.Contains("update-staff")
+            || p.Contains("staff-by-school")
+            || p.Contains("staff-emails")
+            || p.Contains("delete-document")
+            || p.Contains("get-roles")
+        )
+            return "management.staff";
+        if (p.Contains("parent"))
+            return "management.parents";
+        if (p.StartsWith("/api/academicholidays/"))
+            return "academics.sessions";
+        if (p.Contains("academic-session") || p.Contains("create-session"))
+            return "academics.sessions";
+        if (p.Contains("/api/class"))
+            return "academics.classes";
+        if (p.Contains("/api/subject"))
+            return "academics.subjects";
+        if (p.Contains("/api/timetable"))
+            return "academics.class-schedule";
+        if (p.Contains("/api/exam"))
+            return "exams.academic-exam";
+        if (p.Contains("/api/transport"))
+            return "management.transport";
+        if (
+            p.Contains("school-by-superadmin")
+            || p.Contains("/api/admin/create")
+            || p.Contains("update-school")
+        )
+            return "management.schools";
+        if (p.Contains("dashboardcard"))
+            return "dashboard.dashboard";
+        if (p.Contains("/api/common/subjects"))
+            return "academics.subjects";
+        if (p.Contains("/api/common/by-school"))
+            return "academics.classes";
         return null;
     }
 }
-
-
-
-
-

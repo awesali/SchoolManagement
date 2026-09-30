@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Authorization;
+// Backend section: HTTP endpoints and request handling.
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using SchoolManagement.DTOs;
@@ -9,23 +10,33 @@ namespace SchoolManagement.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    // Exposes staff HTTP endpoints and handles their requests.
     public class StaffController : ControllerBase
     {
+        // Dependencies and state used by this component.
         private readonly IStaffRepository _repo;
+
+        // Creates the component with its required dependencies.
         public StaffController(IStaffRepository repo)
         {
             _repo = repo;
         }
+
         [Authorize]
         [HttpPost("staff/mark-attendance")]
+        // API actions that validate requests and return responses.
         public async Task<IActionResult> MarkStaffAttendance([FromBody] MarkStaffAttendanceDto dto)
         {
             var result = await _repo.MarkStaffAttendanceAsync(dto);
             return Ok(result);
         }
+
         [Authorize]
         [HttpGet("staff/attendance-history")]
-        public async Task<IActionResult> GetStaffAttendanceHistory(DateTime fromDate, DateTime toDate)
+        public async Task<IActionResult> GetStaffAttendanceHistory(
+            DateTime fromDate,
+            DateTime toDate
+        )
         {
             var result = await _repo.GetStaffAttendanceHistoryAsync(fromDate, toDate);
             return Ok(result);
@@ -37,6 +48,7 @@ namespace SchoolManagement.Controllers
             var result = await _repo.CheckTodayAttendanceAsync();
             return Ok(result);
         }
+
         [HttpPost("assign")]
         public async Task<IActionResult> AssignSalary(AssignSalaryDto dto)
         {
@@ -52,8 +64,7 @@ namespace SchoolManagement.Controllers
         [HttpPost("generate")]
         public async Task<IActionResult> Generate(int month, int year, int schoolId)
         {
-            return Ok(
-                await _repo.GenerateMonthlySalary(month, year, schoolId));
+            return Ok(await _repo.GenerateMonthlySalary(month, year, schoolId));
         }
 
         [HttpPost("pay")]
@@ -65,8 +76,7 @@ namespace SchoolManagement.Controllers
         [HttpGet("history/{staffId}")]
         public async Task<IActionResult> History(int staffId)
         {
-            return Ok(
-                await _repo.GetSalaryHistory(staffId));
+            return Ok(await _repo.GetSalaryHistory(staffId));
         }
 
         [HttpGet("history")]
@@ -84,8 +94,7 @@ namespace SchoolManagement.Controllers
         [HttpGet("pending/{staffId}")]
         public async Task<IActionResult> PendingByStaff(int staffId)
         {
-            return Ok(
-                await _repo.GetPendingSalaryByStaff(staffId));
+            return Ok(await _repo.GetPendingSalaryByStaff(staffId));
         }
 
         [HttpGet("dashboard")]

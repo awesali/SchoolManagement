@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+// Backend section: database queries and persistence.
+using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
@@ -6,13 +7,19 @@ using SchoolManagement.Model;
 
 namespace SchoolManagement.Repository
 {
+    // Reads and updates timetable data.
     public class TimetableRepository : ITimetableRepository
     {
+        // Dependencies and state used by this component.
         private readonly AppDbContext _context;
+
+        // Creates the component with its required dependencies.
         public TimetableRepository(AppDbContext context)
         {
             _context = context;
         }
+
+        // Repository operations for querying and updating stored data.
         public async Task<bool> SaveTimetableAsync(SaveTimetableDto dto)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
@@ -22,10 +29,9 @@ namespace SchoolManagement.Repository
                 var schoolId = dto.SchoolId;
 
                 // ✅ CHECK: Timetable already exists or not
-                var timetableExists = await _context.Timetables
-                    .AnyAsync(t => t.SectionId == sectionId
-                                && t.SchoolId == schoolId
-                                && t.IsActive);
+                var timetableExists = await _context.Timetables.AnyAsync(t =>
+                    t.SectionId == sectionId && t.SchoolId == schoolId && t.IsActive
+                );
 
                 if (timetableExists)
                 {
@@ -43,14 +49,16 @@ namespace SchoolManagement.Repository
                 // =========================
                 // SAVE PERIODS
                 // =========================
-                var periods = dto.Periods.Select(p => new TimetablePeriods
-                {
-                    SectionId = sectionId,
-                    PeriodNumber = p.PeriodNumber,
-                    StartTime = p.StartTime,
-                    EndTime = p.EndTime,
-                    IsBreak = p.IsBreak
-                }).ToList();
+                var periods = dto
+                    .Periods.Select(p => new TimetablePeriods
+                    {
+                        SectionId = sectionId,
+                        PeriodNumber = p.PeriodNumber,
+                        StartTime = p.StartTime,
+                        EndTime = p.EndTime,
+                        IsBreak = p.IsBreak,
+                    })
+                    .ToList();
 
                 _context.TimetablePeriods.AddRange(periods);
                 await _context.SaveChangesAsync();
@@ -58,16 +66,22 @@ namespace SchoolManagement.Repository
                 // =========================
                 // SAVE TIMETABLE SLOTS
                 // =========================
-                var slots = dto.Days.SelectMany(day => day.Periods.Select(p => new Timetables
-                {
-                    SectionId = sectionId,
-                    DayOfWeek = day.DayOfWeek,
-                    PeriodId = periods.Single(period => period.PeriodNumber == p.PeriodId).Id,
-                    SubjectId = p.SubjectId,
-                    SchoolId = schoolId,
-                    IsActive = true,
-                    Created_Date = DateTime.UtcNow
-                })).ToList();
+                var slots = dto
+                    .Days.SelectMany(day =>
+                        day.Periods.Select(p => new Timetables
+                        {
+                            SectionId = sectionId,
+                            DayOfWeek = day.DayOfWeek,
+                            PeriodId = periods
+                                .Single(period => period.PeriodNumber == p.PeriodId)
+                                .Id,
+                            SubjectId = p.SubjectId,
+                            SchoolId = schoolId,
+                            IsActive = true,
+                            Created_Date = DateTime.UtcNow,
+                        })
+                    )
+                    .ToList();
 
                 _context.Timetables.AddRange(slots);
                 await _context.SaveChangesAsync();
@@ -84,8 +98,8 @@ namespace SchoolManagement.Repository
 
         public async Task<object> GetTimetableAsync(int sectionId)
         {
-            var periods = await _context.TimetablePeriods
-                .Where(p => p.SectionId == sectionId)
+            var periods = await _context
+                .TimetablePeriods.Where(p => p.SectionId == sectionId)
                 .OrderBy(p => p.PeriodNumber)
                 .Select(p => new
                 {
@@ -94,19 +108,26 @@ namespace SchoolManagement.Repository
                     p.PeriodNumber,
                     p.StartTime,
                     p.EndTime,
-                    p.IsBreak
-                }).ToListAsync();
+                    p.IsBreak,
+                })
+                .ToListAsync();
 
-            var slots = await _context.Timetables
-                .Where(t => t.SectionId == sectionId && t.IsActive)
+            var slots = await _context
+                .Timetables.Where(t => t.SectionId == sectionId && t.IsActive)
                 .Select(t => new
                 {
                     t.DayOfWeek,
-                    PeriodId = _context.TimetablePeriods.Where(p => p.Id == t.PeriodId && p.SectionId == t.SectionId)
-                        .Select(p => (int?)p.PeriodNumber).FirstOrDefault() ?? t.PeriodId,
+                    PeriodId = _context
+                        .TimetablePeriods.Where(p =>
+                            p.Id == t.PeriodId && p.SectionId == t.SectionId
+                        )
+                        .Select(p => (int?)p.PeriodNumber)
+                        .FirstOrDefault()
+                        ?? t.PeriodId,
                     t.SubjectId,
-                    SubjectName = t.Subject != null ? t.Subject.SubjectName : null
-                }).ToListAsync();
+                    SubjectName = t.Subject != null ? t.Subject.SubjectName : null,
+                })
+                .ToListAsync();
 
             return new { periods, slots };
         }
@@ -118,8 +139,8 @@ namespace SchoolManagement.Repository
             {
                 var sectionId = dto.SectionId;
 
-                var existingPeriods = await _context.TimetablePeriods
-                .Where(p => p.SectionId == sectionId)
+                var existingPeriods = await _context
+                    .TimetablePeriods.Where(p => p.SectionId == sectionId)
                     .ToListAsync();
                 _context.TimetablePeriods.RemoveRange(existingPeriods);
 
@@ -127,33 +148,41 @@ namespace SchoolManagement.Repository
                 if (periodNumbers.Count != periodNumbers.Distinct().Count())
                     throw new Exception("Duplicate period numbers found");
 
-                var periods = dto.Periods.Select(p => new TimetablePeriods
-                {
-                    SectionId = sectionId,
-                    PeriodNumber = p.PeriodNumber,
-                    StartTime = p.StartTime,
-                    EndTime = p.EndTime,
-                    IsBreak = p.IsBreak
-                }).ToList();
+                var periods = dto
+                    .Periods.Select(p => new TimetablePeriods
+                    {
+                        SectionId = sectionId,
+                        PeriodNumber = p.PeriodNumber,
+                        StartTime = p.StartTime,
+                        EndTime = p.EndTime,
+                        IsBreak = p.IsBreak,
+                    })
+                    .ToList();
 
                 _context.TimetablePeriods.AddRange(periods);
                 await _context.SaveChangesAsync();
 
-                var existingSlots = await _context.Timetables
-                .Where(t => t.SectionId == sectionId && t.IsActive)
+                var existingSlots = await _context
+                    .Timetables.Where(t => t.SectionId == sectionId && t.IsActive)
                     .ToListAsync();
                 _context.Timetables.RemoveRange(existingSlots);
 
-                var slots = dto.Days.SelectMany(day => day.Periods.Select(p => new Timetables
-                {
-                    SectionId = sectionId,
-                    DayOfWeek = day.DayOfWeek,
-                    PeriodId = periods.Single(period => period.PeriodNumber == p.PeriodId).Id,
-                    SubjectId = p.SubjectId,
-                    SchoolId = dto.SchoolId,
-                    IsActive = true,
-                    Created_Date = DateTime.UtcNow
-                })).ToList();
+                var slots = dto
+                    .Days.SelectMany(day =>
+                        day.Periods.Select(p => new Timetables
+                        {
+                            SectionId = sectionId,
+                            DayOfWeek = day.DayOfWeek,
+                            PeriodId = periods
+                                .Single(period => period.PeriodNumber == p.PeriodId)
+                                .Id,
+                            SubjectId = p.SubjectId,
+                            SchoolId = dto.SchoolId,
+                            IsActive = true,
+                            Created_Date = DateTime.UtcNow,
+                        })
+                    )
+                    .ToList();
 
                 _context.Timetables.AddRange(slots);
                 await _context.SaveChangesAsync();

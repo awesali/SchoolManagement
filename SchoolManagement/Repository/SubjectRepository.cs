@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+// Backend section: database queries and persistence.
+using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
@@ -6,68 +7,88 @@ using SchoolManagement.Model;
 
 namespace SchoolManagement.Repository
 {
+    // Reads and updates subject data.
     public class SubjectRepository : ISubjectRepository
     {
+        // Dependencies and state used by this component.
         private readonly AppDbContext _context;
+
+        // Creates the component with its required dependencies.
         public SubjectRepository(AppDbContext context)
         {
             _context = context;
         }
-        public async Task<(List<SubjectDto> Data, int TotalRecords)> GetSubjectsBySchoolIdAsync(int schoolId, int page, int pageSize)
+
+        // Repository operations for querying and updating stored data.
+        public async Task<(List<SubjectDto> Data, int TotalRecords)> GetSubjectsBySchoolIdAsync(
+            int schoolId,
+            int page,
+            int pageSize
+        )
         {
-            var query = from s in _context.Subjects
-                        join st in _context.SubjectTeachers on s.Id equals st.SubjectId into stGroup
-                        from st in stGroup.DefaultIfEmpty()
-                        join staff in _context.Staff on st.StaffId equals staff.Id into staffGroup
-                        from staff in staffGroup.DefaultIfEmpty()
-                        where s.SchoolId == schoolId && s.IsActive
-                        orderby s.Id descending
-                        select new SubjectDto
-                        {
-                            Id = s.Id,
-                            SubjectName = s.SubjectName,
-                            SchoolId = s.SchoolId,
-                            Created_Date = s.Created_Date,
-                            Modified_Date = s.Modified_Date,
-                            IsActive = s.IsActive,
-                            TeacherId = staff != null ? staff.Id : (int?)null,
-                            TeacherName = staff != null ? staff.Name : null
-                        };
+            var query =
+                from s in _context.Subjects
+                join st in _context.SubjectTeachers on s.Id equals st.SubjectId into stGroup
+                from st in stGroup.DefaultIfEmpty()
+                join staff in _context.Staff on st.StaffId equals staff.Id into staffGroup
+                from staff in staffGroup.DefaultIfEmpty()
+                where s.SchoolId == schoolId && s.IsActive
+                orderby s.Id descending
+                select new SubjectDto
+                {
+                    Id = s.Id,
+                    SubjectName = s.SubjectName,
+                    SchoolId = s.SchoolId,
+                    Created_Date = s.Created_Date,
+                    Modified_Date = s.Modified_Date,
+                    IsActive = s.IsActive,
+                    TeacherId = staff != null ? staff.Id : (int?)null,
+                    TeacherName = staff != null ? staff.Name : null,
+                };
 
             var total = await query.CountAsync();
             var data = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
             return (data, total);
         }
+
         public async Task<ApiResponse<SubjectDto>> AddSubjectAsync(AddSubjectDto dto)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                var duplicate = await _context.Subjects
-                    .AnyAsync(s => s.SubjectName == dto.SubjectName && s.SchoolId == dto.SchoolId && s.IsActive);
+                var duplicate = await _context.Subjects.AnyAsync(s =>
+                    s.SubjectName == dto.SubjectName && s.SchoolId == dto.SchoolId && s.IsActive
+                );
 
                 if (duplicate)
-                    return new ApiResponse<SubjectDto> { Success = false, Message = "Subject already exists", Data = null };
+                    return new ApiResponse<SubjectDto>
+                    {
+                        Success = false,
+                        Message = "Subject already exists",
+                        Data = null,
+                    };
 
                 var subject = new Subjects
                 {
                     SubjectName = dto.SubjectName,
                     SchoolId = dto.SchoolId,
                     Created_Date = DateTime.UtcNow,
-                    IsActive = true
+                    IsActive = true,
                 };
 
                 _context.Subjects.Add(subject);
                 await _context.SaveChangesAsync();
 
-                _context.SubjectTeachers.Add(new SubjectTeachers
-                {
-                    SubjectId = subject.Id,
-                    StaffId = dto.StaffId,
-                    SchoolId = dto.SchoolId,
-                    Created_Date = DateTime.UtcNow,
-                    IsActive = true
-                });
+                _context.SubjectTeachers.Add(
+                    new SubjectTeachers
+                    {
+                        SubjectId = subject.Id,
+                        StaffId = dto.StaffId,
+                        SchoolId = dto.SchoolId,
+                        Created_Date = DateTime.UtcNow,
+                        IsActive = true,
+                    }
+                );
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
@@ -86,35 +107,59 @@ namespace SchoolManagement.Repository
                         Created_Date = subject.Created_Date,
                         IsActive = subject.IsActive,
                         TeacherId = teacher?.Id,
-                        TeacherName = teacher?.Name
-                    }
+                        TeacherName = teacher?.Name,
+                    },
                 };
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return new ApiResponse<SubjectDto> { Success = false, Message = ex.Message, Data = null };
+                return new ApiResponse<SubjectDto>
+                {
+                    Success = false,
+                    Message = ex.Message,
+                    Data = null,
+                };
             }
         }
+
         public async Task<ApiResponse<string>> UpdateSubjectAsync(UpdateSubjectDto dto)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                var subject = await _context.Subjects.FirstOrDefaultAsync(s => s.Id == dto.Id && s.IsActive);
+                var subject = await _context.Subjects.FirstOrDefaultAsync(s =>
+                    s.Id == dto.Id && s.IsActive
+                );
                 if (subject == null)
-                    return new ApiResponse<string> { Success = false, Message = "Subject not found", Data = null };
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Subject not found",
+                        Data = null,
+                    };
 
-                var duplicate = await _context.Subjects
-                    .AnyAsync(s => s.SubjectName == dto.SubjectName && s.SchoolId == subject.SchoolId && s.Id != dto.Id && s.IsActive);
+                var duplicate = await _context.Subjects.AnyAsync(s =>
+                    s.SubjectName == dto.SubjectName
+                    && s.SchoolId == subject.SchoolId
+                    && s.Id != dto.Id
+                    && s.IsActive
+                );
 
                 if (duplicate)
-                    return new ApiResponse<string> { Success = false, Message = "Subject name already exists", Data = null };
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Subject name already exists",
+                        Data = null,
+                    };
 
                 subject.SubjectName = dto.SubjectName;
                 subject.Modified_Date = DateTime.UtcNow;
 
-                var subjectTeacher = await _context.SubjectTeachers.FirstOrDefaultAsync(st => st.SubjectId == dto.Id && st.IsActive);
+                var subjectTeacher = await _context.SubjectTeachers.FirstOrDefaultAsync(st =>
+                    st.SubjectId == dto.Id && st.IsActive
+                );
                 if (subjectTeacher != null)
                 {
                     subjectTeacher.StaffId = dto.StaffId;
@@ -122,17 +167,19 @@ namespace SchoolManagement.Repository
                 }
                 else
                 {
-                    _context.SubjectTeachers.Add(new SubjectTeachers
-                    {
-                        SubjectId = dto.Id,
-                        StaffId = dto.StaffId,
-                        SchoolId = subject.SchoolId,
-                        Created_Date = DateTime.UtcNow,
-                        IsActive = true
-                    });
+                    _context.SubjectTeachers.Add(
+                        new SubjectTeachers
+                        {
+                            SubjectId = dto.Id,
+                            StaffId = dto.StaffId,
+                            SchoolId = subject.SchoolId,
+                            Created_Date = DateTime.UtcNow,
+                            IsActive = true,
+                        }
+                    );
                 }
-                var sectionMappings = await _context.SectionSubjectTeachers
-                    .Where(x => x.SubjectId == dto.Id && x.IsActive)
+                var sectionMappings = await _context
+                    .SectionSubjectTeachers.Where(x => x.SubjectId == dto.Id && x.IsActive)
                     .ToListAsync();
 
                 foreach (var mapping in sectionMappings)
@@ -141,12 +188,22 @@ namespace SchoolManagement.Repository
                 }
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
-                return new ApiResponse<string> { Success = true, Message = "Subject updated successfully", Data = null };
+                return new ApiResponse<string>
+                {
+                    Success = true,
+                    Message = "Subject updated successfully",
+                    Data = null,
+                };
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return new ApiResponse<string> { Success = false, Message = ex.Message, Data = null };
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = ex.Message,
+                    Data = null,
+                };
             }
         }
 
@@ -182,27 +239,29 @@ namespace SchoolManagement.Repository
         //    }
         //}
         public async Task<ApiResponse<string>> AssignSubjectsToSectionAsync(
-    AssignSubjectToSectionDto dto)
+            AssignSubjectToSectionDto dto
+        )
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
             {
-                var sectionExists = await _context.SectionDetails
-                    .AnyAsync(s => s.Id == dto.SectionId && s.IsActive);
+                var sectionExists = await _context.SectionDetails.AnyAsync(s =>
+                    s.Id == dto.SectionId && s.IsActive
+                );
 
                 if (!sectionExists)
                 {
                     return new ApiResponse<string>
                     {
                         Success = false,
-                        Message = "Section not found"
+                        Message = "Section not found",
                     };
                 }
 
                 // Deactivate old section-subject mappings
-                var existingSectionSubjects = await _context.SectionSubjects
-                    .Where(x => x.SectionId == dto.SectionId && x.IsActive)
+                var existingSectionSubjects = await _context
+                    .SectionSubjects.Where(x => x.SectionId == dto.SectionId && x.IsActive)
                     .ToListAsync();
 
                 existingSectionSubjects.ForEach(x =>
@@ -212,8 +271,8 @@ namespace SchoolManagement.Repository
                 });
 
                 // Deactivate old section-subject-teacher mappings
-                var existingMappings = await _context.SectionSubjectTeachers
-                    .Where(x => x.SectionId == dto.SectionId && x.IsActive)
+                var existingMappings = await _context
+                    .SectionSubjectTeachers.Where(x => x.SectionId == dto.SectionId && x.IsActive)
                     .ToListAsync();
 
                 existingMappings.ForEach(x =>
@@ -224,20 +283,21 @@ namespace SchoolManagement.Repository
                 foreach (var subjectId in dto.SubjectIds.Distinct())
                 {
                     // Insert SectionSubjects
-                    _context.SectionSubjects.Add(new SectionSubjects
-                    {
-                        SectionId = dto.SectionId,
-                        SubjectId = subjectId,
-                        SchoolId = dto.SchoolId,
-                        Created_Date = DateTime.UtcNow,
-                        IsActive = true
-                    });
+                    _context.SectionSubjects.Add(
+                        new SectionSubjects
+                        {
+                            SectionId = dto.SectionId,
+                            SubjectId = subjectId,
+                            SchoolId = dto.SchoolId,
+                            Created_Date = DateTime.UtcNow,
+                            IsActive = true,
+                        }
+                    );
 
                     // Find assigned teacher
-                    var teacher = await _context.SubjectTeachers
-                        .FirstOrDefaultAsync(x =>
-                            x.SubjectId == subjectId &&
-                            x.IsActive);
+                    var teacher = await _context.SubjectTeachers.FirstOrDefaultAsync(x =>
+                        x.SubjectId == subjectId && x.IsActive
+                    );
 
                     if (teacher != null)
                     {
@@ -249,8 +309,9 @@ namespace SchoolManagement.Repository
                                 StaffId = teacher.StaffId,
                                 SchoolId = dto.SchoolId,
                                 Created_Date = DateTime.UtcNow,
-                                IsActive = true
-                            });
+                                IsActive = true,
+                            }
+                        );
                     }
                 }
 
@@ -260,39 +321,34 @@ namespace SchoolManagement.Repository
                 return new ApiResponse<string>
                 {
                     Success = true,
-                    Message = "Subjects assigned successfully"
+                    Message = "Subjects assigned successfully",
                 };
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
 
-                return new ApiResponse<string>
-                {
-                    Success = false,
-                    Message = ex.Message
-                };
+                return new ApiResponse<string> { Success = false, Message = ex.Message };
             }
         }
-        public async Task<List<GetSectionSubjectDto>> GetSubjectsBySectionAsync(int sectionId, int schoolId)
+
+        public async Task<List<GetSectionSubjectDto>> GetSubjectsBySectionAsync(
+            int sectionId,
+            int schoolId
+        )
         {
             var result = await (
                 from ss in _context.SectionSubjects
-                join s in _context.Subjects
-                on ss.SubjectId equals s.Id
-                where ss.SectionId == sectionId
-                      && ss.SchoolId == schoolId
-                      && ss.IsActive == true
-                      && s.IsActive == true
-                select new GetSectionSubjectDto
-                {
-                    SubjectId = s.Id,
-                    SubjectName = s.SubjectName
-                }
+                join s in _context.Subjects on ss.SubjectId equals s.Id
+                where
+                    ss.SectionId == sectionId
+                    && ss.SchoolId == schoolId
+                    && ss.IsActive == true
+                    && s.IsActive == true
+                select new GetSectionSubjectDto { SubjectId = s.Id, SubjectName = s.SubjectName }
             ).ToListAsync();
 
             return result;
         }
-
     }
 }

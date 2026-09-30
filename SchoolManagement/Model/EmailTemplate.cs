@@ -1,5 +1,7 @@
-﻿namespace SchoolManagement.Model
+// Backend section: domain and database models.
+namespace SchoolManagement.Model
 {
+    // Represents email template domain data.
     public class EmailTemplate
     {
         public int Id { get; set; }

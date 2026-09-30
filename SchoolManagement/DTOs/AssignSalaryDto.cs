@@ -1,5 +1,7 @@
-﻿namespace SchoolManagement.DTOs
+// Backend section: request and response data contracts.
+namespace SchoolManagement.DTOs
 {
+    // Defines the assign salary request and response data.
     public class AssignSalaryDto
     {
         public int StaffId { get; set; }

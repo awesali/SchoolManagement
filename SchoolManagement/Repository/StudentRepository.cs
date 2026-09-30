@@ -1,26 +1,34 @@
+// Backend section: database queries and persistence.
+using System.Diagnostics.Eventing.Reader;
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
 using SchoolManagement.Model;
 using SchoolManagement.Service;
-using System.Diagnostics.Eventing.Reader;
-using System.Security.Claims;
 using static Azure.Core.HttpHeader;
 
 namespace SchoolManagement.Repository
 {
+    // Reads and updates student data.
     public class StudentRepository : IStudentRepository
     {
+        // Dependencies and state used by this component.
         private readonly AppDbContext _context;
         private readonly ICommonRepository _common;
         private readonly IWebHostEnvironment _env;
         private readonly IEmailService _emailService;
         private readonly IHttpContextAccessor _httpContextAccessor;
 
-
-
-        public StudentRepository(AppDbContext context, ICommonRepository common, IWebHostEnvironment env, IEmailService emailService, IHttpContextAccessor httpContextAccessor)
+        // Creates the component with its required dependencies.
+        public StudentRepository(
+            AppDbContext context,
+            ICommonRepository common,
+            IWebHostEnvironment env,
+            IEmailService emailService,
+            IHttpContextAccessor httpContextAccessor
+        )
         {
             _context = context;
             _common = common;
@@ -28,32 +36,80 @@ namespace SchoolManagement.Repository
             _emailService = emailService;
             _httpContextAccessor = httpContextAccessor;
         }
+
+        // Repository operations for querying and updating stored data.
         public async Task<ApiResponse<string>> UpdateStudentAsync(StudentUpdateDto dto)
         {
-            var admissionTypes = new[] { "New Admission", "Previous School Transfer", "Re-admission" };
-            dto.AdmissionType = admissionTypes.FirstOrDefault(type => string.Equals(type, dto.AdmissionType?.Trim(), StringComparison.OrdinalIgnoreCase));
+            var admissionTypes = new[]
+            {
+                "New Admission",
+                "Previous School Transfer",
+                "Re-admission",
+            };
+            dto.AdmissionType = admissionTypes.FirstOrDefault(type =>
+                string.Equals(type, dto.AdmissionType?.Trim(), StringComparison.OrdinalIgnoreCase)
+            );
             if (dto.AdmissionType == null)
-                return new ApiResponse<string> { Success = false, Message = "Select a valid admission type." };
-            if (string.IsNullOrWhiteSpace(dto.Address) || string.IsNullOrWhiteSpace(dto.City) || string.IsNullOrWhiteSpace(dto.State) || string.IsNullOrWhiteSpace(dto.Country))
-                return new ApiResponse<string> { Success = false, Message = "Complete the required student address details." };
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Select a valid admission type.",
+                };
+            if (
+                string.IsNullOrWhiteSpace(dto.Address)
+                || string.IsNullOrWhiteSpace(dto.City)
+                || string.IsNullOrWhiteSpace(dto.State)
+                || string.IsNullOrWhiteSpace(dto.Country)
+            )
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Complete the required student address details.",
+                };
             if (!System.Text.RegularExpressions.Regex.IsMatch(dto.PinCode ?? "", @"^[1-9]\d{5}$"))
-                return new ApiResponse<string> { Success = false, Message = "Enter a valid 6-digit PIN code." };
-            if (dto.AdmissionType == "Previous School Transfer" && (string.IsNullOrWhiteSpace(dto.PreviousSchoolName) || string.IsNullOrWhiteSpace(dto.PreviousClass)))
-                return new ApiResponse<string> { Success = false, Message = "Previous school name and last class attended are required." };
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Enter a valid 6-digit PIN code.",
+                };
+            if (
+                dto.AdmissionType == "Previous School Transfer"
+                && (
+                    string.IsNullOrWhiteSpace(dto.PreviousSchoolName)
+                    || string.IsNullOrWhiteSpace(dto.PreviousClass)
+                )
+            )
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Previous school name and last class attended are required.",
+                };
             if (dto.GenderCode != null)
             {
                 dto.GenderCode = dto.GenderCode.Trim().ToUpperInvariant();
                 if (!GenderCodes.IsValid(dto.GenderCode))
-                    return new ApiResponse<string> { Success = false, Message = "Invalid gender code." };
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Invalid gender code.",
+                    };
             }
 
             if (dto.ProfilePicture != null)
             {
                 var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp" };
                 if (!allowedTypes.Contains(dto.ProfilePicture.ContentType.ToLowerInvariant()))
-                    return new ApiResponse<string> { Success = false, Message = "Profile picture must be a JPG, PNG, or WebP image." };
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Profile picture must be a JPG, PNG, or WebP image.",
+                    };
                 if (dto.ProfilePicture.Length == 0 || dto.ProfilePicture.Length > 5 * 1024 * 1024)
-                    return new ApiResponse<string> { Success = false, Message = "Profile picture must be non-empty and no larger than 5 MB." };
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Profile picture must be non-empty and no larger than 5 MB.",
+                    };
             }
 
             var previousPicturePaths = new List<string>();
@@ -62,15 +118,20 @@ namespace SchoolManagement.Repository
             try
             {
                 // 1️⃣ Get existing student
-                var student = await _context.Students
-                    .FirstOrDefaultAsync(s => s.Id == dto.Id);
+                var student = await _context.Students.FirstOrDefaultAsync(s => s.Id == dto.Id);
 
                 if (student == null)
-                    return new ApiResponse<string> { Success = false, Message = "Student not found", Data = null };
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Student not found",
+                        Data = null,
+                    };
 
                 // 2️⃣ Update Parent (if provided)
-                var parent = await _context.ParentDetails
-                    .FirstOrDefaultAsync(p => p.Id == student.ParentId);
+                var parent = await _context.ParentDetails.FirstOrDefaultAsync(p =>
+                    p.Id == student.ParentId
+                );
 
                 if (dto.Parent != null && parent != null)
                 {
@@ -100,8 +161,8 @@ namespace SchoolManagement.Repository
                 if (!string.IsNullOrEmpty(dto.Email))
                     student.Email = dto.Email;
                 if (!string.IsNullOrEmpty(dto.PhoneNumber))
-                    student.PhoneNumber = dto.PhoneNumber; 
-                
+                    student.PhoneNumber = dto.PhoneNumber;
+
                 if (!string.IsNullOrEmpty(dto.Rollnumber))
                     student.Rollnumber = dto.Rollnumber;
 
@@ -114,18 +175,39 @@ namespace SchoolManagement.Repository
                 student.Country = dto.Country?.Trim();
                 student.PinCode = dto.PinCode?.Trim();
                 student.AdmissionType = dto.AdmissionType;
-                student.PreviousSchoolName = dto.AdmissionType == "Previous School Transfer" ? dto.PreviousSchoolName?.Trim() : null;
-                student.PreviousSchoolAddress = dto.AdmissionType == "Previous School Transfer" ? dto.PreviousSchoolAddress?.Trim() : null;
-                student.PreviousClass = dto.AdmissionType == "Previous School Transfer" ? dto.PreviousClass?.Trim() : null;
-                student.PreviousBoard = dto.AdmissionType == "Previous School Transfer" ? dto.PreviousBoard?.Trim() : null;
-                student.TransferCertificateNumber = dto.AdmissionType == "Previous School Transfer" ? dto.TransferCertificateNumber?.Trim() : null;
-                student.TransferCertificateDate = dto.AdmissionType == "Previous School Transfer" ? dto.TransferCertificateDate : null;
-                student.ReasonForLeaving = dto.AdmissionType == "Previous School Transfer" ? dto.ReasonForLeaving?.Trim() : null;                student.Updated_By = 1;
+                student.PreviousSchoolName =
+                    dto.AdmissionType == "Previous School Transfer"
+                        ? dto.PreviousSchoolName?.Trim()
+                        : null;
+                student.PreviousSchoolAddress =
+                    dto.AdmissionType == "Previous School Transfer"
+                        ? dto.PreviousSchoolAddress?.Trim()
+                        : null;
+                student.PreviousClass =
+                    dto.AdmissionType == "Previous School Transfer"
+                        ? dto.PreviousClass?.Trim()
+                        : null;
+                student.PreviousBoard =
+                    dto.AdmissionType == "Previous School Transfer"
+                        ? dto.PreviousBoard?.Trim()
+                        : null;
+                student.TransferCertificateNumber =
+                    dto.AdmissionType == "Previous School Transfer"
+                        ? dto.TransferCertificateNumber?.Trim()
+                        : null;
+                student.TransferCertificateDate =
+                    dto.AdmissionType == "Previous School Transfer"
+                        ? dto.TransferCertificateDate
+                        : null;
+                student.ReasonForLeaving =
+                    dto.AdmissionType == "Previous School Transfer"
+                        ? dto.ReasonForLeaving?.Trim()
+                        : null;
+                student.Updated_By = 1;
                 student.Modified_Date = DateTime.Now;
 
                 if (dto.IsActive.HasValue)
                     student.IsActive = dto.IsActive.Value;
-
 
                 student.Updated_By = 1;
                 student.Modified_Date = DateTime.Now;
@@ -135,19 +217,30 @@ namespace SchoolManagement.Repository
                 // through the promotion/enrollment workflow so history is preserved.
                 if (dto.ClassId.HasValue || dto.SectionId.HasValue || dto.SessionId.HasValue)
                 {
-                    var enrollment = await _context.StudentEnrollment
-                        .Where(e => e.StudentId == student.Id && e.IsActive)
+                    var enrollment = await _context
+                        .StudentEnrollment.Where(e => e.StudentId == student.Id && e.IsActive)
                         .OrderByDescending(e => e.EnrollmentDate)
                         .FirstOrDefaultAsync();
 
                     if (enrollment != null)
                     {
                         var placementChanged =
-                            (dto.ClassId.HasValue && dto.ClassId.Value != enrollment.ClassId) ||
-                            (dto.SectionId.HasValue && dto.SectionId.Value != enrollment.SectionId) ||
-                            (dto.SessionId.HasValue && dto.SessionId.Value != enrollment.SessionId);
+                            (dto.ClassId.HasValue && dto.ClassId.Value != enrollment.ClassId)
+                            || (
+                                dto.SectionId.HasValue
+                                && dto.SectionId.Value != enrollment.SectionId
+                            )
+                            || (
+                                dto.SessionId.HasValue
+                                && dto.SessionId.Value != enrollment.SessionId
+                            );
                         if (placementChanged)
-                            return new ApiResponse<string> { Success = false, Message = "Class, section, or session cannot be changed from Edit Student. Use Student Promotion to create a new enrollment." };
+                            return new ApiResponse<string>
+                            {
+                                Success = false,
+                                Message =
+                                    "Class, section, or session cannot be changed from Edit Student. Use Student Promotion to create a new enrollment.",
+                            };
 
                         enrollment.AdmissionType = dto.AdmissionType;
 
@@ -163,26 +256,35 @@ namespace SchoolManagement.Repository
                 // 5️⃣ Handle Student Documents
                 if (dto.Files != null && dto.Files.Count > 0)
                 {
-                    var folderPath = Path.Combine(_env.WebRootPath, "studentdocs", student.Id.ToString());
+                    var folderPath = Path.Combine(
+                        _env.WebRootPath,
+                        "studentdocs",
+                        student.Id.ToString()
+                    );
 
                     if (!Directory.Exists(folderPath))
                         Directory.CreateDirectory(folderPath);
 
-                    var existingDocs = await _context.Student_Documents
-                        .Where(d => d.StudentId == student.Id)
+                    var existingDocs = await _context
+                        .Student_Documents.Where(d => d.StudentId == student.Id)
                         .ToListAsync();
 
                     for (int i = 0; i < dto.Files.Count; i++)
                     {
                         var file = dto.Files[i];
-                        if (file == null || file.Length == 0) continue;
+                        if (file == null || file.Length == 0)
+                            continue;
 
                         var extension = Path.GetExtension(file.FileName);
-                        var inputName = (dto.DocumentNames != null && dto.DocumentNames.Count > i)
-                            ? dto.DocumentNames[i]
-                            : Path.GetFileNameWithoutExtension(file.FileName);
+                        var inputName =
+                            (dto.DocumentNames != null && dto.DocumentNames.Count > i)
+                                ? dto.DocumentNames[i]
+                                : Path.GetFileNameWithoutExtension(file.FileName);
 
-                        var docName = inputName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)
+                        var docName = inputName.EndsWith(
+                            extension,
+                            StringComparison.OrdinalIgnoreCase
+                        )
                             ? inputName
                             : inputName + extension;
 
@@ -196,17 +298,25 @@ namespace SchoolManagement.Repository
                         }
 
                         // Update existing document if Id provided
-                        if (dto.DocumentIds != null && dto.DocumentIds.Count > i && dto.DocumentIds[i].HasValue)
+                        if (
+                            dto.DocumentIds != null
+                            && dto.DocumentIds.Count > i
+                            && dto.DocumentIds[i].HasValue
+                        )
                         {
-                            var existing = existingDocs
-                                .FirstOrDefault(d => d.Id == dto.DocumentIds[i].Value);
+                            var existing = existingDocs.FirstOrDefault(d =>
+                                d.Id == dto.DocumentIds[i].Value
+                            );
 
                             if (existing != null)
                             {
                                 // Delete old file
                                 if (!string.IsNullOrEmpty(existing.FileUrl))
                                 {
-                                    var oldFilePath = Path.Combine(_env.WebRootPath, existing.FileUrl.TrimStart('/'));
+                                    var oldFilePath = Path.Combine(
+                                        _env.WebRootPath,
+                                        existing.FileUrl.TrimStart('/')
+                                    );
                                     if (File.Exists(oldFilePath))
                                         File.Delete(oldFilePath);
                                 }
@@ -225,7 +335,7 @@ namespace SchoolManagement.Repository
                                 DocumentName = docName,
                                 FileName = file.FileName,
                                 FileUrl = $"/studentdocs/{student.Id}/{uniqueFileName}",
-                                CreatedDate = DateTime.UtcNow
+                                CreatedDate = DateTime.UtcNow,
                             };
 
                             await _context.Student_Documents.AddAsync(newDoc);
@@ -244,13 +354,16 @@ namespace SchoolManagement.Repository
                         { "StudentName", student.StudentName },
                         { "Email", dto.Email },
                         { "SchoolName", "Blue Berry School" }, // You might want to fetch this
-                        { "UpdateDate", DateTime.Now.ToString("dd MMM yyyy") }
+                        { "UpdateDate", DateTime.Now.ToString("dd MMM yyyy") },
                     };
 
                     try
                     {
-                        var (studentSubject, studentBody) = await _emailService
-                            .GetEmailTemplateAsync("STUDENT_UPDATE", studentPlaceholders);
+                        var (studentSubject, studentBody) =
+                            await _emailService.GetEmailTemplateAsync(
+                                "STUDENT_UPDATE",
+                                studentPlaceholders
+                            );
 
                         await _emailService.SendEmailAsync(dto.Email, studentSubject, studentBody);
                     }
@@ -269,15 +382,21 @@ namespace SchoolManagement.Repository
                         { "StudentName", student.StudentName },
                         { "Email", dto.Parent.Email },
                         { "SchoolName", "Blue Berry School" },
-                        { "UpdateDate", DateTime.Now.ToString("dd MMM yyyy") }
+                        { "UpdateDate", DateTime.Now.ToString("dd MMM yyyy") },
                     };
 
                     try
                     {
-                        var (parentSubject, parentBody) = await _emailService
-                            .GetEmailTemplateAsync("PARENT_UPDATE", parentPlaceholders);
+                        var (parentSubject, parentBody) = await _emailService.GetEmailTemplateAsync(
+                            "PARENT_UPDATE",
+                            parentPlaceholders
+                        );
 
-                        await _emailService.SendEmailAsync(dto.Parent.Email, parentSubject, parentBody);
+                        await _emailService.SendEmailAsync(
+                            dto.Parent.Email,
+                            parentSubject,
+                            parentBody
+                        );
                     }
                     catch
                     {
@@ -292,26 +411,47 @@ namespace SchoolManagement.Repository
                     {
                         "image/png" => ".png",
                         "image/webp" => ".webp",
-                        _ => ".jpg"
+                        _ => ".jpg",
                     };
                     var fileName = Guid.NewGuid() + extension;
-                    var folder = Path.Combine(_env.WebRootPath, "profilepictures", "student", student.Id.ToString());
+                    var folder = Path.Combine(
+                        _env.WebRootPath,
+                        "profilepictures",
+                        "student",
+                        student.Id.ToString()
+                    );
                     Directory.CreateDirectory(folder);
                     newPicturePath = Path.Combine(folder, fileName);
                     using (var stream = new FileStream(newPicturePath, FileMode.CreateNew))
                         await picture.CopyToAsync(stream);
 
-                    var existingPicture = await _context.ProfilePictures
-                        .Where(p => p.PersonType == "Student" && p.PersonId == student.Id)
+                    var existingPicture = await _context
+                        .ProfilePictures.Where(p =>
+                            p.PersonType == "Student" && p.PersonId == student.Id
+                        )
                         .OrderByDescending(p => p.IsActive)
                         .ThenByDescending(p => p.Id)
                         .FirstOrDefaultAsync();
-                    if (existingPicture != null && !string.IsNullOrWhiteSpace(existingPicture.FileUrl))
+                    if (
+                        existingPicture != null
+                        && !string.IsNullOrWhiteSpace(existingPicture.FileUrl)
+                    )
                     {
                         var allowedFolder = Path.GetFullPath(folder) + Path.DirectorySeparatorChar;
-                        var previousPath = Path.GetFullPath(Path.Combine(_env.WebRootPath, existingPicture.FileUrl.TrimStart('/')));
-                        if (!previousPath.StartsWith(allowedFolder, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
-                            throw new InvalidOperationException("Previous profile picture path is outside the person's profile folder.");
+                        var previousPath = Path.GetFullPath(
+                            Path.Combine(_env.WebRootPath, existingPicture.FileUrl.TrimStart('/'))
+                        );
+                        if (
+                            !previousPath.StartsWith(
+                                allowedFolder,
+                                OperatingSystem.IsWindows()
+                                    ? StringComparison.OrdinalIgnoreCase
+                                    : StringComparison.Ordinal
+                            )
+                        )
+                            throw new InvalidOperationException(
+                                "Previous profile picture path is outside the person's profile folder."
+                            );
                         previousPicturePaths.Add(previousPath);
                     }
                     if (existingPicture == null)
@@ -320,7 +460,7 @@ namespace SchoolManagement.Repository
                         {
                             PersonType = "Student",
                             PersonId = student.Id,
-                            CreatedDate = DateTime.UtcNow
+                            CreatedDate = DateTime.UtcNow,
                         };
                         _context.ProfilePictures.Add(existingPicture);
                     }
@@ -336,13 +476,26 @@ namespace SchoolManagement.Repository
                 newPicturePath = null;
                 foreach (var previousPath in previousPicturePaths.Distinct())
                 {
-                    try { File.Delete(previousPath); }
-                    catch (Exception cleanupError) when (cleanupError is IOException || cleanupError is UnauthorizedAccessException)
+                    try
                     {
-                        System.Diagnostics.Trace.TraceWarning($"Unable to delete replaced profile picture: {cleanupError.Message}");
+                        File.Delete(previousPath);
+                    }
+                    catch (Exception cleanupError)
+                        when (cleanupError is IOException
+                            || cleanupError is UnauthorizedAccessException
+                        )
+                    {
+                        System.Diagnostics.Trace.TraceWarning(
+                            $"Unable to delete replaced profile picture: {cleanupError.Message}"
+                        );
                     }
                 }
-                return new ApiResponse<string> { Success = true, Message = "Student updated successfully", Data = null };
+                return new ApiResponse<string>
+                {
+                    Success = true,
+                    Message = "Student updated successfully",
+                    Data = null,
+                };
             }
             catch (Exception ex)
             {
@@ -350,13 +503,26 @@ namespace SchoolManagement.Repository
                 // A failed update keeps the previous photo and discards the new upload.
                 if (newPicturePath != null)
                 {
-                    try { File.Delete(newPicturePath); }
-                    catch (Exception cleanupError) when (cleanupError is IOException || cleanupError is UnauthorizedAccessException)
+                    try
                     {
-                        System.Diagnostics.Trace.TraceWarning($"Unable to delete failed profile upload: {cleanupError.Message}");
+                        File.Delete(newPicturePath);
+                    }
+                    catch (Exception cleanupError)
+                        when (cleanupError is IOException
+                            || cleanupError is UnauthorizedAccessException
+                        )
+                    {
+                        System.Diagnostics.Trace.TraceWarning(
+                            $"Unable to delete failed profile upload: {cleanupError.Message}"
+                        );
                     }
                 }
-                return new ApiResponse<string> { Success = false, Message = ex.Message, Data = null };
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = ex.Message,
+                    Data = null,
+                };
             }
         }
 
@@ -365,179 +531,116 @@ namespace SchoolManagement.Repository
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                var doc = await _context.Student_Documents
-                    .FirstOrDefaultAsync(d => d.Id == documentId);
+                var doc = await _context.Student_Documents.FirstOrDefaultAsync(d =>
+                    d.Id == documentId
+                );
 
                 if (doc == null)
-                    return new ApiResponse<string> { Success = false, Message = "Student document not found", Data = null };
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Student document not found",
+                        Data = null,
+                    };
 
                 if (!string.IsNullOrEmpty(doc.FileUrl))
                 {
                     var filePath = Path.Combine(_env.WebRootPath, doc.FileUrl.TrimStart('/'));
-                    if (File.Exists(filePath)) File.Delete(filePath);
+                    if (File.Exists(filePath))
+                        File.Delete(filePath);
                 }
 
                 _context.Student_Documents.Remove(doc);
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
-                return new ApiResponse<string> { Success = true, Message = "Student document deleted successfully", Data = null };
+                return new ApiResponse<string>
+                {
+                    Success = true,
+                    Message = "Student document deleted successfully",
+                    Data = null,
+                };
             }
             catch
             {
                 await transaction.RollbackAsync();
-                return new ApiResponse<string> { Success = false, Message = "Failed to delete document", Data = null };
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Failed to delete document",
+                    Data = null,
+                };
             }
         }
 
         private static int StudentListClassLevel(string name)
         {
-            var label = System.Text.RegularExpressions.Regex.Replace((name ?? "").Trim().ToLowerInvariant(), @"^(class|grade|std\.?|standard)\s*[-:]?\s*", "").Trim();
-            var earlyYears = new Dictionary<string, int> { ["pre nursery"] = -3, ["pre-nursery"] = -3, ["nursery"] = -2, ["lkg"] = -1, ["lower kg"] = -1, ["lower kindergarten"] = -1, ["ukg"] = 0, ["upper kg"] = 0, ["upper kindergarten"] = 0, ["kg"] = 0, ["kindergarten"] = 0 };
-            if (earlyYears.TryGetValue(label, out var earlyLevel)) return earlyLevel;
-            var numeric = System.Text.RegularExpressions.Regex.Match(label, @"^(\d+)\s*(?:st|nd|rd|th)?$");
-            if (numeric.Success && int.TryParse(numeric.Groups[1].Value, out var level)) return level;
-            var roman = Array.IndexOf(new[] { "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii" }, label);
+            var label = System
+                .Text.RegularExpressions.Regex.Replace(
+                    (name ?? "").Trim().ToLowerInvariant(),
+                    @"^(class|grade|std\.?|standard)\s*[-:]?\s*",
+                    ""
+                )
+                .Trim();
+            var earlyYears = new Dictionary<string, int>
+            {
+                ["pre nursery"] = -3,
+                ["pre-nursery"] = -3,
+                ["nursery"] = -2,
+                ["lkg"] = -1,
+                ["lower kg"] = -1,
+                ["lower kindergarten"] = -1,
+                ["ukg"] = 0,
+                ["upper kg"] = 0,
+                ["upper kindergarten"] = 0,
+                ["kg"] = 0,
+                ["kindergarten"] = 0,
+            };
+            if (earlyYears.TryGetValue(label, out var earlyLevel))
+                return earlyLevel;
+            var numeric = System.Text.RegularExpressions.Regex.Match(
+                label,
+                @"^(\d+)\s*(?:st|nd|rd|th)?$"
+            );
+            if (numeric.Success && int.TryParse(numeric.Groups[1].Value, out var level))
+                return level;
+            var roman = Array.IndexOf(
+                new[] { "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii" },
+                label
+            );
             return roman >= 0 ? roman + 1 : int.MaxValue;
         }
 
-        public async Task<(List<StudentDto> Data, int TotalRecords)> GetStudentsBySchoolIdAsync(int schoolId, int page, int pageSize)
+        public async Task<(List<StudentDto> Data, int TotalRecords)> GetStudentsBySchoolIdAsync(
+            int schoolId,
+            int page,
+            int pageSize
+        )
         {
-            var query = from s in _context.Students
-                        join se in _context.StudentEnrollment on s.Id equals se.StudentId into seGroup
-                        from se in seGroup.DefaultIfEmpty()
-                        join c in _context.Classes on se.ClassId equals c.Id into cGroup
-                        from c in cGroup.DefaultIfEmpty()
-                        join sd in _context.SectionDetails on se.SectionId equals sd.Id into sdGroup
-                        from sd in sdGroup.DefaultIfEmpty()
-                        join ac in _context.AcademicSessions on se.SessionId equals ac.Id into acGroup
-                        from ac in acGroup.DefaultIfEmpty()
-                        where s.SchoolId == schoolId && (se == null || se.IsActive)
-                        let currentRollNumber = se != null ? (se.RollNumber ?? s.Rollnumber) : s.Rollnumber
-                        orderby string.IsNullOrEmpty(currentRollNumber) ? 1 : 0,
-                            currentRollNumber.Length,
-                            currentRollNumber,
-                            s.StudentName
-                        select new StudentDto
-                        {
-                             Id = s.Id,
-                             EnrollmentId = se != null ? se.Id : null,
-                            StudentName = s.StudentName,
-                            DOB = s.DOB,
-                            GenderCode = s.GenderCode,
-                            Email = s.Email,
-                            PhoneNumber = s.PhoneNumber,
-                            Address = s.Address,
-                            AddressLine2 = s.AddressLine2,
-                            Landmark = s.Landmark,
-                            City = s.City,
-                            District = s.District,
-                            State = s.State,
-                            Country = s.Country,
-                            PinCode = s.PinCode,
-                            AdmissionType = s.AdmissionType,
-                            PreviousSchoolName = s.PreviousSchoolName,
-                            PreviousSchoolAddress = s.PreviousSchoolAddress,
-                            PreviousClass = s.PreviousClass,
-                            PreviousBoard = s.PreviousBoard,
-                            TransferCertificateNumber = s.TransferCertificateNumber,
-                            TransferCertificateDate = s.TransferCertificateDate,
-                            ReasonForLeaving = s.ReasonForLeaving,
-                            ParentId = s.ParentId,
-                    ParentName = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Name).FirstOrDefault(),
-                    ParentRelationship = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Relationship).FirstOrDefault(),
-                            SchoolId = s.SchoolId,
-                            ClassId = c != null ? (int?)c.Id : null,
-                            RollNumber = currentRollNumber,
-                            ClassName = c != null ? c.ClassName : null,
-                            SectionName = sd != null ? sd.SectionName : null,
-                            AcademicSession = ac != null ? ac.Year_Start : (DateTime?)null,
-                            IsActive = s.IsActive,
-                            ProfilePictureUrl = _context.ProfilePictures
-                                .Where(p => p.PersonType == "Student" && p.PersonId == s.Id && p.IsActive)
-                                .Select(p => p.FileUrl)
-                                .FirstOrDefault(),
-                            Documents = _context.Student_Documents
-                                .Where(d => d.StudentId == s.Id)
-                                .Select(d => new StudentDocumentDto
-                                {
-                                    DocumentId = d.Id,
-                                    DocumentName = d.DocumentName,
-                                    DocumentURL = d.FileUrl,
-                                    CreatedDate = d.CreatedDate
-                                }).ToList()
-                        };
-
-            var total = await query.CountAsync();
-            // Rank the small class catalogue, then apply its order in SQL before pagination.
-            var schoolClasses = await _context.Classes.AsNoTracking()
-                .Where(c => c.SchoolId == schoolId)
-                .Select(c => new { c.Id, c.ClassName }).ToListAsync();
-            var orderedClasses = schoolClasses.OrderBy(c => StudentListClassLevel(c.ClassName))
-                .ThenBy(c => c.ClassName, StringComparer.OrdinalIgnoreCase).ThenBy(c => c.Id).ToList();
-            var studentParameter = System.Linq.Expressions.Expression.Parameter(typeof(StudentDto), "student");
-            System.Linq.Expressions.Expression rank = System.Linq.Expressions.Expression.Constant(int.MaxValue);
-            for (var index = orderedClasses.Count - 1; index >= 0; index--)
-            {
-                var matchesClass = System.Linq.Expressions.Expression.Equal(
-                    System.Linq.Expressions.Expression.Property(studentParameter, nameof(StudentDto.ClassId)),
-                    System.Linq.Expressions.Expression.Convert(System.Linq.Expressions.Expression.Constant(orderedClasses[index].Id), typeof(int?)));
-                rank = System.Linq.Expressions.Expression.Condition(matchesClass,
-                    System.Linq.Expressions.Expression.Constant(index), rank);
-            }
-            var classOrder = System.Linq.Expressions.Expression.Lambda<Func<StudentDto, int>>(rank, studentParameter);
-            var data = await query.OrderBy(classOrder)
-                .ThenBy(s => s.SectionName)
-                .ThenBy(s => string.IsNullOrEmpty(s.RollNumber) ? 1 : 0)
-                .ThenBy(s => s.RollNumber.Length).ThenBy(s => s.RollNumber)
-                .ThenBy(s => s.StudentName).ThenBy(s => s.Id).ThenBy(s => s.EnrollmentId)
-                .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
-            return (data, total);
-        }
-        public async Task<List<AttendanceHistoryDto>> GetStudentProfileAttendanceAsync(int schoolId, int studentId, DateTime from, DateTime to)
-        {
-            var rangeStart = from.Date;
-            var rangeEnd = to.Date.AddDays(1);
-            return await (from a in _context.StudentAttendance
-                join student in _context.Students on a.Student_Id equals student.Id
-                where a.School_Id == schoolId && student.SchoolId == schoolId && a.Student_Id == studentId && a.IsActive
-                    && a.Attendance_Date >= rangeStart && a.Attendance_Date < rangeEnd
-                orderby a.Attendance_Date descending
-                select new AttendanceHistoryDto { StudentId = student.Id, StudentName = student.StudentName,
-                    EnrollmentId = a.EnrollmentId, AttendanceDate = a.Attendance_Date, Status = a.Status }).ToListAsync();
-        }
-
-        public async Task<ApiResponse<StudentDto>> GetStudentByIdAsync(int studentId)
-        {
-            var student = await (
+            var query =
                 from s in _context.Students
-
-                join se in _context.StudentEnrollment
-                    on s.Id equals se.StudentId into seGroup
+                join se in _context.StudentEnrollment on s.Id equals se.StudentId into seGroup
                 from se in seGroup.DefaultIfEmpty()
-
-                join c in _context.Classes
-                    on se.ClassId equals c.Id into cGroup
+                join c in _context.Classes on se.ClassId equals c.Id into cGroup
                 from c in cGroup.DefaultIfEmpty()
-
-                join sd in _context.SectionDetails
-                    on se.SectionId equals sd.Id into sdGroup
+                join sd in _context.SectionDetails on se.SectionId equals sd.Id into sdGroup
                 from sd in sdGroup.DefaultIfEmpty()
-
-                join ac in _context.AcademicSessions
-                    on se.SessionId equals ac.Id into acGroup  // <-- Join by SessionId, not SchoolId
+                join ac in _context.AcademicSessions on se.SessionId equals ac.Id into acGroup
                 from ac in acGroup.DefaultIfEmpty()
-
-                where s.Id == studentId && (se == null || se.IsActive)
-
+                where s.SchoolId == schoolId && (se == null || se.IsActive)
+                let currentRollNumber = se != null ? (se.RollNumber ?? s.Rollnumber) : s.Rollnumber
+                orderby string.IsNullOrEmpty(currentRollNumber)
+                    ? 1
+                    : 0, currentRollNumber.Length, currentRollNumber, s.StudentName
                 select new StudentDto
                 {
-                     Id = s.Id,
-                     EnrollmentId = se != null ? se.Id : null,
+                    Id = s.Id,
+                    EnrollmentId = se != null ? se.Id : null,
                     StudentName = s.StudentName,
                     DOB = s.DOB,
                     GenderCode = s.GenderCode,
                     Email = s.Email,
-                    PhoneNumber = s.PhoneNumber,
+                    PhoneNumber = s.PhoneNumber,
+
                     Address = s.Address,
                     AddressLine2 = s.AddressLine2,
                     Landmark = s.Landmark,
@@ -555,11 +658,183 @@ namespace SchoolManagement.Repository
                     TransferCertificateDate = s.TransferCertificateDate,
                     ReasonForLeaving = s.ReasonForLeaving,
                     ParentId = s.ParentId,
-                    ParentName = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Name).FirstOrDefault(),
-                    ParentRelationship = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Relationship).FirstOrDefault(),
+                    ParentName = _context
+                        .ParentDetails.Where(p => p.Id == s.ParentId)
+                        .Select(p => p.Name)
+                        .FirstOrDefault(),
+                    ParentRelationship = _context
+                        .ParentDetails.Where(p => p.Id == s.ParentId)
+                        .Select(p => p.Relationship)
+                        .FirstOrDefault(),
+                    SchoolId = s.SchoolId,
+                    ClassId = c != null ? (int?)c.Id : null,
+                    RollNumber = currentRollNumber,
+                    ClassName = c != null ? c.ClassName : null,
+                    SectionName = sd != null ? sd.SectionName : null,
+                    AcademicSession = ac != null ? ac.Year_Start : (DateTime?)null,
+                    IsActive = s.IsActive,
+                    ProfilePictureUrl = _context
+                        .ProfilePictures.Where(p =>
+                            p.PersonType == "Student" && p.PersonId == s.Id && p.IsActive
+                        )
+                        .Select(p => p.FileUrl)
+                        .FirstOrDefault(),
+                    Documents = _context
+                        .Student_Documents.Where(d => d.StudentId == s.Id)
+                        .Select(d => new StudentDocumentDto
+                        {
+                            DocumentId = d.Id,
+                            DocumentName = d.DocumentName,
+                            DocumentURL = d.FileUrl,
+                            CreatedDate = d.CreatedDate,
+                        })
+                        .ToList(),
+                };
+
+            var total = await query.CountAsync();
+            // Rank the small class catalogue, then apply its order in SQL before pagination.
+            var schoolClasses = await _context
+                .Classes.AsNoTracking()
+                .Where(c => c.SchoolId == schoolId)
+                .Select(c => new { c.Id, c.ClassName })
+                .ToListAsync();
+            var orderedClasses = schoolClasses
+                .OrderBy(c => StudentListClassLevel(c.ClassName))
+                .ThenBy(c => c.ClassName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(c => c.Id)
+                .ToList();
+            var studentParameter = System.Linq.Expressions.Expression.Parameter(
+                typeof(StudentDto),
+                "student"
+            );
+            System.Linq.Expressions.Expression rank = System.Linq.Expressions.Expression.Constant(
+                int.MaxValue
+            );
+            for (var index = orderedClasses.Count - 1; index >= 0; index--)
+            {
+                var matchesClass = System.Linq.Expressions.Expression.Equal(
+                    System.Linq.Expressions.Expression.Property(
+                        studentParameter,
+                        nameof(StudentDto.ClassId)
+                    ),
+                    System.Linq.Expressions.Expression.Convert(
+                        System.Linq.Expressions.Expression.Constant(orderedClasses[index].Id),
+                        typeof(int?)
+                    )
+                );
+                rank = System.Linq.Expressions.Expression.Condition(
+                    matchesClass,
+                    System.Linq.Expressions.Expression.Constant(index),
+                    rank
+                );
+            }
+            var classOrder = System.Linq.Expressions.Expression.Lambda<Func<StudentDto, int>>(
+                rank,
+                studentParameter
+            );
+            var data = await query
+                .OrderBy(classOrder)
+                .ThenBy(s => s.SectionName)
+                .ThenBy(s => string.IsNullOrEmpty(s.RollNumber) ? 1 : 0)
+                .ThenBy(s => s.RollNumber.Length)
+                .ThenBy(s => s.RollNumber)
+                .ThenBy(s => s.StudentName)
+                .ThenBy(s => s.Id)
+                .ThenBy(s => s.EnrollmentId)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+            return (data, total);
+        }
+
+        public async Task<List<AttendanceHistoryDto>> GetStudentProfileAttendanceAsync(
+            int schoolId,
+            int studentId,
+            DateTime from,
+            DateTime to
+        )
+        {
+            var rangeStart = from.Date;
+            var rangeEnd = to.Date.AddDays(1);
+            return await (
+                from a in _context.StudentAttendance
+                join student in _context.Students on a.Student_Id equals student.Id
+                where
+                    a.School_Id == schoolId
+                    && student.SchoolId == schoolId
+                    && a.Student_Id == studentId
+                    && a.IsActive
+                    && a.Attendance_Date >= rangeStart
+                    && a.Attendance_Date < rangeEnd
+                orderby a.Attendance_Date descending
+                select new AttendanceHistoryDto
+                {
+                    StudentId = student.Id,
+                    StudentName = student.StudentName,
+                    EnrollmentId = a.EnrollmentId,
+                    AttendanceDate = a.Attendance_Date,
+                    Status = a.Status,
+                }
+            ).ToListAsync();
+        }
+
+        public async Task<ApiResponse<StudentDto>> GetStudentByIdAsync(int studentId)
+        {
+            var student = await (
+                from s in _context.Students
+
+                join se in _context.StudentEnrollment on s.Id equals se.StudentId into seGroup
+                from se in seGroup.DefaultIfEmpty()
+
+                join c in _context.Classes on se.ClassId equals c.Id into cGroup
+                from c in cGroup.DefaultIfEmpty()
+
+                join sd in _context.SectionDetails on se.SectionId equals sd.Id into sdGroup
+                from sd in sdGroup.DefaultIfEmpty()
+
+                join ac in _context.AcademicSessions on se.SessionId equals ac.Id into acGroup // <-- Join by SessionId, not SchoolId
+                from ac in acGroup.DefaultIfEmpty()
+
+                where s.Id == studentId && (se == null || se.IsActive)
+
+                select new StudentDto
+                {
+                    Id = s.Id,
+                    EnrollmentId = se != null ? se.Id : null,
+                    StudentName = s.StudentName,
+                    DOB = s.DOB,
+                    GenderCode = s.GenderCode,
+                    Email = s.Email,
+                    PhoneNumber = s.PhoneNumber,
+
+                    Address = s.Address,
+                    AddressLine2 = s.AddressLine2,
+                    Landmark = s.Landmark,
+                    City = s.City,
+                    District = s.District,
+                    State = s.State,
+                    Country = s.Country,
+                    PinCode = s.PinCode,
+                    AdmissionType = s.AdmissionType,
+                    PreviousSchoolName = s.PreviousSchoolName,
+                    PreviousSchoolAddress = s.PreviousSchoolAddress,
+                    PreviousClass = s.PreviousClass,
+                    PreviousBoard = s.PreviousBoard,
+                    TransferCertificateNumber = s.TransferCertificateNumber,
+                    TransferCertificateDate = s.TransferCertificateDate,
+                    ReasonForLeaving = s.ReasonForLeaving,
+                    ParentId = s.ParentId,
+                    ParentName = _context
+                        .ParentDetails.Where(p => p.Id == s.ParentId)
+                        .Select(p => p.Name)
+                        .FirstOrDefault(),
+                    ParentRelationship = _context
+                        .ParentDetails.Where(p => p.Id == s.ParentId)
+                        .Select(p => p.Relationship)
+                        .FirstOrDefault(),
                     SchoolId = s.SchoolId,
 
-                    ClassId = se != null ? se.ClassId : (int?)null,       // <-- Add IDs
+                    ClassId = se != null ? se.ClassId : (int?)null, // <-- Add IDs
                     SectionId = se != null ? se.SectionId : (int?)null,
                     SessionId = se != null ? se.SessionId : (int?)null,
 
@@ -568,52 +843,68 @@ namespace SchoolManagement.Repository
                     AcademicSession = ac != null ? ac.Year_Start : (DateTime?)null,
                     RollNumber = se != null ? (se.RollNumber ?? s.Rollnumber) : s.Rollnumber,
                     IsActive = s.IsActive,
-                    ProfilePictureUrl = _context.ProfilePictures
-                        .Where(p => p.PersonType == "Student" && p.PersonId == s.Id && p.IsActive)
+                    ProfilePictureUrl = _context
+                        .ProfilePictures.Where(p =>
+                            p.PersonType == "Student" && p.PersonId == s.Id && p.IsActive
+                        )
                         .Select(p => p.FileUrl)
                         .FirstOrDefault(),
 
-                    Documents = _context.Student_Documents
-                        .Where(d => d.StudentId == s.Id)
+                    Documents = _context
+                        .Student_Documents.Where(d => d.StudentId == s.Id)
                         .Select(d => new StudentDocumentDto
                         {
                             DocumentId = d.Id,
                             DocumentName = d.DocumentName,
                             DocumentURL = d.FileUrl,
-                            CreatedDate = d.CreatedDate
-                        }).ToList()
+                            CreatedDate = d.CreatedDate,
+                        })
+                        .ToList(),
                 }
             ).FirstOrDefaultAsync();
 
             if (student == null)
-                return new ApiResponse<StudentDto> { Success = false, Message = "Student not found", Data = null };
-
-            return new ApiResponse<StudentDto> { Success = true, Message = "Student fetched successfully", Data = student };
-        }
-        
-
-        public async Task<ApiResponse<EnrollmentInfoDto>> GetEnrollmentInfoBySchoolAsync(int schoolId)
-        {
-            var classes = await _context.Classes
-                .Where(c => c.SchoolId == schoolId && c.IsActive)
-                .Select(c => new ClassDto
+                return new ApiResponse<StudentDto>
                 {
-                    Id = c.Id,
-                    Name = c.ClassName
-                }).ToListAsync();
+                    Success = false,
+                    Message = "Student not found",
+                    Data = null,
+                };
 
-            var sections = await _context.SectionDetails
-                .Where(s => s.IsActive && _context.Classes.Any(c =>
-                    c.Id == s.ClassId && c.SchoolId == schoolId && c.IsActive))
+            return new ApiResponse<StudentDto>
+            {
+                Success = true,
+                Message = "Student fetched successfully",
+                Data = student,
+            };
+        }
+
+        public async Task<ApiResponse<EnrollmentInfoDto>> GetEnrollmentInfoBySchoolAsync(
+            int schoolId
+        )
+        {
+            var classes = await _context
+                .Classes.Where(c => c.SchoolId == schoolId && c.IsActive)
+                .Select(c => new ClassDto { Id = c.Id, Name = c.ClassName })
+                .ToListAsync();
+
+            var sections = await _context
+                .SectionDetails.Where(s =>
+                    s.IsActive
+                    && _context.Classes.Any(c =>
+                        c.Id == s.ClassId && c.SchoolId == schoolId && c.IsActive
+                    )
+                )
                 .Select(s => new SectionDetailsDto
                 {
                     Id = s.Id,
                     Name = s.SectionName,
-                    ClassId = s.ClassId
-                }).ToListAsync();
+                    ClassId = s.ClassId,
+                })
+                .ToListAsync();
 
-            var sessions = await _context.AcademicSessions
-                .Where(s => s.SchoolId == schoolId)
+            var sessions = await _context
+                .AcademicSessions.Where(s => s.SchoolId == schoolId)
                 .OrderByDescending(s => s.IsActive)
                 .ThenByDescending(s => s.Year_Start)
                 .Select(s => new SessionDto
@@ -621,18 +912,28 @@ namespace SchoolManagement.Repository
                     Id = s.Id,
                     YearStart = s.Year_Start,
                     YearEnd = s.Year_End,
-                    IsActive = s.IsActive
-                }).ToListAsync();
+                    IsActive = s.IsActive,
+                })
+                .ToListAsync();
 
             return new ApiResponse<EnrollmentInfoDto>
             {
                 Success = true,
                 Message = "Enrollment info fetched successfully",
-                Data = new EnrollmentInfoDto { Classes = classes, Sections = sections, Sessions = sessions }
+                Data = new EnrollmentInfoDto
+                {
+                    Classes = classes,
+                    Sections = sections,
+                    Sessions = sessions,
+                },
             };
         }
 
-        public async Task<(List<StudentDto> Data, int TotalRecords)> GetStudentsByTeacherIdAsync(int teacherId, int page, int pageSize)
+        public async Task<(List<StudentDto> Data, int TotalRecords)> GetStudentsByTeacherIdAsync(
+            int teacherId,
+            int page,
+            int pageSize
+        )
         {
             var teacher = await _context.Users.FirstOrDefaultAsync(u => u.Id == teacherId);
             if (teacher == null)
@@ -640,64 +941,84 @@ namespace SchoolManagement.Repository
 
             var schoolId = teacher.School_Id;
 
-            var query = from se in _context.StudentEnrollment
-                        join sd in _context.SectionDetails on se.SectionId equals sd.Id
-                        join s in _context.Students on se.StudentId equals s.Id
-                        join c in _context.Classes on se.ClassId equals c.Id
-                        join ac in _context.AcademicSessions on se.SessionId equals ac.Id
-                        where sd.StaffId == teacherId && se.SchoolId == schoolId && sd.SchoolId == schoolId && s.SchoolId == schoolId
-                        select new StudentDto
+            var query =
+                from se in _context.StudentEnrollment
+                join sd in _context.SectionDetails on se.SectionId equals sd.Id
+                join s in _context.Students on se.StudentId equals s.Id
+                join c in _context.Classes on se.ClassId equals c.Id
+                join ac in _context.AcademicSessions on se.SessionId equals ac.Id
+                where
+                    sd.StaffId == teacherId
+                    && se.SchoolId == schoolId
+                    && sd.SchoolId == schoolId
+                    && s.SchoolId == schoolId
+                select new StudentDto
+                {
+                    Id = s.Id,
+                    StudentName = s.StudentName,
+                    DOB = s.DOB,
+                    GenderCode = s.GenderCode,
+                    Email = s.Email,
+                    PhoneNumber = s.PhoneNumber,
+
+                    Address = s.Address,
+                    AddressLine2 = s.AddressLine2,
+                    Landmark = s.Landmark,
+                    City = s.City,
+                    District = s.District,
+                    State = s.State,
+                    Country = s.Country,
+                    PinCode = s.PinCode,
+                    AdmissionType = s.AdmissionType,
+                    PreviousSchoolName = s.PreviousSchoolName,
+                    PreviousSchoolAddress = s.PreviousSchoolAddress,
+                    PreviousClass = s.PreviousClass,
+                    PreviousBoard = s.PreviousBoard,
+                    TransferCertificateNumber = s.TransferCertificateNumber,
+                    TransferCertificateDate = s.TransferCertificateDate,
+                    ReasonForLeaving = s.ReasonForLeaving,
+                    ParentId = s.ParentId,
+                    ParentName = _context
+                        .ParentDetails.Where(p => p.Id == s.ParentId)
+                        .Select(p => p.Name)
+                        .FirstOrDefault(),
+                    ParentRelationship = _context
+                        .ParentDetails.Where(p => p.Id == s.ParentId)
+                        .Select(p => p.Relationship)
+                        .FirstOrDefault(),
+                    SchoolId = s.SchoolId,
+                    ClassId = se.ClassId,
+                    SectionId = se.SectionId,
+                    SessionId = se.SessionId,
+                    ClassName = c.ClassName,
+                    SectionName = sd.SectionName,
+                    AcademicSession = ac.Year_Start,
+                    IsActive = s.IsActive,
+                    ProfilePictureUrl = _context
+                        .ProfilePictures.Where(p =>
+                            p.PersonType == "Student" && p.PersonId == s.Id && p.IsActive
+                        )
+                        .Select(p => p.FileUrl)
+                        .FirstOrDefault(),
+                    Documents = _context
+                        .Student_Documents.Where(d => d.StudentId == s.Id)
+                        .Select(d => new StudentDocumentDto
                         {
-                            Id = s.Id,
-                            StudentName = s.StudentName,
-                            DOB = s.DOB,
-                            GenderCode = s.GenderCode,
-                            Email = s.Email,
-                            PhoneNumber = s.PhoneNumber,
-                            Address = s.Address,
-                            AddressLine2 = s.AddressLine2,
-                            Landmark = s.Landmark,
-                            City = s.City,
-                            District = s.District,
-                            State = s.State,
-                            Country = s.Country,
-                            PinCode = s.PinCode,
-                            AdmissionType = s.AdmissionType,
-                            PreviousSchoolName = s.PreviousSchoolName,
-                            PreviousSchoolAddress = s.PreviousSchoolAddress,
-                            PreviousClass = s.PreviousClass,
-                            PreviousBoard = s.PreviousBoard,
-                            TransferCertificateNumber = s.TransferCertificateNumber,
-                            TransferCertificateDate = s.TransferCertificateDate,
-                            ReasonForLeaving = s.ReasonForLeaving,
-                            ParentId = s.ParentId,
-                    ParentName = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Name).FirstOrDefault(),
-                    ParentRelationship = _context.ParentDetails.Where(p => p.Id == s.ParentId).Select(p => p.Relationship).FirstOrDefault(),
-                            SchoolId = s.SchoolId,
-                            ClassId = se.ClassId,
-                            SectionId = se.SectionId,
-                            SessionId = se.SessionId,
-                            ClassName = c.ClassName,
-                            SectionName = sd.SectionName,
-                            AcademicSession = ac.Year_Start,
-                            IsActive = s.IsActive,
-                            ProfilePictureUrl = _context.ProfilePictures
-                                .Where(p => p.PersonType == "Student" && p.PersonId == s.Id && p.IsActive)
-                                .Select(p => p.FileUrl)
-                                .FirstOrDefault(),
-                            Documents = _context.Student_Documents
-                                .Where(d => d.StudentId == s.Id)
-                                .Select(d => new StudentDocumentDto
-                                {
-                                    DocumentId = d.Id,
-                                    DocumentName = d.DocumentName,
-                                    DocumentURL = d.FileUrl,
-                                    CreatedDate = d.CreatedDate
-                                }).ToList()
-                        };
+                            DocumentId = d.Id,
+                            DocumentName = d.DocumentName,
+                            DocumentURL = d.FileUrl,
+                            CreatedDate = d.CreatedDate,
+                        })
+                        .ToList(),
+                };
 
             var total = await query.CountAsync();
-            var data = (await query.ToListAsync()).GroupBy(s => s.Id).Select(g => g.First()).Skip((page - 1) * pageSize).Take(pageSize).ToList();
+            var data = (await query.ToListAsync())
+                .GroupBy(s => s.Id)
+                .Select(g => g.First())
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToList();
             return (data, total);
         }
 
@@ -777,51 +1098,63 @@ namespace SchoolManagement.Repository
         public async Task<ApiResponse<string>> MarkAttendanceAsync(MarkBulkAttendanceDto dto)
         {
             // ✅ Step 0: Get teacherId from claims
-            var teacherId = int.Parse(_httpContextAccessor.HttpContext.User
-                .FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+            var teacherId = int.Parse(
+                _httpContextAccessor.HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                    ?? "0"
+            );
 
             if (teacherId == 0)
                 return new ApiResponse<string> { Success = false, Message = "Unauthorized" };
 
             // ✅ Step 1: Validate section
-            var section = await _context.SectionDetails
-                .FirstOrDefaultAsync(s => s.Id == dto.SectionId && s.StaffId == teacherId);
+            var section = await _context.SectionDetails.FirstOrDefaultAsync(s =>
+                s.Id == dto.SectionId && s.StaffId == teacherId
+            );
 
             if (section == null)
-                return new ApiResponse<string> { Success = false, Message = "Unauthorized access or invalid section" };
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Unauthorized access or invalid section",
+                };
 
             int schoolId = section.SchoolId;
 
             // ✅ Step 2: Check if attendance already exists for this section & date
             var enrollmentIds = dto.Students.Select(x => x.EnrollmentId).Where(x => x > 0).ToList();
-            var alreadyMarked = await _context.StudentAttendance
-                .AnyAsync(a =>
-                    a.Attendance_Date.Date == dto.AttendanceDate.Date &&
-                    a.School_Id == schoolId &&
-                    (enrollmentIds.Contains(a.EnrollmentId) ||
-                     _context.StudentEnrollment.Where(se => se.SectionId == dto.SectionId && se.IsActive)
-                        .Select(se => se.StudentId).Contains(a.Student_Id))
-                );
+            var alreadyMarked = await _context.StudentAttendance.AnyAsync(a =>
+                a.Attendance_Date.Date == dto.AttendanceDate.Date
+                && a.School_Id == schoolId
+                && (
+                    enrollmentIds.Contains(a.EnrollmentId)
+                    || _context
+                        .StudentEnrollment.Where(se => se.SectionId == dto.SectionId && se.IsActive)
+                        .Select(se => se.StudentId)
+                        .Contains(a.Student_Id)
+                )
+            );
 
             if (alreadyMarked)
             {
                 return new ApiResponse<string>
                 {
                     Success = false,
-                    Message = "Attendance already marked for this section on selected date"
+                    Message = "Attendance already marked for this section on selected date",
                 };
             }
 
             // ✅ Step 3: Get valid students
-            var validEnrollments = await _context.StudentEnrollment
-                .Where(se => se.SectionId == dto.SectionId && se.IsActive)
+            var validEnrollments = await _context
+                .StudentEnrollment.Where(se => se.SectionId == dto.SectionId && se.IsActive)
                 .ToDictionaryAsync(se => se.StudentId, se => se.Id);
 
             // ✅ Step 4: Insert ONLY (no update)
             foreach (var item in dto.Students)
             {
-                if (!validEnrollments.TryGetValue(item.StudentId, out var enrollmentId) ||
-                    (item.EnrollmentId > 0 && item.EnrollmentId != enrollmentId))
+                if (
+                    !validEnrollments.TryGetValue(item.StudentId, out var enrollmentId)
+                    || (item.EnrollmentId > 0 && item.EnrollmentId != enrollmentId)
+                )
                     continue;
 
                 var attendance = new StudentAttendance
@@ -833,7 +1166,7 @@ namespace SchoolManagement.Repository
                     School_Id = schoolId,
                     Created_At = DateTime.Now,
                     Created_By = teacherId,
-                    IsActive = true
+                    IsActive = true,
                 };
 
                 _context.StudentAttendance.Add(attendance);
@@ -844,11 +1177,14 @@ namespace SchoolManagement.Repository
             return new ApiResponse<string>
             {
                 Success = true,
-                Message = "Attendance marked successfully"
+                Message = "Attendance marked successfully",
             };
         }
 
-        public async Task<(List<AttendanceHistoryDto> Data, int TotalRecords)> GetAttendanceHistoryAsync(int teacherId, DateTime date, int page, int pageSize)
+        public async Task<(
+            List<AttendanceHistoryDto> Data,
+            int TotalRecords
+        )> GetAttendanceHistoryAsync(int teacherId, DateTime date, int page, int pageSize)
         {
             var teacher = await _context.Users.FirstOrDefaultAsync(u => u.Id == teacherId);
             if (teacher == null)
@@ -859,22 +1195,19 @@ namespace SchoolManagement.Repository
             var result = await (
                 from a in _context.StudentAttendance
 
-                join s in _context.Students
-                    on a.Student_Id equals s.Id
+                join s in _context.Students on a.Student_Id equals s.Id
 
-                join se in _context.StudentEnrollment
-                    on a.EnrollmentId equals se.Id
+                join se in _context.StudentEnrollment on a.EnrollmentId equals se.Id
 
-                join c in _context.Classes
-                    on se.ClassId equals c.Id
+                join c in _context.Classes on se.ClassId equals c.Id
 
-                join sd in _context.SectionDetails
-                    on se.SectionId equals sd.Id
+                join sd in _context.SectionDetails on se.SectionId equals sd.Id
 
-                where sd.StaffId == teacherId
-                      && sd.SchoolId == schoolId
-                      && a.School_Id == schoolId
-                      && a.Attendance_Date.Date == date.Date
+                where
+                    sd.StaffId == teacherId
+                    && sd.SchoolId == schoolId
+                    && a.School_Id == schoolId
+                    && a.Attendance_Date.Date == date.Date
 
                 select new AttendanceHistoryDto
                 {
@@ -883,11 +1216,11 @@ namespace SchoolManagement.Repository
                     SectionId = sd.Id,
                     SectionName = sd.SectionName,
                     AttendanceDate = a.Attendance_Date,
-                    Status = a.Status
+                    Status = a.Status,
                 }
             )
-            .OrderBy(x => x.StudentName)
-            .ToListAsync();
+                .OrderBy(x => x.StudentName)
+                .ToListAsync();
 
             var total = result.Count;
             var data = result.Skip((page - 1) * pageSize).Take(pageSize).ToList();
@@ -896,61 +1229,141 @@ namespace SchoolManagement.Repository
 
         public async Task<ApiResponse<string>> AddStudentAsync(StudentCreateDto dto)
         {
-            var admissionTypes = new[] { "New Admission", "Previous School Transfer", "Re-admission" };
-            dto.AdmissionType = admissionTypes.FirstOrDefault(type => string.Equals(type, dto.AdmissionType?.Trim(), StringComparison.OrdinalIgnoreCase));
+            var admissionTypes = new[]
+            {
+                "New Admission",
+                "Previous School Transfer",
+                "Re-admission",
+            };
+            dto.AdmissionType = admissionTypes.FirstOrDefault(type =>
+                string.Equals(type, dto.AdmissionType?.Trim(), StringComparison.OrdinalIgnoreCase)
+            );
             if (dto.AdmissionType == null)
-                return new ApiResponse<string> { Success = false, Message = "Select a valid admission type." };
-            if (string.IsNullOrWhiteSpace(dto.Address) || string.IsNullOrWhiteSpace(dto.City) || string.IsNullOrWhiteSpace(dto.State) || string.IsNullOrWhiteSpace(dto.Country))
-                return new ApiResponse<string> { Success = false, Message = "Complete the required student address details." };
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Select a valid admission type.",
+                };
+            if (
+                string.IsNullOrWhiteSpace(dto.Address)
+                || string.IsNullOrWhiteSpace(dto.City)
+                || string.IsNullOrWhiteSpace(dto.State)
+                || string.IsNullOrWhiteSpace(dto.Country)
+            )
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Complete the required student address details.",
+                };
             if (!System.Text.RegularExpressions.Regex.IsMatch(dto.PinCode ?? "", @"^[1-9]\d{5}$"))
-                return new ApiResponse<string> { Success = false, Message = "Enter a valid 6-digit PIN code." };
-            if (dto.AdmissionType == "Previous School Transfer" && (string.IsNullOrWhiteSpace(dto.PreviousSchoolName) || string.IsNullOrWhiteSpace(dto.PreviousClass)))
-                return new ApiResponse<string> { Success = false, Message = "Previous school name and last class attended are required." };            if (dto.Parent == null || string.IsNullOrWhiteSpace(dto.Parent.Address) || string.IsNullOrWhiteSpace(dto.Parent.City)
-                || string.IsNullOrWhiteSpace(dto.Parent.State) || string.IsNullOrWhiteSpace(dto.Parent.Country))
-                return new ApiResponse<string> { Success = false, Message = "Complete the required parent address details." };
-            if (!System.Text.RegularExpressions.Regex.IsMatch(dto.Parent.PinCode ?? "", @"^[1-9]\d{5}$"))
-                return new ApiResponse<string> { Success = false, Message = "Enter a valid 6-digit parent PIN code." };
-            var profilePictureIndex = dto.DocumentNames?
-                .FindIndex(name => string.Equals(name?.Trim(), "Profile Picture", StringComparison.OrdinalIgnoreCase))
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Enter a valid 6-digit PIN code.",
+                };
+            if (
+                dto.AdmissionType == "Previous School Transfer"
+                && (
+                    string.IsNullOrWhiteSpace(dto.PreviousSchoolName)
+                    || string.IsNullOrWhiteSpace(dto.PreviousClass)
+                )
+            )
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Previous school name and last class attended are required.",
+                };
+            if (
+                dto.Parent == null
+                || string.IsNullOrWhiteSpace(dto.Parent.Address)
+                || string.IsNullOrWhiteSpace(dto.Parent.City)
+                || string.IsNullOrWhiteSpace(dto.Parent.State)
+                || string.IsNullOrWhiteSpace(dto.Parent.Country)
+            )
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Complete the required parent address details.",
+                };
+            if (
+                !System.Text.RegularExpressions.Regex.IsMatch(
+                    dto.Parent.PinCode ?? "",
+                    @"^[1-9]\d{5}$"
+                )
+            )
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Enter a valid 6-digit parent PIN code.",
+                };
+            var profilePictureIndex =
+                dto.DocumentNames?.FindIndex(name =>
+                    string.Equals(
+                        name?.Trim(),
+                        "Profile Picture",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
                 ?? -1;
             IFormFile? profilePicture = null;
             if (profilePictureIndex >= 0)
             {
-                if (dto.Files == null || dto.Files.Count <= profilePictureIndex
-                    || dto.Files[profilePictureIndex] == null || dto.Files[profilePictureIndex].Length == 0)
-                    return new ApiResponse<string> { Success = false, Message = "Selected profile picture is empty or missing." };
+                if (
+                    dto.Files == null
+                    || dto.Files.Count <= profilePictureIndex
+                    || dto.Files[profilePictureIndex] == null
+                    || dto.Files[profilePictureIndex].Length == 0
+                )
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Selected profile picture is empty or missing.",
+                    };
                 profilePicture = dto.Files[profilePictureIndex];
                 var allowedImageTypes = new[] { "image/jpeg", "image/png", "image/webp" };
                 if (!allowedImageTypes.Contains(profilePicture.ContentType.ToLowerInvariant()))
-                    return new ApiResponse<string> { Success = false, Message = "Profile picture must be a JPG, PNG, or WebP image." };
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Profile picture must be a JPG, PNG, or WebP image.",
+                    };
                 if (profilePicture.Length > 5 * 1024 * 1024)
-                    return new ApiResponse<string> { Success = false, Message = "Profile picture size cannot exceed 5 MB." };
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Profile picture size cannot exceed 5 MB.",
+                    };
             }
 
             dto.GenderCode = dto.GenderCode?.Trim().ToUpperInvariant();
             if (!GenderCodes.IsValid(dto.GenderCode))
-                return new ApiResponse<string> { Success = false, Message = "A valid gender is required." };
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "A valid gender is required.",
+                };
 
             if (!dto.SessionId.HasValue || dto.SessionId.Value <= 0)
             {
                 return new ApiResponse<string>
                 {
                     Success = false,
-                    Message = "An active academic session is required."
+                    Message = "An active academic session is required.",
                 };
             }
 
-            var sessionIsValid = await _context.AcademicSessions
-                .AnyAsync(session => session.Id == dto.SessionId.Value
-                    && session.SchoolId == dto.SchoolId
-                    && session.IsActive);
+            var sessionIsValid = await _context.AcademicSessions.AnyAsync(session =>
+                session.Id == dto.SessionId.Value
+                && session.SchoolId == dto.SchoolId
+                && session.IsActive
+            );
 
             if (!sessionIsValid)
             {
                 return new ApiResponse<string>
                 {
                     Success = false,
-                    Message = "The selected academic session is not active for this school."
+                    Message = "The selected academic session is not active for this school.",
                 };
             }
 
@@ -958,12 +1371,14 @@ namespace SchoolManagement.Repository
             dto.Rollnumber = normalizedRollNumber;
             var assignedStudentName = await (
                 from enrollment in _context.StudentEnrollment
-                join existingStudent in _context.Students on enrollment.StudentId equals existingStudent.Id
-                where enrollment.SchoolId == dto.SchoolId
-                      && enrollment.ClassId == dto.ClassId
-                      && enrollment.IsActive
-                      && enrollment.RollNumber != null
-                      && enrollment.RollNumber.Trim() == normalizedRollNumber
+                join existingStudent in _context.Students
+                    on enrollment.StudentId equals existingStudent.Id
+                where
+                    enrollment.SchoolId == dto.SchoolId
+                    && enrollment.ClassId == dto.ClassId
+                    && enrollment.IsActive
+                    && enrollment.RollNumber != null
+                    && enrollment.RollNumber.Trim() == normalizedRollNumber
                 select existingStudent.StudentName
             ).FirstOrDefaultAsync();
 
@@ -972,7 +1387,7 @@ namespace SchoolManagement.Repository
                 return new ApiResponse<string>
                 {
                     Success = false,
-                    Message = $"This roll number is already assigned to {assignedStudentName}."
+                    Message = $"This roll number is already assigned to {assignedStudentName}.",
                 };
             }
 
@@ -984,44 +1399,51 @@ namespace SchoolManagement.Repository
                 return new ApiResponse<string>
                 {
                     Success = false,
-                    Message = "Student and parent must use different email addresses."
+                    Message = "Student and parent must use different email addresses.",
                 };
             }
 
-            var existingCredentials = await _context.Students_Parents_Creds
-                .Where(credential =>
+            var existingCredentials = await _context
+                .Students_Parents_Creds.Where(credential =>
                     credential.Email.ToLower() == studentEmail
-                    || credential.Email.ToLower() == parentEmail)
+                    || credential.Email.ToLower() == parentEmail
+                )
                 .ToListAsync();
 
-            var studentEmailExists = existingCredentials.Any(credential =>
-                    credential.Email.Equals(studentEmail, StringComparison.OrdinalIgnoreCase))
+            var studentEmailExists =
+                existingCredentials.Any(credential =>
+                    credential.Email.Equals(studentEmail, StringComparison.OrdinalIgnoreCase)
+                )
                 || await _context.Students.AnyAsync(student =>
-                    student.Email.ToLower() == studentEmail);
+                    student.Email.ToLower() == studentEmail
+                );
 
             if (studentEmailExists)
             {
                 return new ApiResponse<string>
                 {
                     Success = false,
-                    Message = "A student already exists with this email address."
+                    Message = "A student already exists with this email address.",
                 };
             }
 
-            var existingParentCredential = existingCredentials
-                .FirstOrDefault(credential =>
-                    credential.Email.Equals(parentEmail, StringComparison.OrdinalIgnoreCase));
+            var existingParentCredential = existingCredentials.FirstOrDefault(credential =>
+                credential.Email.Equals(parentEmail, StringComparison.OrdinalIgnoreCase)
+            );
 
-            if (existingParentCredential != null
+            if (
+                existingParentCredential != null
                 && !string.Equals(
                     existingParentCredential.RoleName?.Trim(),
                     "Parent",
-                    StringComparison.OrdinalIgnoreCase))
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
             {
                 return new ApiResponse<string>
                 {
                     Success = false,
-                    Message = "The parent email is already used by a non-parent account."
+                    Message = "The parent email is already used by a non-parent account.",
                 };
             }
 
@@ -1032,12 +1454,12 @@ namespace SchoolManagement.Repository
             try
             {
                 // Reuse the same parent profile when adding siblings.
-                var parent = existingParentCredential == null
-                    ? null
-                    : await _context.ParentDetails
-                        .FirstOrDefaultAsync(existingParent =>
-                            existingParent.IsActive
-                            && existingParent.Email.ToLower() == parentEmail);
+                var parent =
+                    existingParentCredential == null
+                        ? null
+                        : await _context.ParentDetails.FirstOrDefaultAsync(existingParent =>
+                            existingParent.IsActive && existingParent.Email.ToLower() == parentEmail
+                        );
 
                 if (parent == null)
                 {
@@ -1058,7 +1480,7 @@ namespace SchoolManagement.Repository
                         Created_By = 1,
                         Updated_By = 1,
                         Created_Date = DateTime.Now,
-                        IsActive = true
+                        IsActive = true,
                     };
 
                     _context.ParentDetails.Add(parent);
@@ -1082,20 +1504,41 @@ namespace SchoolManagement.Repository
                     Country = dto.Country?.Trim(),
                     PinCode = dto.PinCode?.Trim(),
                     AdmissionType = dto.AdmissionType,
-                    PreviousSchoolName = dto.AdmissionType == "Previous School Transfer" ? dto.PreviousSchoolName?.Trim() : null,
-                    PreviousSchoolAddress = dto.AdmissionType == "Previous School Transfer" ? dto.PreviousSchoolAddress?.Trim() : null,
-                    PreviousClass = dto.AdmissionType == "Previous School Transfer" ? dto.PreviousClass?.Trim() : null,
-                    PreviousBoard = dto.AdmissionType == "Previous School Transfer" ? dto.PreviousBoard?.Trim() : null,
-                    TransferCertificateNumber = dto.AdmissionType == "Previous School Transfer" ? dto.TransferCertificateNumber?.Trim() : null,
-                    TransferCertificateDate = dto.AdmissionType == "Previous School Transfer" ? dto.TransferCertificateDate : null,
-                    ReasonForLeaving = dto.AdmissionType == "Previous School Transfer" ? dto.ReasonForLeaving?.Trim() : null,
+                    PreviousSchoolName =
+                        dto.AdmissionType == "Previous School Transfer"
+                            ? dto.PreviousSchoolName?.Trim()
+                            : null,
+                    PreviousSchoolAddress =
+                        dto.AdmissionType == "Previous School Transfer"
+                            ? dto.PreviousSchoolAddress?.Trim()
+                            : null,
+                    PreviousClass =
+                        dto.AdmissionType == "Previous School Transfer"
+                            ? dto.PreviousClass?.Trim()
+                            : null,
+                    PreviousBoard =
+                        dto.AdmissionType == "Previous School Transfer"
+                            ? dto.PreviousBoard?.Trim()
+                            : null,
+                    TransferCertificateNumber =
+                        dto.AdmissionType == "Previous School Transfer"
+                            ? dto.TransferCertificateNumber?.Trim()
+                            : null,
+                    TransferCertificateDate =
+                        dto.AdmissionType == "Previous School Transfer"
+                            ? dto.TransferCertificateDate
+                            : null,
+                    ReasonForLeaving =
+                        dto.AdmissionType == "Previous School Transfer"
+                            ? dto.ReasonForLeaving?.Trim()
+                            : null,
                     ParentId = parent.Id,
                     Rollnumber = dto.Rollnumber,
                     SchoolId = dto.SchoolId,
                     Created_By = 1,
                     Updated_By = 1,
                     Created_Date = DateTime.Now,
-                    IsActive = true
+                    IsActive = true,
                 };
 
                 _context.Students.Add(student);
@@ -1105,22 +1548,34 @@ namespace SchoolManagement.Repository
                 {
                     var profileExtension = Path.GetExtension(profilePicture.FileName);
                     var profileFileName = Guid.NewGuid() + profileExtension;
-                    var profileFolder = Path.Combine(_env.WebRootPath, "profilepictures", "student", student.Id.ToString());
+                    var profileFolder = Path.Combine(
+                        _env.WebRootPath,
+                        "profilepictures",
+                        "student",
+                        student.Id.ToString()
+                    );
                     Directory.CreateDirectory(profileFolder);
-                    using (var stream = new FileStream(Path.Combine(profileFolder, profileFileName), FileMode.Create))
+                    using (
+                        var stream = new FileStream(
+                            Path.Combine(profileFolder, profileFileName),
+                            FileMode.Create
+                        )
+                    )
                     {
                         await profilePicture.CopyToAsync(stream);
                     }
-                    _context.ProfilePictures.Add(new ProfilePicture
-                    {
-                        PersonType = "Student",
-                        PersonId = student.Id,
-                        FileName = profilePicture.FileName,
-                        FileUrl = $"/profilepictures/student/{student.Id}/{profileFileName}",
-                        ContentType = profilePicture.ContentType,
-                        CreatedDate = DateTime.UtcNow,
-                        IsActive = true
-                    });
+                    _context.ProfilePictures.Add(
+                        new ProfilePicture
+                        {
+                            PersonType = "Student",
+                            PersonId = student.Id,
+                            FileName = profilePicture.FileName,
+                            FileUrl = $"/profilepictures/student/{student.Id}/{profileFileName}",
+                            ContentType = profilePicture.ContentType,
+                            CreatedDate = DateTime.UtcNow,
+                            IsActive = true,
+                        }
+                    );
                     await _context.SaveChangesAsync();
                 }
 
@@ -1140,7 +1595,7 @@ namespace SchoolManagement.Repository
                     Created_By = 1,
                     Updated_By = 1,
                     Created_At = DateTime.UtcNow,
-                    IsActive = true
+                    IsActive = true,
                 };
 
                 _context.StudentEnrollment.Add(enrollment);
@@ -1161,7 +1616,7 @@ namespace SchoolManagement.Repository
                     School_Id = dto.SchoolId,
                     Status = "Active",
                     Created_At = DateTime.Now,
-                    IsActive = true
+                    IsActive = true,
                 };
 
                 _context.Students_Parents_Creds.Add(studentCred);
@@ -1179,7 +1634,7 @@ namespace SchoolManagement.Repository
                         School_Id = dto.SchoolId,
                         Status = "Active",
                         Created_At = DateTime.Now,
-                        IsActive = true
+                        IsActive = true,
                     };
 
                     _context.Students_Parents_Creds.Add(parentCred);
@@ -1189,13 +1644,17 @@ namespace SchoolManagement.Repository
                 // 4. Handle Student Documents
                 if (dto.Files != null && dto.Files.Count > 0)
                 {
-                    var folderPath = Path.Combine(_env.WebRootPath, "studentdocs", student.Id.ToString());
+                    var folderPath = Path.Combine(
+                        _env.WebRootPath,
+                        "studentdocs",
+                        student.Id.ToString()
+                    );
 
                     if (!Directory.Exists(folderPath))
                         Directory.CreateDirectory(folderPath);
 
-                    var existingDocs = await _context.Student_Documents
-                        .Where(d => d.StudentId == student.Id)
+                    var existingDocs = await _context
+                        .Student_Documents.Where(d => d.StudentId == student.Id)
                         .ToListAsync();
 
                     for (int i = 0; i < dto.Files.Count; i++)
@@ -1204,15 +1663,20 @@ namespace SchoolManagement.Repository
                             continue;
 
                         var file = dto.Files[i];
-                        if (file == null || file.Length == 0) continue;
+                        if (file == null || file.Length == 0)
+                            continue;
 
                         var extension = Path.GetExtension(file.FileName);
 
-                        var inputName = (dto.DocumentNames != null && dto.DocumentNames.Count > i)
-                            ? dto.DocumentNames[i]
-                            : Path.GetFileNameWithoutExtension(file.FileName);
+                        var inputName =
+                            (dto.DocumentNames != null && dto.DocumentNames.Count > i)
+                                ? dto.DocumentNames[i]
+                                : Path.GetFileNameWithoutExtension(file.FileName);
 
-                        var docName = inputName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)
+                        var docName = inputName.EndsWith(
+                            extension,
+                            StringComparison.OrdinalIgnoreCase
+                        )
                             ? inputName
                             : inputName + extension;
 
@@ -1226,17 +1690,25 @@ namespace SchoolManagement.Repository
                         }
 
                         // Update or Insert
-                        if (dto.DocumentIds != null && dto.DocumentIds.Count > i && dto.DocumentIds[i].HasValue)
+                        if (
+                            dto.DocumentIds != null
+                            && dto.DocumentIds.Count > i
+                            && dto.DocumentIds[i].HasValue
+                        )
                         {
-                            var existing = existingDocs
-                                .FirstOrDefault(d => d.Id == dto.DocumentIds[i].Value);
+                            var existing = existingDocs.FirstOrDefault(d =>
+                                d.Id == dto.DocumentIds[i].Value
+                            );
 
                             if (existing != null)
                             {
                                 // Delete old file
                                 if (!string.IsNullOrEmpty(existing.FileUrl))
                                 {
-                                    var oldFilePath = Path.Combine(_env.WebRootPath, existing.FileUrl.TrimStart('/'));
+                                    var oldFilePath = Path.Combine(
+                                        _env.WebRootPath,
+                                        existing.FileUrl.TrimStart('/')
+                                    );
                                     if (File.Exists(oldFilePath))
                                         File.Delete(oldFilePath);
                                 }
@@ -1256,7 +1728,7 @@ namespace SchoolManagement.Repository
                                 DocumentName = docName,
                                 FileName = file.FileName,
                                 FileUrl = $"/studentdocs/{student.Id}/{uniqueFileName}",
-                                CreatedDate = DateTime.UtcNow
+                                CreatedDate = DateTime.UtcNow,
                             };
 
                             await _context.Student_Documents.AddAsync(newDoc);
@@ -1269,29 +1741,63 @@ namespace SchoolManagement.Repository
                 // Commit credentials and student records before queueing welcome emails.
                 var studentEmailPlaceholders = new Dictionary<string, string>
                 {
-                    { "StudentName", dto.StudentName }, { "Email", dto.Email }, { "Password", studentPassword },
-                    { "SchoolName", "Blue Berry School" }, { "ClassName", $"Class {dto.ClassId}" }, { "ParentName", dto.Parent.Name }
+                    { "StudentName", dto.StudentName },
+                    { "Email", dto.Email },
+                    { "Password", studentPassword },
+                    { "SchoolName", "Blue Berry School" },
+                    { "ClassName", $"Class {dto.ClassId}" },
+                    { "ParentName", dto.Parent.Name },
                 };
-                var (studentEmailSubject, studentEmailBody) = await _emailService.GetEmailTemplateAsync("STUDENT_WELCOME", studentEmailPlaceholders);
-                await _emailService.SendEmailAsync(dto.Email, studentEmailSubject, studentEmailBody);
+                var (studentEmailSubject, studentEmailBody) =
+                    await _emailService.GetEmailTemplateAsync(
+                        "STUDENT_WELCOME",
+                        studentEmailPlaceholders
+                    );
+                await _emailService.SendEmailAsync(
+                    dto.Email,
+                    studentEmailSubject,
+                    studentEmailBody
+                );
 
                 if (existingParentCredential == null)
                 {
                     var parentEmailPlaceholders = new Dictionary<string, string>
                     {
-                        { "ParentName", dto.Parent.Name }, { "StudentName", dto.StudentName }, { "Email", dto.Parent.Email },
-                        { "Password", parentPassword }, { "SchoolName", "Blue Berry School" }, { "ClassName", $"Class {dto.ClassId}" }
+                        { "ParentName", dto.Parent.Name },
+                        { "StudentName", dto.StudentName },
+                        { "Email", dto.Parent.Email },
+                        { "Password", parentPassword },
+                        { "SchoolName", "Blue Berry School" },
+                        { "ClassName", $"Class {dto.ClassId}" },
                     };
-                    var (parentEmailSubject, parentEmailBody) = await _emailService.GetEmailTemplateAsync("STUDENT_WELCOME", parentEmailPlaceholders);
-                    await _emailService.SendEmailAsync(dto.Parent.Email, parentEmailSubject, parentEmailBody);
+                    var (parentEmailSubject, parentEmailBody) =
+                        await _emailService.GetEmailTemplateAsync(
+                            "STUDENT_WELCOME",
+                            parentEmailPlaceholders
+                        );
+                    await _emailService.SendEmailAsync(
+                        dto.Parent.Email,
+                        parentEmailSubject,
+                        parentEmailBody
+                    );
                 }
                 await transaction.CommitAsync();
-                return new ApiResponse<string> { Success = true, Message = "Student added successfully", Data = null };
+                return new ApiResponse<string>
+                {
+                    Success = true,
+                    Message = "Student added successfully",
+                    Data = null,
+                };
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return new ApiResponse<string> { Success = false, Message = ex.Message, Data = null };
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = ex.Message,
+                    Data = null,
+                };
             }
         }
 
@@ -1299,32 +1805,31 @@ namespace SchoolManagement.Repository
             int schoolId,
             int classId,
             int sectionId,
-            int sessionId)
+            int sessionId
+        )
         {
             try
             {
                 return await (
                     from se in _context.StudentEnrollment
 
-                    join s in _context.Students
-                        on se.StudentId equals s.Id
+                    join s in _context.Students on se.StudentId equals s.Id
 
-                    join c in _context.Classes
-                        on se.ClassId equals c.Id
+                    join c in _context.Classes on se.ClassId equals c.Id
 
-                    join sec in _context.SectionDetails
-                        on se.SectionId equals sec.Id
+                    join sec in _context.SectionDetails on se.SectionId equals sec.Id
 
-                    where se.SchoolId == schoolId
-                          && s.SchoolId == schoolId
-                          && c.SchoolId == schoolId
-                          && se.ClassId == classId
-                          && se.SectionId == sectionId
-                          && se.SessionId == sessionId
-                          && se.IsActive == true
-                          && s.IsActive == true
-                          && c.IsActive == true
-                          && sec.IsActive == true
+                    where
+                        se.SchoolId == schoolId
+                        && s.SchoolId == schoolId
+                        && c.SchoolId == schoolId
+                        && se.ClassId == classId
+                        && se.SectionId == sectionId
+                        && se.SessionId == sessionId
+                        && se.IsActive == true
+                        && s.IsActive == true
+                        && c.IsActive == true
+                        && sec.IsActive == true
 
                     select new
                     {
@@ -1333,9 +1838,8 @@ namespace SchoolManagement.Repository
                         StudentName = s.StudentName,
                         RollNumber = se.RollNumber ?? s.Rollnumber,
                         ClassName = c.ClassName,
-                        SectionName = sec.SectionName
+                        SectionName = sec.SectionName,
                     }
-
                 ).ToListAsync();
             }
             catch (Exception)
@@ -1347,93 +1851,120 @@ namespace SchoolManagement.Repository
         public async Task<ApiResponse<string>> AssignFeesAsync(AssignFeeDto dto)
         {
             if (dto.Amount <= 0)
-                return new ApiResponse<string> { Success = false, Message = "Fee amount must be greater than zero." };
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "Fee amount must be greater than zero.",
+                };
 
-            var enrollments = dto.EnrollmentIds.Count > 0
-                ? await _context.StudentEnrollment.Where(x => dto.EnrollmentIds.Contains(x.Id) && x.SchoolId == dto.SchoolId && x.IsActive).ToListAsync()
-                : await _context.StudentEnrollment.Where(x => dto.StudentIds.Contains(x.StudentId) && x.SchoolId == dto.SchoolId && x.SessionId == dto.SessionId && x.IsActive).ToListAsync();
+            var enrollments =
+                dto.EnrollmentIds.Count > 0
+                    ? await _context
+                        .StudentEnrollment.Where(x =>
+                            dto.EnrollmentIds.Contains(x.Id)
+                            && x.SchoolId == dto.SchoolId
+                            && x.IsActive
+                        )
+                        .ToListAsync()
+                    : await _context
+                        .StudentEnrollment.Where(x =>
+                            dto.StudentIds.Contains(x.StudentId)
+                            && x.SchoolId == dto.SchoolId
+                            && x.SessionId == dto.SessionId
+                            && x.IsActive
+                        )
+                        .ToListAsync();
 
             if (enrollments.Count == 0)
-                return new ApiResponse<string> { Success = false, Message = "No active student enrollments were found." };
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "No active student enrollments were found.",
+                };
 
             var enrollmentIds = enrollments.Select(x => x.Id).ToList();
-            var duplicateStudentIds = await _context.StudentFees
-                .Where(x => enrollmentIds.Contains(x.EnrollmentId)
+            var duplicateStudentIds = await _context
+                .StudentFees.Where(x =>
+                    enrollmentIds.Contains(x.EnrollmentId)
                     && x.FeeTypeId == dto.FeeTypeId
-                    && x.IsActive)
+                    && x.IsActive
+                )
                 .Select(x => x.StudentId)
                 .Distinct()
                 .ToListAsync();
 
             if (duplicateStudentIds.Count > 0)
             {
-                var names = await _context.Students
-                    .Where(x => duplicateStudentIds.Contains(x.Id))
+                var names = await _context
+                    .Students.Where(x => duplicateStudentIds.Contains(x.Id))
                     .Select(x => x.StudentName)
                     .ToListAsync();
                 return new ApiResponse<string>
                 {
                     Success = false,
-                    Message = $"The selected fee type is already assigned to: {string.Join(", ", names)}. Existing amounts were not changed."
+                    Message =
+                        $"The selected fee type is already assigned to: {string.Join(", ", names)}. Existing amounts were not changed.",
                 };
             }
 
             foreach (var enrollment in enrollments)
             {
-                _context.StudentFees.Add(new StudentFee
-                {
-                    StudentId = enrollment.StudentId,
-                    EnrollmentId = enrollment.Id,
-                    FeeTypeId = dto.FeeTypeId,
-                    Amount = dto.Amount,
-                    SessionId = enrollment.SessionId,
-                    SchoolId = dto.SchoolId,
-                    Status = "Pending",
-                    Created_Date = DateTime.Now,
-                    IsActive = true
-                });
+                _context.StudentFees.Add(
+                    new StudentFee
+                    {
+                        StudentId = enrollment.StudentId,
+                        EnrollmentId = enrollment.Id,
+                        FeeTypeId = dto.FeeTypeId,
+                        Amount = dto.Amount,
+                        SessionId = enrollment.SessionId,
+                        SchoolId = dto.SchoolId,
+                        Status = "Pending",
+                        Created_Date = DateTime.Now,
+                        IsActive = true,
+                    }
+                );
             }
 
             await _context.SaveChangesAsync();
-            return new ApiResponse<string> { Success = true, Message = $"Fees assigned to {enrollments.Count} student(s)." };
+            return new ApiResponse<string>
+            {
+                Success = true,
+                Message = $"Fees assigned to {enrollments.Count} student(s).",
+            };
         }
 
         public async Task<IEnumerable<object>> GetStudentFeesAsync(int studentId)
         {
             try
             {
-                return await _context.StudentFees
-
-                    .Where(x => x.StudentId == studentId)
-
+                return await _context
+                    .StudentFees.Where(x => x.StudentId == studentId)
                     .Select(x => new
                     {
                         x.Id,
 
-                        FeeType =
-                            _context.FeeTypes
-                            .Where(f => f.Id == x.FeeTypeId)
+                        FeeType = _context
+                            .FeeTypes.Where(f => f.Id == x.FeeTypeId)
                             .Select(f => f.Name)
                             .FirstOrDefault(),
 
                         TotalAmount = x.Amount,
 
-                        PaidAmount =
-                            _context.FeePayments
-                            .Where(p => p.StudentFeeId == x.Id)
-                            .Sum(p => (decimal?)p.AmountPaid) ?? 0,
+                        PaidAmount = _context
+                            .FeePayments.Where(p => p.StudentFeeId == x.Id)
+                            .Sum(p => (decimal?)p.AmountPaid)
+                            ?? 0,
 
-                        Balance =
-                            x.Amount -
-                            (
-                                _context.FeePayments
-                                .Where(p => p.StudentFeeId == x.Id)
-                                .Sum(p => (decimal?)p.AmountPaid) ?? 0
+                        Balance = x.Amount
+                            - (
+                                _context
+                                    .FeePayments.Where(p => p.StudentFeeId == x.Id)
+                                    .Sum(p => (decimal?)p.AmountPaid)
+                                ?? 0
                             ),
 
-                        x.Status
+                        x.Status,
                     })
-
                     .ToListAsync();
             }
             catch (Exception)
@@ -1443,37 +1974,34 @@ namespace SchoolManagement.Repository
         }
 
         public async Task<IEnumerable<object>> GetPendingFeesAsync(
-    int schoolId,
-    int? classId,
-    int? sectionId,
-    int? sessionId, bool includePaid = false)
+            int schoolId,
+            int? classId,
+            int? sectionId,
+            int? sessionId,
+            bool includePaid = false
+        )
         {
             try
             {
                 var query =
-
                     from sf in _context.StudentFees
 
-                    join s in _context.Students
-                        on sf.StudentId equals s.Id
+                    join s in _context.Students on sf.StudentId equals s.Id
 
-                    join se in _context.StudentEnrollment
-                        on sf.EnrollmentId equals se.Id
+                    join se in _context.StudentEnrollment on sf.EnrollmentId equals se.Id
 
-                    join c in _context.Classes
-                        on se.ClassId equals c.Id
+                    join c in _context.Classes on se.ClassId equals c.Id
 
-                    join sec in _context.SectionDetails
-                        on se.SectionId equals sec.Id
+                    join sec in _context.SectionDetails on se.SectionId equals sec.Id
 
-                    where sf.SchoolId == schoolId
-                          && s.SchoolId == schoolId
-                          && se.SchoolId == schoolId
-                          && c.SchoolId == schoolId
-                          && sec.SchoolId == schoolId
-
-                          && (includePaid || sf.Status != "Paid")
-                          && sf.IsActive == true
+                    where
+                        sf.SchoolId == schoolId
+                        && s.SchoolId == schoolId
+                        && se.SchoolId == schoolId
+                        && c.SchoolId == schoolId
+                        && sec.SchoolId == schoolId
+                        && (includePaid || sf.Status != "Paid")
+                        && sf.IsActive == true
 
                     select new
                     {
@@ -1495,30 +2023,35 @@ namespace SchoolManagement.Repository
                         SessionId = se.SessionId,
 
                         FeeTypeId = sf.FeeTypeId,
-                        FeeType = _context.FeeTypes.Where(x => x.Id == sf.FeeTypeId).Select(x => x.Name).FirstOrDefault(),
+                        FeeType = _context
+                            .FeeTypes.Where(x => x.Id == sf.FeeTypeId)
+                            .Select(x => x.Name)
+                            .FirstOrDefault(),
 
                         Amount = sf.Amount,
 
-                        Paid =
-                            _context.FeePayments
-                            .Where(p =>
+                        Paid = _context
+                            .FeePayments.Where(p =>
                                 p.StudentFeeId == sf.Id
                                 && p.SchoolId == schoolId
-                                && p.IsActive == true)
-                            .Sum(p => (decimal?)p.AmountPaid) ?? 0,
+                                && p.IsActive == true
+                            )
+                            .Sum(p => (decimal?)p.AmountPaid)
+                            ?? 0,
 
-                        Balance =
-                            sf.Amount -
-                            (
-                                _context.FeePayments
-                                .Where(p =>
-                                    p.StudentFeeId == sf.Id
-                                    && p.SchoolId == schoolId
-                                    && p.IsActive == true)
-                                .Sum(p => (decimal?)p.AmountPaid) ?? 0
+                        Balance = sf.Amount
+                            - (
+                                _context
+                                    .FeePayments.Where(p =>
+                                        p.StudentFeeId == sf.Id
+                                        && p.SchoolId == schoolId
+                                        && p.IsActive == true
+                                    )
+                                    .Sum(p => (decimal?)p.AmountPaid)
+                                ?? 0
                             ),
 
-                        sf.Status
+                        sf.Status,
                     };
 
                 // Filter by Class
@@ -1547,69 +2080,109 @@ namespace SchoolManagement.Repository
                 throw;
             }
         }
-        public async Task<ApiResponse<string>> UpdateAssignedFeeAsync(UpdateAssignedFeeDto dto, int userId)
+
+        public async Task<ApiResponse<string>> UpdateAssignedFeeAsync(
+            UpdateAssignedFeeDto dto,
+            int userId
+        )
         {
-            using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
-            var fee = await _context.StudentFees.FirstOrDefaultAsync(f => f.Id == dto.StudentFeeId && f.SchoolId == dto.SchoolId && f.IsActive);
-            if (fee == null) return new() { Success = false, Message = "Assigned fee not found." };
-            var paid = await _context.FeePayments.Where(p => p.StudentFeeId == fee.Id && p.IsActive).SumAsync(p => (decimal?)p.AmountPaid) ?? 0;
+            using var transaction = await _context.Database.BeginTransactionAsync(
+                System.Data.IsolationLevel.Serializable
+            );
+            var fee = await _context.StudentFees.FirstOrDefaultAsync(f =>
+                f.Id == dto.StudentFeeId && f.SchoolId == dto.SchoolId && f.IsActive
+            );
+            if (fee == null)
+                return new() { Success = false, Message = "Assigned fee not found." };
+            var paid =
+                await _context
+                    .FeePayments.Where(p => p.StudentFeeId == fee.Id && p.IsActive)
+                    .SumAsync(p => (decimal?)p.AmountPaid)
+                ?? 0;
             if (dto.Amount <= 0 || dto.Amount < paid || decimal.Round(dto.Amount, 2) != dto.Amount)
-                return new() { Success = false, Message = "Enter a positive amount with up to two decimal places, not less than the amount already paid." };
+                return new()
+                {
+                    Success = false,
+                    Message =
+                        "Enter a positive amount with up to two decimal places, not less than the amount already paid.",
+                };
             fee.Amount = dto.Amount;
-            fee.Status = paid == 0 ? "Pending" : paid < fee.Amount ? "Partial" : "Paid";
+            fee.Status =
+                paid == 0 ? "Pending"
+                : paid < fee.Amount ? "Partial"
+                : "Paid";
             fee.Modified_Date = DateTime.UtcNow;
             fee.Updated_By = userId;
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
             return new() { Success = true, Message = "Assigned fee updated successfully." };
         }
+
         public async Task<bool> PayFeeAsync(FeePaymentDto dto)
         {
-            await using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
-            var fee = await _context.StudentFees.FirstOrDefaultAsync(x => x.Id == dto.StudentFeeId && x.SchoolId == dto.SchoolId && x.IsActive);
-            if (fee == null) throw new InvalidOperationException("Fee assignment was not found.");
-            if (dto.AmountPaid <= 0) throw new InvalidOperationException("Payment amount must be greater than zero.");
+            await using var transaction = await _context.Database.BeginTransactionAsync(
+                System.Data.IsolationLevel.Serializable
+            );
+            var fee = await _context.StudentFees.FirstOrDefaultAsync(x =>
+                x.Id == dto.StudentFeeId && x.SchoolId == dto.SchoolId && x.IsActive
+            );
+            if (fee == null)
+                throw new InvalidOperationException("Fee assignment was not found.");
+            if (dto.AmountPaid <= 0)
+                throw new InvalidOperationException("Payment amount must be greater than zero.");
             var mode = dto.PaymentMode?.Trim();
             if (!new[] { "Cash", "Online", "Cheque", "DD" }.Contains(mode))
                 throw new InvalidOperationException("Choose a supported payment mode.");
-            if ((mode == "Online" || mode == "Cheque") && string.IsNullOrWhiteSpace(dto.AcknowledgementId))
-                throw new InvalidOperationException("Acknowledgement ID is required for online and cheque payments.");
-            var paidBefore = await _context.FeePayments
-                .Where(x => x.StudentFeeId == dto.StudentFeeId && x.SchoolId == dto.SchoolId && x.IsActive)
-                .SumAsync(x => (decimal?)x.AmountPaid) ?? 0m;
+            if (
+                (mode == "Online" || mode == "Cheque")
+                && string.IsNullOrWhiteSpace(dto.AcknowledgementId)
+            )
+                throw new InvalidOperationException(
+                    "Acknowledgement ID is required for online and cheque payments."
+                );
+            var paidBefore =
+                await _context
+                    .FeePayments.Where(x =>
+                        x.StudentFeeId == dto.StudentFeeId
+                        && x.SchoolId == dto.SchoolId
+                        && x.IsActive
+                    )
+                    .SumAsync(x => (decimal?)x.AmountPaid)
+                ?? 0m;
             if (dto.AmountPaid > fee.Amount - paidBefore)
-                throw new InvalidOperationException("Payment cannot exceed the outstanding balance.");
-            _context.FeePayments.Add(new FeePayments
-            {
-                StudentFeeId = dto.StudentFeeId,
-                AmountPaid = dto.AmountPaid,
-                Payment_Mode = mode!,
-                AcknowledgementId = dto.AcknowledgementId?.Trim(),
-                Payment_Date = DateTime.Now,
-                Receipt_Number = "RCPT-" + Guid.NewGuid().ToString("N"),
-                SchoolId = dto.SchoolId,
-                Created_Date = DateTime.UtcNow,
-                IsActive = true
-            });
+                throw new InvalidOperationException(
+                    "Payment cannot exceed the outstanding balance."
+                );
+            _context.FeePayments.Add(
+                new FeePayments
+                {
+                    StudentFeeId = dto.StudentFeeId,
+                    AmountPaid = dto.AmountPaid,
+                    Payment_Mode = mode!,
+                    AcknowledgementId = dto.AcknowledgementId?.Trim(),
+                    Payment_Date = DateTime.Now,
+                    Receipt_Number = "RCPT-" + Guid.NewGuid().ToString("N"),
+                    SchoolId = dto.SchoolId,
+                    Created_Date = DateTime.UtcNow,
+                    IsActive = true,
+                }
+            );
             fee.Status = paidBefore + dto.AmountPaid < fee.Amount ? "Partial" : "Paid";
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
             return true;
         }
-        public async Task<IEnumerable<object>> GetPaymentHistory(
-            int studentId)
+
+        public async Task<IEnumerable<object>> GetPaymentHistory(int studentId)
         {
             try
             {
                 return await (
-
                     from fp in _context.FeePayments
 
-                    join sf in _context.StudentFees
-                        on fp.StudentFeeId equals sf.Id
+                    join sf in _context.StudentFees on fp.StudentFeeId equals sf.Id
 
-                    join ft in _context.FeeTypes
-                        on sf.FeeTypeId equals ft.Id
+                    join ft in _context.FeeTypes on sf.FeeTypeId equals ft.Id
 
                     where sf.StudentId == studentId
 
@@ -1628,9 +2201,8 @@ namespace SchoolManagement.Repository
                         PaymentMode = fp.Payment_Mode,
                         AcknowledgementId = fp.AcknowledgementId,
 
-                        ReceiptNumber = fp.Receipt_Number
+                        ReceiptNumber = fp.Receipt_Number,
                     }
-
                 ).ToListAsync();
             }
             catch (Exception)
@@ -1644,26 +2216,19 @@ namespace SchoolManagement.Repository
             try
             {
                 return await (
-
                     from fp in _context.FeePayments
 
-                    join sf in _context.StudentFees
-                        on fp.StudentFeeId equals sf.Id
+                    join sf in _context.StudentFees on fp.StudentFeeId equals sf.Id
 
-                    join s in _context.Students
-                        on sf.StudentId equals s.Id
+                    join s in _context.Students on sf.StudentId equals s.Id
 
-                    join ft in _context.FeeTypes
-                        on sf.FeeTypeId equals ft.Id
+                    join ft in _context.FeeTypes on sf.FeeTypeId equals ft.Id
 
-                    join se in _context.StudentEnrollment
-                        on s.Id equals se.StudentId
+                    join se in _context.StudentEnrollment on s.Id equals se.StudentId
 
-                    join c in _context.Classes
-                        on se.ClassId equals c.Id
+                    join c in _context.Classes on se.ClassId equals c.Id
 
-                    join sec in _context.SectionDetails
-                        on se.SectionId equals sec.Id
+                    join sec in _context.SectionDetails on se.SectionId equals sec.Id
 
                     where fp.Id == paymentId
 
@@ -1683,10 +2248,9 @@ namespace SchoolManagement.Repository
 
                         AmountPaid = fp.AmountPaid,
 
-                        PaymentMode = fp.Payment_Mode
-                        ,AcknowledgementId = fp.AcknowledgementId
+                        PaymentMode = fp.Payment_Mode,
+                        AcknowledgementId = fp.AcknowledgementId,
                     }
-
                 ).FirstOrDefaultAsync();
             }
             catch (Exception)
@@ -1712,13 +2276,13 @@ namespace SchoolManagement.Repository
         {
             try
             {
-                return await _context.FeeTypes
-                    .Where(x => x.SchoolId == schoolId && x.IsActive)
+                return await _context
+                    .FeeTypes.Where(x => x.SchoolId == schoolId && x.IsActive)
                     .Select(x => new
                     {
                         x.Id,
                         x.Name,
-                        x.IsActive
+                        x.IsActive,
                     })
                     .ToListAsync();
             }

@@ -1,15 +1,19 @@
-﻿using Microsoft.IdentityModel.Tokens;
-using SchoolManagement.Model;
+// Backend section: application services and shared rules.
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using Microsoft.IdentityModel.Tokens;
+using SchoolManagement.Model;
 
 namespace SchoolManagement.Service
 {
+    // Implements jwt application behavior.
     public class JwtService : IJwtService
     {
+        // Dependencies and state used by this component.
         private readonly IConfiguration _config;
 
+        // Creates the component with its required dependencies.
         public JwtService(IConfiguration config)
         {
             _config = config;
@@ -19,15 +23,14 @@ namespace SchoolManagement.Service
         {
             var claims = new[]
             {
-            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Email, user.Email),
-            new Claim("RoleId", user.RoleId.ToString()),
-            new Claim("SchoolId", user.School_Id.ToString()),
-            new Claim(ClaimTypes.Name, user.Name)
-        };
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Email, user.Email),
+                new Claim("RoleId", user.RoleId.ToString()),
+                new Claim("SchoolId", user.School_Id.ToString()),
+                new Claim(ClaimTypes.Name, user.Name),
+            };
 
-            var key = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
 
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
@@ -50,11 +53,10 @@ namespace SchoolManagement.Service
                 new Claim(ClaimTypes.Email, email),
                 new Claim(ClaimTypes.Role, roleName),
                 new Claim("RoleName", roleName),
-                new Claim(ClaimTypes.Name, email)
+                new Claim(ClaimTypes.Name, email),
             };
 
-            var key = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
 
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 

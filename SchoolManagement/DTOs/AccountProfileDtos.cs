@@ -1,5 +1,7 @@
-﻿namespace SchoolManagement.DTOs
+// Backend section: request and response data contracts.
+namespace SchoolManagement.DTOs
 {
+    // Defines the account profile dtos request and response data.
     public class UpdateAccountProfileDto
     {
         public string Name { get; set; } = string.Empty;

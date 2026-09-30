@@ -1,5 +1,7 @@
+// Backend section: request and response data contracts.
 namespace SchoolManagement.DTOs
 {
+    // Defines the academic session request and response data.
     public class AcademicSessionDto
     {
         public int Id { get; set; }

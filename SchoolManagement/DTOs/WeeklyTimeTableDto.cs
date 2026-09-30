@@ -1,5 +1,7 @@
-﻿namespace SchoolManagement.DTOs
+// Backend section: request and response data contracts.
+namespace SchoolManagement.DTOs
 {
+    // Defines the weekly time table request and response data.
     public class SaveTimetableDto
     {
         public int SectionId { get; set; }

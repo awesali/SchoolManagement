@@ -1,5 +1,7 @@
-﻿namespace SchoolManagement.DTOs
+// Backend section: request and response data contracts.
+namespace SchoolManagement.DTOs
 {
+    // Defines the attendance history request and response data.
     public class AttendanceHistoryDto
     {
         public int StudentId { get; set; }

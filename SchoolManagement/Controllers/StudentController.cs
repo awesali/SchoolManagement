@@ -1,20 +1,24 @@
+// Backend section: HTTP endpoints and request handling.
+using System.Globalization;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
 using SchoolManagement.Model;
-using System.Globalization;
-using System.Security.Claims;
 
 namespace SchoolManagement.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
     [Authorize]
+    // Exposes student HTTP endpoints and handles their requests.
     public class StudentController : ControllerBase
     {
+        // Dependencies and state used by this component.
         private readonly IStudentRepository _repo;
 
+        // Creates the component with its required dependencies.
         public StudentController(IStudentRepository repo)
         {
             _repo = repo;
@@ -22,6 +26,7 @@ namespace SchoolManagement.Controllers
 
         [HttpPost("add-student")]
         [Consumes("multipart/form-data")]
+        // API actions that validate requests and return responses.
         public async Task<IActionResult> AddStudent([FromForm] StudentCreateDto dto)
         {
             var result = await _repo.AddStudentAsync(dto);
@@ -44,7 +49,11 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpGet("students-by-school")]
-        public async Task<IActionResult> GetStudentsBySchool([FromQuery] int schoolId, int page = 1, int pageSize = 10)
+        public async Task<IActionResult> GetStudentsBySchool(
+            [FromQuery] int schoolId,
+            int page = 1,
+            int pageSize = 10
+        )
         {
             if (page == -1)
             {
@@ -55,23 +64,36 @@ namespace SchoolManagement.Controllers
             var (data, total) = await _repo.GetStudentsBySchoolIdAsync(schoolId, page, pageSize);
             var totalPages = (int)Math.Ceiling((double)total / pageSize);
 
-            return Ok(new PagedResponse<List<StudentDto>>
-            {
-                Success = true,
-                Message = "Students fetched successfully",
-                Data = data,
-                CurrentPage = page,
-                TotalPages = totalPages,
-                TotalRecords = total,
-                PageSize = pageSize
-            });
+            return Ok(
+                new PagedResponse<List<StudentDto>>
+                {
+                    Success = true,
+                    Message = "Students fetched successfully",
+                    Data = data,
+                    CurrentPage = page,
+                    TotalPages = totalPages,
+                    TotalRecords = total,
+                    PageSize = pageSize,
+                }
+            );
         }
 
         [HttpGet("student-profile-attendance")]
-        public async Task<IActionResult> StudentProfileAttendance(int schoolId, int studentId, DateTime from, DateTime to)
+        public async Task<IActionResult> StudentProfileAttendance(
+            int schoolId,
+            int studentId,
+            DateTime from,
+            DateTime to
+        )
         {
             if (schoolId <= 0 || studentId <= 0 || from > to || (to - from).TotalDays > 366)
-                return BadRequest(new { success = false, message = "Select a valid attendance date range (up to one year)." });
+                return BadRequest(
+                    new
+                    {
+                        success = false,
+                        message = "Select a valid attendance date range (up to one year).",
+                    }
+                );
             return Ok(await _repo.GetStudentProfileAttendanceAsync(schoolId, studentId, from, to));
         }
 
@@ -96,23 +118,29 @@ namespace SchoolManagement.Controllers
 
             if (page == -1)
             {
-                var (_, tempTotal) = await _repo.GetStudentsByTeacherIdAsync(teacherId, 1, pageSize);
+                var (_, tempTotal) = await _repo.GetStudentsByTeacherIdAsync(
+                    teacherId,
+                    1,
+                    pageSize
+                );
                 page = (int)Math.Ceiling((double)tempTotal / pageSize);
             }
 
             var (data, total) = await _repo.GetStudentsByTeacherIdAsync(teacherId, page, pageSize);
             var totalPages = (int)Math.Ceiling((double)total / pageSize);
 
-            return Ok(new PagedResponse<List<StudentDto>>
-            {
-                Success = true,
-                Message = "Students fetched successfully",
-                Data = data,
-                CurrentPage = page,
-                TotalPages = totalPages,
-                TotalRecords = total,
-                PageSize = pageSize
-            });
+            return Ok(
+                new PagedResponse<List<StudentDto>>
+                {
+                    Success = true,
+                    Message = "Students fetched successfully",
+                    Data = data,
+                    CurrentPage = page,
+                    TotalPages = totalPages,
+                    TotalRecords = total,
+                    PageSize = pageSize,
+                }
+            );
         }
 
         [HttpPost("StudentsAttendance")]
@@ -123,43 +151,79 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpGet("Student-attendance-history")]
-        public async Task<IActionResult> GetAttendanceByDate(string date, int page = 1, int pageSize = 10)
+        public async Task<IActionResult> GetAttendanceByDate(
+            string date,
+            int page = 1,
+            int pageSize = 10
+        )
         {
             var teacherId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
 
-            if (!DateTime.TryParseExact(date, "dd-MM-yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsedDate))
-                return BadRequest(new ApiResponse<string> { Success = false, Message = "Invalid date format. Use dd-MM-yyyy", Data = null });
+            if (
+                !DateTime.TryParseExact(
+                    date,
+                    "dd-MM-yyyy",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out DateTime parsedDate
+                )
+            )
+                return BadRequest(
+                    new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Invalid date format. Use dd-MM-yyyy",
+                        Data = null,
+                    }
+                );
 
             if (page == -1)
             {
-                var (_, tempTotal) = await _repo.GetAttendanceHistoryAsync(teacherId, parsedDate, 1, pageSize);
+                var (_, tempTotal) = await _repo.GetAttendanceHistoryAsync(
+                    teacherId,
+                    parsedDate,
+                    1,
+                    pageSize
+                );
                 page = (int)Math.Ceiling((double)tempTotal / pageSize);
             }
 
-            var (data, total) = await _repo.GetAttendanceHistoryAsync(teacherId, parsedDate, page, pageSize);
+            var (data, total) = await _repo.GetAttendanceHistoryAsync(
+                teacherId,
+                parsedDate,
+                page,
+                pageSize
+            );
             var totalPages = (int)Math.Ceiling((double)total / pageSize);
 
-            return Ok(new PagedResponse<List<AttendanceHistoryDto>>
-            {
-                Success = true,
-                Message = "Attendance history fetched successfully",
-                Data = data,
-                CurrentPage = page,
-                TotalPages = totalPages,
-                TotalRecords = total,
-                PageSize = pageSize
-            });
+            return Ok(
+                new PagedResponse<List<AttendanceHistoryDto>>
+                {
+                    Success = true,
+                    Message = "Attendance history fetched successfully",
+                    Data = data,
+                    CurrentPage = page,
+                    TotalPages = totalPages,
+                    TotalRecords = total,
+                    PageSize = pageSize,
+                }
+            );
         }
 
         [HttpGet("GetStudentsForFees")]
-        public async Task<IActionResult> GetStudents(int schoolId,int classId,int sectionId, int sessionId)
+        public async Task<IActionResult> GetStudents(
+            int schoolId,
+            int classId,
+            int sectionId,
+            int sessionId
+        )
         {
-            var result = await _repo.GetStudentsForFees(schoolId,classId, sectionId, sessionId);
+            var result = await _repo.GetStudentsForFees(schoolId, classId, sectionId, sessionId);
             return Ok(result);
         }
 
         [HttpPost("AssignStudentFees")]
-        public async Task<IActionResult> AssignFees( AssignFeeDto dto)
+        public async Task<IActionResult> AssignFees(AssignFeeDto dto)
         {
             var result = await _repo.AssignFeesAsync(dto);
             return result.Success ? Ok(result) : Conflict(result);
@@ -173,32 +237,47 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpGet("GetPendingFees")]
-        public async Task<IActionResult> PendingFees(int schoolId,int? classId,int? sectionId,int? sessionId, bool includePaid = false)
+        public async Task<IActionResult> PendingFees(
+            int schoolId,
+            int? classId,
+            int? sectionId,
+            int? sessionId,
+            bool includePaid = false
+        )
         {
-            var result =
-                await _repo.GetPendingFeesAsync( schoolId,classId, sectionId, sessionId, includePaid);
+            var result = await _repo.GetPendingFeesAsync(
+                schoolId,
+                classId,
+                sectionId,
+                sessionId,
+                includePaid
+            );
             return Ok(result);
         }
 
         [HttpPut("UpdateAssignedFee")]
         public async Task<IActionResult> UpdateAssignedFee(UpdateAssignedFeeDto dto)
         {
-            if (User.FindFirstValue("RoleId") != "1" &&
-                (!int.TryParse(User.FindFirstValue("SchoolId"), out var schoolId) || schoolId != dto.SchoolId)) return Forbid();
-            if (!int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return Unauthorized();
+            if (
+                User.FindFirstValue("RoleId") != "1"
+                && (
+                    !int.TryParse(User.FindFirstValue("SchoolId"), out var schoolId)
+                    || schoolId != dto.SchoolId
+                )
+            )
+                return Forbid();
+            if (!int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+                return Unauthorized();
             var result = await _repo.UpdateAssignedFeeAsync(dto, userId);
             return result.Success ? Ok(result) : BadRequest(result);
         }
+
         [HttpPost("PayFee")]
-        public async Task<IActionResult> PayFee( FeePaymentDto dto)
+        public async Task<IActionResult> PayFee(FeePaymentDto dto)
         {
             var result = await _repo.PayFeeAsync(dto);
 
-            return Ok(new
-            {
-                Success = result,
-                Message = "Fee payment successful"
-            });
+            return Ok(new { Success = result, Message = "Fee payment successful" });
         }
 
         // ==========================
@@ -217,16 +296,13 @@ namespace SchoolManagement.Controllers
         // ==========================
 
         [HttpGet("GetReceipt")]
-        public async Task<IActionResult> GetReceipt( int paymentId)
+        public async Task<IActionResult> GetReceipt(int paymentId)
         {
             var result = await _repo.GetReceipt(paymentId);
 
             if (result == null)
             {
-                return NotFound(new
-                {
-                    Message = "Receipt not found"
-                });
+                return NotFound(new { Message = "Receipt not found" });
             }
 
             return Ok(result);

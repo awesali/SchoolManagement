@@ -1,5 +1,7 @@
+// Backend section: domain and database models.
 namespace SchoolManagement.Model
 {
+    // Represents gender codes domain data.
     public static class GenderCodes
     {
         public const string Male = "M";

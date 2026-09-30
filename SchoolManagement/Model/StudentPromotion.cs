@@ -1,5 +1,7 @@
+// Backend section: domain and database models.
 namespace SchoolManagement.Model
 {
+    // Represents student promotion domain data.
     public class StudentPromotion
     {
         public int Id { get; set; }

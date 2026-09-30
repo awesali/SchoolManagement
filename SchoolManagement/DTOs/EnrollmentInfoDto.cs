@@ -1,9 +1,10 @@
-﻿namespace SchoolManagement.DTOs
+// Backend section: request and response data contracts.
+namespace SchoolManagement.DTOs
 {
+    // Defines the enrollment info request and response data.
     public class EnrollmentInfoDto
     {
-       
-    public List<ClassDto> Classes { get; set; }
+        public List<ClassDto> Classes { get; set; }
         public List<SectionDetailsDto> Sections { get; set; }
         public List<SessionDto> Sessions { get; set; }
     }
@@ -28,5 +29,4 @@
         public DateTime YearEnd { get; set; }
         public bool IsActive { get; set; }
     }
-
 }

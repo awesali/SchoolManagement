@@ -1,5 +1,7 @@
+// Backend section: domain and database models.
 namespace SchoolManagement.Model
 {
+    // Represents parent details domain data.
     public class ParentDetails
     {
         public int Id { get; set; }
@@ -7,13 +9,27 @@ namespace SchoolManagement.Model
         public string Name { get; set; }
         public string PhoneNumber { get; set; }
         public string Address { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(200)] public string? AddressLine2 { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(200)] public string? Landmark { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(100)] public string? City { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(100)] public string? District { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(100)] public string? State { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(100)] public string? Country { get; set; }
-        [System.ComponentModel.DataAnnotations.MaxLength(6)] public string? PinCode { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(200)]
+        public string? AddressLine2 { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(200)]
+        public string? Landmark { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string? City { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string? District { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string? State { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string? Country { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(6)]
+        public string? PinCode { get; set; }
         public string Email { get; set; }
         public string Relationship { get; set; } // Father, Mother, Guardian
 

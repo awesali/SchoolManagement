@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Authorization;
+// Backend section: HTTP endpoints and request handling.
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
@@ -7,10 +8,13 @@ namespace SchoolManagement.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    // Exposes student parent auth HTTP endpoints and handles their requests.
     public class StudentParentAuthController : ControllerBase
     {
+        // Dependencies and state used by this component.
         private readonly IStudentParentRepository _studentParentRepo;
 
+        // Creates the component with its required dependencies.
         public StudentParentAuthController(IStudentParentRepository studentParentRepo)
         {
             _studentParentRepo = studentParentRepo;
@@ -18,38 +22,73 @@ namespace SchoolManagement.Controllers
 
         [Authorize]
         [HttpPost("register")]
+        // API actions that validate requests and return responses.
         public async Task<IActionResult> Register([FromBody] StudentParentRegisterDto dto)
         {
-            if (dto == null) return BadRequest(new ApiResponse<string> { Success = false, Message = "Invalid input" });
+            if (dto == null)
+                return BadRequest(
+                    new ApiResponse<string> { Success = false, Message = "Invalid input" }
+                );
             // Student credentials must be provisioned by school staff for their own school.
             var roleId = User.FindFirst("RoleId")?.Value;
             var schoolClaim = User.FindFirst("SchoolId")?.Value;
-            if (roleId != "1" && (!int.TryParse(schoolClaim, out var callerSchoolId) || callerSchoolId != dto.School_Id))
+            if (
+                roleId != "1"
+                && (
+                    !int.TryParse(schoolClaim, out var callerSchoolId)
+                    || callerSchoolId != dto.School_Id
+                )
+            )
                 return Forbid();
-            if ( string.IsNullOrEmpty(dto.Email) || string.IsNullOrEmpty(dto.Password))
-                return BadRequest(new ApiResponse<string> { Success = false, Message = "Invalid input" });
+            if (string.IsNullOrEmpty(dto.Email) || string.IsNullOrEmpty(dto.Password))
+                return BadRequest(
+                    new ApiResponse<string> { Success = false, Message = "Invalid input" }
+                );
 
             var result = await _studentParentRepo.RegisterStudentParentAsync(dto);
 
             return result
-                ? Ok(new ApiResponse<string> { Success = true, Message = "Registration successful" })
-                : BadRequest(new ApiResponse<string> { Success = false, Message = "Email already exists or registration failed" });
+                ? Ok(
+                    new ApiResponse<string> { Success = true, Message = "Registration successful" }
+                )
+                : BadRequest(
+                    new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Email already exists or registration failed",
+                    }
+                );
         }
 
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] StudentParentLoginDto dto)
         {
-            if (dto == null || string.IsNullOrEmpty(dto.Email) || string.IsNullOrEmpty(dto.Password))
-                return BadRequest(new ApiResponse<string> { Success = false, Message = "Invalid input" });
+            if (
+                dto == null
+                || string.IsNullOrEmpty(dto.Email)
+                || string.IsNullOrEmpty(dto.Password)
+            )
+                return BadRequest(
+                    new ApiResponse<string> { Success = false, Message = "Invalid input" }
+                );
 
             try
             {
                 var token = await _studentParentRepo.LoginStudentParentAsync(dto);
-                return Ok(new ApiResponse<string> { Success = true, Message = "Login successful", Data = token });
+                return Ok(
+                    new ApiResponse<string>
+                    {
+                        Success = true,
+                        Message = "Login successful",
+                        Data = token,
+                    }
+                );
             }
             catch (Exception ex)
             {
-                return Unauthorized(new ApiResponse<string> { Success = false, Message = ex.Message });
+                return Unauthorized(
+                    new ApiResponse<string> { Success = false, Message = ex.Message }
+                );
             }
         }
 
@@ -60,33 +99,36 @@ namespace SchoolManagement.Controllers
             var email = User.Identity?.Name;
 
             if (string.IsNullOrEmpty(email))
-                return Unauthorized(new ApiResponse<string> { Success = false, Message = "Unauthorized" });
+                return Unauthorized(
+                    new ApiResponse<string> { Success = false, Message = "Unauthorized" }
+                );
 
             var user = await _studentParentRepo.GetByEmailAsync(email);
 
             if (user == null)
-                return NotFound(new ApiResponse<string> { Success = false, Message = "User not found" });
+                return NotFound(
+                    new ApiResponse<string> { Success = false, Message = "User not found" }
+                );
 
-            return Ok(new ApiResponse<object>
-            {
-                Success = true,
-                Data = new
+            return Ok(
+                new ApiResponse<object>
                 {
-                    id = user.Id,
-                    name = user.Name,
-                    email = user.Email,
-                    phone = user.Phone,
-                    roleName = user.RoleName,
-                    schoolId = user.School_Id,
-                    status = user.Status,
-                    lastLogin = user.Last_Login,
-                    createdAt = user.Created_At,
-                    isActive = user.IsActive
+                    Success = true,
+                    Data = new
+                    {
+                        id = user.Id,
+                        name = user.Name,
+                        email = user.Email,
+                        phone = user.Phone,
+                        roleName = user.RoleName,
+                        schoolId = user.School_Id,
+                        status = user.Status,
+                        lastLogin = user.Last_Login,
+                        createdAt = user.Created_At,
+                        isActive = user.IsActive,
+                    },
                 }
-            });
+            );
         }
     }
 }
-
-
-

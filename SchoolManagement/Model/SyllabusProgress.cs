@@ -1,4 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
+// Backend section: domain and database models.
+using System.ComponentModel.DataAnnotations;
 
 namespace SchoolManagement.Model;
 

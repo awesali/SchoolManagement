@@ -1,5 +1,7 @@
+// Backend section: request and response data contracts.
 namespace SchoolManagement.DTOs
 {
+    // Defines the create teacher unit test request and response data.
     public class CreateTeacherUnitTestDto
     {
         public string Name { get; set; }

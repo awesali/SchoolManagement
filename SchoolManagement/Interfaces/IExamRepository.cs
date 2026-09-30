@@ -1,8 +1,10 @@
+// Backend section: contracts for backend services and repositories.
 using SchoolManagement.DTOs;
 using SchoolManagement.Model;
 
 namespace SchoolManagement.Interfaces
 {
+    // Defines the i exam operations used by the backend.
     public interface IExamRepository
     {
         // Exam
@@ -24,66 +26,60 @@ namespace SchoolManagement.Interfaces
         //// Publish
         //Task<bool> PublishExamAsync(int examId);
 
-        Task<ApiResponse<ExamTypes>>
-            CreateExamType(CreateExamTypeDto dto, int userId);
+        Task<ApiResponse<ExamTypes>> CreateExamType(CreateExamTypeDto dto, int userId);
 
-        Task<ApiResponse<List<ExamTypes>>>
-            GetExamTypes(int schoolId);
+        Task<ApiResponse<List<ExamTypes>>> GetExamTypes(int schoolId);
 
-        Task<ApiResponse<Exams>>
-            CreateExam(CreateExamDto dto, int userId);
+        Task<ApiResponse<Exams>> CreateExam(CreateExamDto dto, int userId);
 
         Task<List<ClassDetailDto>> GetTeacherUnitTestClasses(int userId);
         Task<List<TeacherUnitTestListDto>> GetTeacherUnitTests(int userId);
         Task<ApiResponse<Exams>> CreateTeacherUnitTest(CreateTeacherUnitTestDto dto, int userId);
-        Task<ApiResponse<Exams>> UpdateTeacherUnitTest(int examId, CreateTeacherUnitTestDto dto, int userId);
+        Task<ApiResponse<Exams>> UpdateTeacherUnitTest(
+            int examId,
+            CreateTeacherUnitTestDto dto,
+            int userId
+        );
 
-        Task<ApiResponse<List<Exams>>>
-            GetExams(int schoolId);
+        Task<ApiResponse<List<Exams>>> GetExams(int schoolId);
 
-        Task<ApiResponse<Exams>>
-            PublishExam(int examId);
+        Task<ApiResponse<Exams>> PublishExam(int examId);
 
-        Task<ApiResponse<ExamSubjects>>
-       AddExamSubject(AddExamSubjectDto dto, int userId);
+        Task<ApiResponse<ExamSubjects>> AddExamSubject(AddExamSubjectDto dto, int userId);
 
-        Task<ApiResponse<List<ExamSubjectResponseDto>>>
-            GetExamSubjects(int examId);
+        Task<ApiResponse<List<ExamSubjectResponseDto>>> GetExamSubjects(int examId);
 
-        Task<ApiResponse<ExamSchedules>>
-CreateExamSchedule(
-    CreateExamScheduleDto dto);
+        Task<ApiResponse<ExamSchedules>> CreateExamSchedule(CreateExamScheduleDto dto);
 
-        Task<ApiResponse<ExamInvigilators>>
-AssignInvigilator(
-    AssignInvigilatorDto dto);
+        Task<ApiResponse<ExamInvigilators>> AssignInvigilator(AssignInvigilatorDto dto);
 
+        Task<ApiResponse<List<MarksEntrySheetDto>>> GetMarksEntrySheet(
+            int schoolId,
+            int examId,
+            int sectionId,
+            int subjectId,
+            int userId
+        );
 
-        Task<ApiResponse<List<MarksEntrySheetDto>>>
-            GetMarksEntrySheet(
-                int schoolId,
-                int examId,
-                int sectionId,
-                int subjectId,
-                int userId);
+        Task<ApiResponse<string>> SaveMarks(SaveMarksDto dto, int userId);
 
-        Task<ApiResponse<string>>
-            SaveMarks(
-                SaveMarksDto dto,
-                int userId);
-
-        Task<ApiResponse<string>>
-            LockMarks(
-                int examId,
-                int schoolId);
+        Task<ApiResponse<string>> LockMarks(int examId, int schoolId);
 
         Task<ApiResponse<string>> GenerateResults(GenerateResultDto dto);
 
         Task<ApiResponse<List<StudentResultDto>>> GetResults(int examId, int schoolId);
 
-        Task<ApiResponse<StudentResultDto>> GetStudentResult(int studentId, int examId, int schoolId);
+        Task<ApiResponse<StudentResultDto>> GetStudentResult(
+            int studentId,
+            int examId,
+            int schoolId
+        );
 
         Task<ApiResponse<string>> PublishResults(int examId, int schoolId);
-        Task<ApiResponse<StudentResultDetailDto>>GetStudentResultDetail(int studentId,int examId,int schoolId);
+        Task<ApiResponse<StudentResultDetailDto>> GetStudentResultDetail(
+            int studentId,
+            int examId,
+            int schoolId
+        );
     }
 }

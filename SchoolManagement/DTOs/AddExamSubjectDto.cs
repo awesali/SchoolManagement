@@ -1,5 +1,7 @@
-﻿namespace SchoolManagement.DTOs
+// Backend section: request and response data contracts.
+namespace SchoolManagement.DTOs
 {
+    // Defines the add exam subject request and response data.
     public class AddExamSubjectDto
     {
         public int SchoolId { get; set; }

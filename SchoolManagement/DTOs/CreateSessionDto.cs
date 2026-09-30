@@ -1,5 +1,7 @@
-﻿namespace SchoolManagement.DTOs
+// Backend section: request and response data contracts.
+namespace SchoolManagement.DTOs
 {
+    // Defines the create session request and response data.
     public class CreateSessionDto
     {
         public int SchoolId { get; set; }

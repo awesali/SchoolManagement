@@ -1,5 +1,7 @@
-﻿namespace SchoolManagement.DTOs
+// Backend section: request and response data contracts.
+namespace SchoolManagement.DTOs
 {
+    // Defines the pay salary request and response data.
     public class PaySalaryDto
     {
         public List<SalaryPaymentItemDto> Salaries { get; set; } = new();

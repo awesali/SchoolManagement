@@ -1,5 +1,7 @@
-﻿namespace SchoolManagement.DTOs
+// Backend section: request and response data contracts.
+namespace SchoolManagement.DTOs
 {
+    // Defines the staff attendance request and response data.
     public class StaffAttendanceDto
     {
         public string StaffName { get; set; }

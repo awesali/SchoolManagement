@@ -1,75 +1,155 @@
+// Backend section: HTTP endpoints and request handling.
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
 using SchoolManagement.Model;
-using System.Security.Claims;
 
 namespace SchoolManagement.Controllers;
 
 [ApiController]
 [Authorize]
 [Route("api/Teacher")]
+// Exposes teacher self service HTTP endpoints and handles their requests.
 public class TeacherSelfServiceController : ControllerBase
 {
+    // Dependencies and state used by this component.
     private readonly AppDbContext _db;
+
+    // Creates the component with its required dependencies.
     public TeacherSelfServiceController(AppDbContext db) => _db = db;
 
     private async Task<Staff?> CurrentStaff()
     {
-        if (User.FindFirstValue("RoleId") != "2" ||
-            !int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return null;
-        return await _db.Staff.AsNoTracking().FirstOrDefaultAsync(x => x.usersid == userId && x.IsActive && x.RoleId == 2);
+        if (
+            User.FindFirstValue("RoleId") != "2"
+            || !int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)
+        )
+            return null;
+        return await _db
+            .Staff.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.usersid == userId && x.IsActive && x.RoleId == 2);
     }
 
     private async Task<List<SectionSubjectTeachers>> TeachingAssignments(Staff staff) =>
-        await _db.SectionSubjectTeachers.AsNoTracking()
+        await _db
+            .SectionSubjectTeachers.AsNoTracking()
             .Where(x => x.StaffId == staff.Id && x.SchoolId == staff.SchoolId && x.IsActive)
             .ToListAsync();
 
     private async Task<bool> CanTeach(Staff staff, int sectionId, int subjectId) =>
-        await _db.SectionSubjectTeachers.AnyAsync(x => x.StaffId == staff.Id && x.SchoolId == staff.SchoolId &&
-            x.SectionId == sectionId && x.SubjectId == subjectId && x.IsActive);
+        await _db.SectionSubjectTeachers.AnyAsync(x =>
+            x.StaffId == staff.Id
+            && x.SchoolId == staff.SchoolId
+            && x.SectionId == sectionId
+            && x.SubjectId == subjectId
+            && x.IsActive
+        );
 
     [HttpGet("student-leave-requests")]
+    // API actions that validate requests and return responses.
     public async Task<IActionResult> StudentLeaveRequests()
     {
         var staff = await CurrentStaff();
-        if (staff == null || !int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return Forbid();
-        var rows = await (from request in _db.StudentServiceRequests.AsNoTracking()
-            join enrollment in _db.StudentEnrollment.AsNoTracking() on request.EnrollmentId equals enrollment.Id
-            join section in _db.SectionDetails.AsNoTracking() on enrollment.SectionId equals section.Id
+        if (
+            staff == null
+            || !int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)
+        )
+            return Forbid();
+        var rows = await (
+            from request in _db.StudentServiceRequests.AsNoTracking()
+            join enrollment in _db.StudentEnrollment.AsNoTracking()
+                on request.EnrollmentId equals enrollment.Id
+            join section in _db.SectionDetails.AsNoTracking()
+                on enrollment.SectionId equals section.Id
             join classroom in _db.Classes.AsNoTracking() on enrollment.ClassId equals classroom.Id
             join student in _db.Students.AsNoTracking() on request.StudentId equals student.Id
-            where request.IsActive &&
-                request.SchoolId == staff.SchoolId && enrollment.SchoolId == staff.SchoolId &&
-                enrollment.StudentId == request.StudentId && section.SchoolId == staff.SchoolId &&
-                (request.RecipientUserId == userId && request.RecipientRoleId == 2 || (request.RecipientUserId == null && request.Type == "Leave" && section.StaffId == staff.Id)) && section.IsActive && student.IsActive
+            where
+                request.IsActive
+                && request.SchoolId == staff.SchoolId
+                && enrollment.SchoolId == staff.SchoolId
+                && enrollment.StudentId == request.StudentId
+                && section.SchoolId == staff.SchoolId
+                && (
+                    request.RecipientUserId == userId && request.RecipientRoleId == 2
+                    || (
+                        request.RecipientUserId == null
+                        && request.Type == "Leave"
+                        && section.StaffId == staff.Id
+                    )
+                )
+                && section.IsActive
+                && student.IsActive
             orderby request.CreatedAt descending
-            select new { request.Id, request.StudentId, student.StudentName, request.Type,
-                classroom.ClassName, section.SectionName, request.Subject, request.Details,
-                request.FromDate, request.ToDate, request.Status, request.Response, request.CreatedAt })
-            .Take(300).ToListAsync();
+            select new
+            {
+                request.Id,
+                request.StudentId,
+                student.StudentName,
+                request.Type,
+                classroom.ClassName,
+                section.SectionName,
+                request.Subject,
+                request.Details,
+                request.FromDate,
+                request.ToDate,
+                request.Status,
+                request.Response,
+                request.CreatedAt,
+            }
+        )
+            .Take(300)
+            .ToListAsync();
         return Ok(new { success = true, data = rows });
     }
 
     [HttpPost("student-leave-requests/{id:int}/respond")]
-    public async Task<IActionResult> RespondToStudentLeave(int id, [FromBody] StudentLeaveReviewInput input)
+    public async Task<IActionResult> RespondToStudentLeave(
+        int id,
+        [FromBody] StudentLeaveReviewInput input
+    )
     {
         var staff = await CurrentStaff();
-        if (staff == null || !int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return Forbid();
-        var request = await (from item in _db.StudentServiceRequests
+        if (
+            staff == null
+            || !int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)
+        )
+            return Forbid();
+        var request = await (
+            from item in _db.StudentServiceRequests
             join enrollment in _db.StudentEnrollment on item.EnrollmentId equals enrollment.Id
             join section in _db.SectionDetails on enrollment.SectionId equals section.Id
-            where item.Id == id && item.IsActive &&
-                item.SchoolId == staff.SchoolId && enrollment.SchoolId == staff.SchoolId &&
-                enrollment.StudentId == item.StudentId && section.SchoolId == staff.SchoolId &&
-                (item.RecipientUserId == userId && item.RecipientRoleId == 2 || (item.RecipientUserId == null && item.Type == "Leave" && section.StaffId == staff.Id)) && section.IsActive
-            select item).FirstOrDefaultAsync();
-        if (request == null) return NotFound();
-        if (!new[] { "Approved", "Rejected" }.Contains(input.Status) ||
-            input.Response?.Length > 2000)
-            return BadRequest(new { message = "Choose Approved or Rejected and enter a response up to 2000 characters." });
+            where
+                item.Id == id
+                && item.IsActive
+                && item.SchoolId == staff.SchoolId
+                && enrollment.SchoolId == staff.SchoolId
+                && enrollment.StudentId == item.StudentId
+                && section.SchoolId == staff.SchoolId
+                && (
+                    item.RecipientUserId == userId && item.RecipientRoleId == 2
+                    || (
+                        item.RecipientUserId == null
+                        && item.Type == "Leave"
+                        && section.StaffId == staff.Id
+                    )
+                )
+                && section.IsActive
+            select item
+        ).FirstOrDefaultAsync();
+        if (request == null)
+            return NotFound();
+        if (
+            !new[] { "Approved", "Rejected" }.Contains(input.Status)
+            || input.Response?.Length > 2000
+        )
+            return BadRequest(
+                new
+                {
+                    message = "Choose Approved or Rejected and enter a response up to 2000 characters.",
+                }
+            );
         request.Status = input.Status;
         request.Response = input.Response?.Trim();
         request.RespondedAt = DateTime.UtcNow;
@@ -81,38 +161,87 @@ public class TeacherSelfServiceController : ControllerBase
     public async Task<IActionResult> TeachingOptions()
     {
         var staff = await CurrentStaff();
-        if (staff == null) return Forbid();
+        if (staff == null)
+            return Forbid();
         var mappings = await TeachingAssignments(staff);
         var sectionIds = mappings.Select(x => x.SectionId).Distinct().ToList();
         var subjectIds = mappings.Select(x => x.SubjectId).Distinct().ToList();
-        var sections = await _db.SectionDetails.AsNoTracking().Where(x => sectionIds.Contains(x.Id) && x.IsActive).ToListAsync();
-        var classes = await _db.Classes.AsNoTracking().Where(x => sections.Select(s => s.ClassId).Contains(x.Id) && x.IsActive).ToListAsync();
-        var subjects = await _db.Subjects.AsNoTracking().Where(x => subjectIds.Contains(x.Id) && x.IsActive).ToListAsync();
-        return Ok(new { success = true, data = mappings.Where(mapping => sections.Any(section => section.Id == mapping.SectionId)).Select(mapping => {
-            var section = sections.First(x => x.Id == mapping.SectionId);
-            return new {
-                sectionId = section.Id, sectionName = section.SectionName,
-                className = classes.FirstOrDefault(x => x.Id == section.ClassId)?.ClassName ?? "",
-                subjectId = mapping.SubjectId,
-                subjectName = subjects.FirstOrDefault(x => x.Id == mapping.SubjectId)?.SubjectName ?? ""
-            };
-        }).OrderBy(x => x.className).ThenBy(x => x.sectionName).ThenBy(x => x.subjectName) });
+        var sections = await _db
+            .SectionDetails.AsNoTracking()
+            .Where(x => sectionIds.Contains(x.Id) && x.IsActive)
+            .ToListAsync();
+        var classes = await _db
+            .Classes.AsNoTracking()
+            .Where(x => sections.Select(s => s.ClassId).Contains(x.Id) && x.IsActive)
+            .ToListAsync();
+        var subjects = await _db
+            .Subjects.AsNoTracking()
+            .Where(x => subjectIds.Contains(x.Id) && x.IsActive)
+            .ToListAsync();
+        return Ok(
+            new
+            {
+                success = true,
+                data = mappings
+                    .Where(mapping => sections.Any(section => section.Id == mapping.SectionId))
+                    .Select(mapping =>
+                    {
+                        var section = sections.First(x => x.Id == mapping.SectionId);
+                        return new
+                        {
+                            sectionId = section.Id,
+                            sectionName = section.SectionName,
+                            className = classes
+                                .FirstOrDefault(x => x.Id == section.ClassId)
+                                ?.ClassName
+                                ?? "",
+                            subjectId = mapping.SubjectId,
+                            subjectName = subjects
+                                .FirstOrDefault(x => x.Id == mapping.SubjectId)
+                                ?.SubjectName
+                                ?? "",
+                        };
+                    })
+                    .OrderBy(x => x.className)
+                    .ThenBy(x => x.sectionName)
+                    .ThenBy(x => x.subjectName),
+            }
+        );
     }
 
     [HttpGet("homework")]
     public async Task<IActionResult> Homework()
     {
         var staff = await CurrentStaff();
-        if (staff == null) return Forbid();
-        var rows = await (from homework in _db.HomeworkAssignments.AsNoTracking()
+        if (staff == null)
+            return Forbid();
+        var rows = await (
+            from homework in _db.HomeworkAssignments.AsNoTracking()
             join section in _db.SectionDetails on homework.SectionId equals section.Id
             join classroom in _db.Classes on section.ClassId equals classroom.Id
             join subject in _db.Subjects on homework.SubjectId equals subject.Id
-            where homework.StaffId == staff.Id && homework.SchoolId == staff.SchoolId && homework.IsActive
+            where
+                homework.StaffId == staff.Id
+                && homework.SchoolId == staff.SchoolId
+                && homework.IsActive
             orderby homework.DueDate descending
-            select new { homework.Id, homework.Title, homework.Description, homework.AssignedDate, homework.DueDate,
-                homework.TotalMarks, homework.ResourceUrl, homework.Status, homework.SectionId, homework.SubjectId,
-                classroom.ClassName, section.SectionName, subject.SubjectName }).ToListAsync();
+            select new
+            {
+                homework.Id,
+                homework.Title,
+                homework.Description,
+                homework.AssignedDate,
+                homework.DueDate,
+                homework.TotalMarks,
+                homework.ResourceUrl,
+                homework.Status,
+                homework.SectionId,
+                homework.SubjectId,
+                classroom.ClassName,
+                section.SectionName,
+                subject.SubjectName,
+            }
+        ).ToListAsync();
         return Ok(new { success = true, data = rows });
     }
 
@@ -120,46 +249,99 @@ public class TeacherSelfServiceController : ControllerBase
     public async Task<IActionResult> CreateHomework(TeacherHomeworkRequest request)
     {
         var staff = await CurrentStaff();
-        if (staff == null) return Forbid();
-        if (!await CanTeach(staff, request.SectionId, request.SubjectId)) return Forbid();
-        if (string.IsNullOrWhiteSpace(request.Title) || string.IsNullOrWhiteSpace(request.Description))
-            return BadRequest(new { success = false, message = "Title and instructions are required." });
+        if (staff == null)
+            return Forbid();
+        if (!await CanTeach(staff, request.SectionId, request.SubjectId))
+            return Forbid();
+        if (
+            string.IsNullOrWhiteSpace(request.Title)
+            || string.IsNullOrWhiteSpace(request.Description)
+        )
+            return BadRequest(
+                new { success = false, message = "Title and instructions are required." }
+            );
         string? normalizedHomeworkUrl = null;
         if (!string.IsNullOrWhiteSpace(request.ResourceUrl))
         {
-            if (!Uri.TryCreate(request.ResourceUrl, UriKind.Absolute, out var homeworkResource) ||
-                (homeworkResource.Scheme != Uri.UriSchemeHttp && homeworkResource.Scheme != Uri.UriSchemeHttps))
-                return BadRequest(new { success = false, message = "Supporting material must use a valid web link." });
+            if (
+                !Uri.TryCreate(request.ResourceUrl, UriKind.Absolute, out var homeworkResource)
+                || (
+                    homeworkResource.Scheme != Uri.UriSchemeHttp
+                    && homeworkResource.Scheme != Uri.UriSchemeHttps
+                )
+            )
+                return BadRequest(
+                    new
+                    {
+                        success = false,
+                        message = "Supporting material must use a valid web link.",
+                    }
+                );
             normalizedHomeworkUrl = homeworkResource.ToString();
         }
         var assigned = request.AssignedDate.Date;
         var due = request.DueDate;
-        if (due < assigned) return BadRequest(new { success = false, message = "Due date cannot be before the assigned date." });
-        var item = new HomeworkAssignment {
-            SchoolId = staff.SchoolId, StaffId = staff.Id, SectionId = request.SectionId, SubjectId = request.SubjectId,
-            Title = request.Title.Trim(), Description = request.Description.Trim(), AssignedDate = assigned, DueDate = due,
-            TotalMarks = request.TotalMarks, ResourceUrl = normalizedHomeworkUrl,
-            Status = request.Publish ? "Published" : "Draft"
+        if (due < assigned)
+            return BadRequest(
+                new { success = false, message = "Due date cannot be before the assigned date." }
+            );
+        var item = new HomeworkAssignment
+        {
+            SchoolId = staff.SchoolId,
+            StaffId = staff.Id,
+            SectionId = request.SectionId,
+            SubjectId = request.SubjectId,
+            Title = request.Title.Trim(),
+            Description = request.Description.Trim(),
+            AssignedDate = assigned,
+            DueDate = due,
+            TotalMarks = request.TotalMarks,
+            ResourceUrl = normalizedHomeworkUrl,
+            Status = request.Publish ? "Published" : "Draft",
         };
         _db.HomeworkAssignments.Add(item);
         await _db.SaveChangesAsync();
-        return Ok(new { success = true, message = request.Publish ? "Homework published." : "Homework saved as draft.", data = new { item.Id } });
+        return Ok(
+            new
+            {
+                success = true,
+                message = request.Publish ? "Homework published." : "Homework saved as draft.",
+                data = new { item.Id },
+            }
+        );
     }
 
     [HttpGet("study-materials")]
     public async Task<IActionResult> StudyMaterials()
     {
         var staff = await CurrentStaff();
-        if (staff == null) return Forbid();
-        var rows = await (from material in _db.TeacherStudyMaterials.AsNoTracking()
+        if (staff == null)
+            return Forbid();
+        var rows = await (
+            from material in _db.TeacherStudyMaterials.AsNoTracking()
             join section in _db.SectionDetails on material.SectionId equals section.Id
             join classroom in _db.Classes on section.ClassId equals classroom.Id
             join subject in _db.Subjects on material.SubjectId equals subject.Id
-            where material.StaffId == staff.Id && material.SchoolId == staff.SchoolId && material.IsActive
+            where
+                material.StaffId == staff.Id
+                && material.SchoolId == staff.SchoolId
+                && material.IsActive
             orderby material.CreatedDate descending
-            select new { material.Id, material.Title, material.Description, material.ResourceType, material.ResourceUrl,
-                material.CreatedDate, material.SectionId, material.SubjectId, classroom.ClassName, section.SectionName,
-                subject.SubjectName }).ToListAsync();
+            select new
+            {
+                material.Id,
+                material.Title,
+                material.Description,
+                material.ResourceType,
+                material.ResourceUrl,
+                material.CreatedDate,
+                material.SectionId,
+                material.SubjectId,
+                classroom.ClassName,
+                section.SectionName,
+                subject.SubjectName,
+            }
+        ).ToListAsync();
         return Ok(new { success = true, data = rows });
     }
 
@@ -167,95 +349,291 @@ public class TeacherSelfServiceController : ControllerBase
     public async Task<IActionResult> CreateStudyMaterial(TeacherStudyMaterialRequest request)
     {
         var staff = await CurrentStaff();
-        if (staff == null) return Forbid();
-        if (!await CanTeach(staff, request.SectionId, request.SubjectId)) return Forbid();
-        if (string.IsNullOrWhiteSpace(request.Title) || !Uri.TryCreate(request.ResourceUrl, UriKind.Absolute, out var resource) ||
-            (resource.Scheme != Uri.UriSchemeHttp && resource.Scheme != Uri.UriSchemeHttps))
-            return BadRequest(new { success = false, message = "Enter a title and a valid web resource link." });
+        if (staff == null)
+            return Forbid();
+        if (!await CanTeach(staff, request.SectionId, request.SubjectId))
+            return Forbid();
+        if (
+            string.IsNullOrWhiteSpace(request.Title)
+            || !Uri.TryCreate(request.ResourceUrl, UriKind.Absolute, out var resource)
+            || (resource.Scheme != Uri.UriSchemeHttp && resource.Scheme != Uri.UriSchemeHttps)
+        )
+            return BadRequest(
+                new { success = false, message = "Enter a title and a valid web resource link." }
+            );
         if (request.ResourceType is not ("Link" or "PDF" or "Worksheet" or "Notes"))
             return BadRequest(new { success = false, message = "Choose a valid resource type." });
-        var item = new TeacherStudyMaterial {
-            SchoolId = staff.SchoolId, StaffId = staff.Id, SectionId = request.SectionId, SubjectId = request.SubjectId,
-            Title = request.Title.Trim(), Description = request.Description?.Trim(),
-            ResourceType = string.IsNullOrWhiteSpace(request.ResourceType) ? "Link" : request.ResourceType.Trim(),
-            ResourceUrl = resource.ToString()
+        var item = new TeacherStudyMaterial
+        {
+            SchoolId = staff.SchoolId,
+            StaffId = staff.Id,
+            SectionId = request.SectionId,
+            SubjectId = request.SubjectId,
+            Title = request.Title.Trim(),
+            Description = request.Description?.Trim(),
+            ResourceType = string.IsNullOrWhiteSpace(request.ResourceType)
+                ? "Link"
+                : request.ResourceType.Trim(),
+            ResourceUrl = resource.ToString(),
         };
         _db.TeacherStudyMaterials.Add(item);
         await _db.SaveChangesAsync();
-        return Ok(new { success = true, message = "Study material shared.", data = new { item.Id } });
+        return Ok(
+            new
+            {
+                success = true,
+                message = "Study material shared.",
+                data = new { item.Id },
+            }
+        );
     }
 
     [HttpGet("calendar")]
-    public async Task<IActionResult> Calendar([FromQuery(Name = "from")] DateTime rangeStart, [FromQuery(Name = "to")] DateTime rangeEnd)
+    public async Task<IActionResult> Calendar(
+        [FromQuery(Name = "from")] DateTime rangeStart,
+        [FromQuery(Name = "to")] DateTime rangeEnd
+    )
     {
         var staff = await CurrentStaff();
-        if (staff == null) return Forbid();
-        if (rangeStart == default || rangeEnd == default || rangeEnd.Date < rangeStart.Date || (rangeEnd.Date - rangeStart.Date).TotalDays > 62)
-            return BadRequest(new { success = false, message = "Choose a valid calendar range of up to 62 days." });
+        if (staff == null)
+            return Forbid();
+        if (
+            rangeStart == default
+            || rangeEnd == default
+            || rangeEnd.Date < rangeStart.Date
+            || (rangeEnd.Date - rangeStart.Date).TotalDays > 62
+        )
+            return BadRequest(
+                new { success = false, message = "Choose a valid calendar range of up to 62 days." }
+            );
         var mappings = await TeachingAssignments(staff);
         var sectionIds = mappings.Select(x => x.SectionId).Distinct().ToList();
-        var assignments = await _db.HomeworkAssignments.AsNoTracking()
-            .Where(x => x.StaffId == staff.Id && x.IsActive && x.DueDate.Date >= rangeStart.Date && x.DueDate.Date <= rangeEnd.Date)
-            .Select(x => new TeacherCalendarItem { Date = x.DueDate, Title = x.Title, Type = "Homework", Detail = x.Status }).ToListAsync();
-        var examRows = await (from schedule in _db.ExamSchedules.AsNoTracking()
+        var assignments = await _db
+            .HomeworkAssignments.AsNoTracking()
+            .Where(x =>
+                x.StaffId == staff.Id
+                && x.IsActive
+                && x.DueDate.Date >= rangeStart.Date
+                && x.DueDate.Date <= rangeEnd.Date
+            )
+            .Select(x => new TeacherCalendarItem
+            {
+                Date = x.DueDate,
+                Title = x.Title,
+                Type = "Homework",
+                Detail = x.Status,
+            })
+            .ToListAsync();
+        var examRows = await (
+            from schedule in _db.ExamSchedules.AsNoTracking()
             join exam in _db.Exams on schedule.ExamId equals exam.Id
             join subject in _db.Subjects on schedule.SubjectId equals subject.Id
-            where schedule.SchoolId == staff.SchoolId && schedule.IsActive && sectionIds.Contains(schedule.SectionId) &&
-                schedule.ExamDate.Date >= rangeStart.Date && schedule.ExamDate.Date <= rangeEnd.Date
-            select new { schedule.SectionId, schedule.SubjectId, schedule.ExamDate, exam.Name,
-                subject.SubjectName, schedule.StartTime }).ToListAsync();
-        var exams = examRows.Where(row => mappings.Any(mapping => mapping.SectionId == row.SectionId && mapping.SubjectId == row.SubjectId))
-            .Select(row => new TeacherCalendarItem { Date = row.ExamDate, Title = row.Name + " · " + row.SubjectName,
-                Type = "Exam", Detail = row.StartTime.ToString(@"hh\:mm") }).ToList();
-        var dutyRows = await (from duty in _db.ExamInvigilators.AsNoTracking()
-            join schedule in _db.ExamSchedules.AsNoTracking() on duty.ExamScheduleId equals schedule.Id
+            where
+                schedule.SchoolId == staff.SchoolId
+                && schedule.IsActive
+                && sectionIds.Contains(schedule.SectionId)
+                && schedule.ExamDate.Date >= rangeStart.Date
+                && schedule.ExamDate.Date <= rangeEnd.Date
+            select new
+            {
+                schedule.SectionId,
+                schedule.SubjectId,
+                schedule.ExamDate,
+                exam.Name,
+                subject.SubjectName,
+                schedule.StartTime,
+            }
+        ).ToListAsync();
+        var exams = examRows
+            .Where(row =>
+                mappings.Any(mapping =>
+                    mapping.SectionId == row.SectionId && mapping.SubjectId == row.SubjectId
+                )
+            )
+            .Select(row => new TeacherCalendarItem
+            {
+                Date = row.ExamDate,
+                Title = row.Name + " · " + row.SubjectName,
+                Type = "Exam",
+                Detail = row.StartTime.ToString(@"hh\:mm"),
+            })
+            .ToList();
+        var dutyRows = await (
+            from duty in _db.ExamInvigilators.AsNoTracking()
+            join schedule in _db.ExamSchedules.AsNoTracking()
+                on duty.ExamScheduleId equals schedule.Id
             join exam in _db.Exams.AsNoTracking() on schedule.ExamId equals exam.Id
             join classroom in _db.Classes.AsNoTracking() on schedule.ClassId equals classroom.Id
-            join section in _db.SectionDetails.AsNoTracking() on schedule.SectionId equals section.Id
-            where duty.StaffId == staff.Id && schedule.SchoolId == staff.SchoolId && schedule.IsActive &&
-                schedule.ExamDate.Date >= rangeStart.Date && schedule.ExamDate.Date <= rangeEnd.Date
-            select new { schedule.ExamDate, schedule.StartTime, schedule.EndTime, exam.Name, classroom.ClassName, section.SectionName, duty.DutyType }).ToListAsync();
-        var duties = dutyRows.Select(x => new TeacherCalendarItem { Date = x.ExamDate,
+            join section in _db.SectionDetails.AsNoTracking()
+                on schedule.SectionId equals section.Id
+            where
+                duty.StaffId == staff.Id
+                && schedule.SchoolId == staff.SchoolId
+                && schedule.IsActive
+                && schedule.ExamDate.Date >= rangeStart.Date
+                && schedule.ExamDate.Date <= rangeEnd.Date
+            select new
+            {
+                schedule.ExamDate,
+                schedule.StartTime,
+                schedule.EndTime,
+                exam.Name,
+                classroom.ClassName,
+                section.SectionName,
+                duty.DutyType,
+            }
+        ).ToListAsync();
+        var duties = dutyRows.Select(x => new TeacherCalendarItem
+        {
+            Date = x.ExamDate,
             Title = "Invigilate " + x.ClassName + " - " + x.SectionName + " (" + x.Name + ")",
-            Type = "Invigilation", Detail = x.StartTime.ToString(@"hh\:mm") + "-" + x.EndTime.ToString(@"hh\:mm") + " - " + x.DutyType + " duty" });
-        var leave = await _db.StaffLeaveRequests.AsNoTracking()
-            .Where(x => x.StaffId == staff.Id && x.IsActive && x.ToDate.Date >= rangeStart.Date && x.FromDate.Date <= rangeEnd.Date)
-            .Select(x => new TeacherCalendarItem { Date = x.FromDate, Title = x.LeaveType, Type = "Leave", Detail = x.Status }).ToListAsync();
-        var schoolEvents = await _db.SchoolCalendarEvents.AsNoTracking()
-            .Where(x => x.SchoolId == staff.SchoolId && x.IsActive &&
-                (x.SectionId == null || sectionIds.Contains(x.SectionId.Value)) &&
-                x.EventDate.Date <= rangeEnd.Date && (x.EndDate ?? x.EventDate).Date >= rangeStart.Date)
-            .Select(x => new { x.EventDate, x.EndDate, x.Title, x.Description, x.EventType }).ToListAsync();
-        var schoolItems = schoolEvents.SelectMany(x => Enumerable.Range(0,
-                x.EventType == "AcademicHoliday" ? ((x.EndDate ?? x.EventDate).Date - x.EventDate.Date).Days + 1 : 1)
-            .Select(offset => new TeacherCalendarItem { Date = x.EventDate.Date.AddDays(offset), Title = x.Title,
-                Type = x.EventType == "AcademicHoliday" ? "Holiday" : "School event",
-                Detail = x.Description ?? (x.EventType == "AcademicHoliday" ? "Academic holiday" : "") }))
+            Type = "Invigilation",
+            Detail =
+                x.StartTime.ToString(@"hh\:mm")
+                + "-"
+                + x.EndTime.ToString(@"hh\:mm")
+                + " - "
+                + x.DutyType
+                + " duty",
+        });
+        var leave = await _db
+            .StaffLeaveRequests.AsNoTracking()
+            .Where(x =>
+                x.StaffId == staff.Id
+                && x.IsActive
+                && x.ToDate.Date >= rangeStart.Date
+                && x.FromDate.Date <= rangeEnd.Date
+            )
+            .Select(x => new TeacherCalendarItem
+            {
+                Date = x.FromDate,
+                Title = x.LeaveType,
+                Type = "Leave",
+                Detail = x.Status,
+            })
+            .ToListAsync();
+        var schoolEvents = await _db
+            .SchoolCalendarEvents.AsNoTracking()
+            .Where(x =>
+                x.SchoolId == staff.SchoolId
+                && x.IsActive
+                && (x.SectionId == null || sectionIds.Contains(x.SectionId.Value))
+                && x.EventDate.Date <= rangeEnd.Date
+                && (x.EndDate ?? x.EventDate).Date >= rangeStart.Date
+            )
+            .Select(x => new
+            {
+                x.EventDate,
+                x.EndDate,
+                x.Title,
+                x.Description,
+                x.EventType,
+            })
+            .ToListAsync();
+        var schoolItems = schoolEvents
+            .SelectMany(x =>
+                Enumerable
+                    .Range(
+                        0,
+                        x.EventType == "AcademicHoliday"
+                            ? ((x.EndDate ?? x.EventDate).Date - x.EventDate.Date).Days + 1
+                            : 1
+                    )
+                    .Select(offset => new TeacherCalendarItem
+                    {
+                        Date = x.EventDate.Date.AddDays(offset),
+                        Title = x.Title,
+                        Type = x.EventType == "AcademicHoliday" ? "Holiday" : "School event",
+                        Detail =
+                            x.Description
+                            ?? (x.EventType == "AcademicHoliday" ? "Academic holiday" : ""),
+                    })
+            )
             .Where(x => x.Date >= rangeStart.Date && x.Date <= rangeEnd.Date);
-        return Ok(new { success = true, data = assignments.Concat(exams).Concat(duties).Concat(leave).Concat(schoolItems).OrderBy(x => x.Date) });
+        return Ok(
+            new
+            {
+                success = true,
+                data = assignments
+                    .Concat(exams)
+                    .Concat(duties)
+                    .Concat(leave)
+                    .Concat(schoolItems)
+                    .OrderBy(x => x.Date),
+            }
+        );
     }
 
     [HttpGet("profile-summary")]
     public async Task<IActionResult> ProfileSummary()
     {
         var staff = await CurrentStaff();
-        if (staff == null) return Forbid();
-        var role = await _db.Roles.AsNoTracking().Where(x => x.Id == staff.RoleId).Select(x => x.RoleName).FirstOrDefaultAsync();
-        var school = await _db.Schools.AsNoTracking().Where(x => x.Id == staff.SchoolId).Select(x => x.SchoolName).FirstOrDefaultAsync();
-        return Ok(new { success = true, data = new { staff.Id, staff.Name, staff.Email, staff.Phone, staff.DOB, staff.DOJ,
-            staff.GenderCode, staff.EmploymentType, staff.Adress, staff.AddressLine2, staff.Landmark, staff.City,
-            staff.District, staff.State, staff.Country, staff.PinCode, staff.Qualification, staff.Specialization,
-            staff.ExperienceYears, designation = role, schoolName = school } });
+        if (staff == null)
+            return Forbid();
+        var role = await _db
+            .Roles.AsNoTracking()
+            .Where(x => x.Id == staff.RoleId)
+            .Select(x => x.RoleName)
+            .FirstOrDefaultAsync();
+        var school = await _db
+            .Schools.AsNoTracking()
+            .Where(x => x.Id == staff.SchoolId)
+            .Select(x => x.SchoolName)
+            .FirstOrDefaultAsync();
+        return Ok(
+            new
+            {
+                success = true,
+                data = new
+                {
+                    staff.Id,
+                    staff.Name,
+                    staff.Email,
+                    staff.Phone,
+                    staff.DOB,
+                    staff.DOJ,
+                    staff.GenderCode,
+                    staff.EmploymentType,
+                    staff.Adress,
+                    staff.AddressLine2,
+                    staff.Landmark,
+                    staff.City,
+                    staff.District,
+                    staff.State,
+                    staff.Country,
+                    staff.PinCode,
+                    staff.Qualification,
+                    staff.Specialization,
+                    staff.ExperienceYears,
+                    designation = role,
+                    schoolName = school,
+                },
+            }
+        );
     }
 
     [HttpGet("leave")]
     public async Task<IActionResult> Leave()
     {
         var staff = await CurrentStaff();
-        if (staff == null) return Forbid();
-        var rows = await _db.StaffLeaveRequests.AsNoTracking().Where(x => x.StaffId == staff.Id && x.IsActive)
-            .OrderByDescending(x => x.FromDate).Select(x => new { x.Id, x.LeaveType, x.FromDate, x.ToDate,
-                x.Reason, x.Status, x.AdminRemarks, x.CreatedDate }).ToListAsync();
+        if (staff == null)
+            return Forbid();
+        var rows = await _db
+            .StaffLeaveRequests.AsNoTracking()
+            .Where(x => x.StaffId == staff.Id && x.IsActive)
+            .OrderByDescending(x => x.FromDate)
+            .Select(x => new
+            {
+                x.Id,
+                x.LeaveType,
+                x.FromDate,
+                x.ToDate,
+                x.Reason,
+                x.Status,
+                x.AdminRemarks,
+                x.CreatedDate,
+            })
+            .ToListAsync();
         return Ok(new { success = true, data = rows });
     }
 
@@ -263,48 +641,136 @@ public class TeacherSelfServiceController : ControllerBase
     public async Task<IActionResult> ApplyLeave(TeacherLeaveRequest request)
     {
         var staff = await CurrentStaff();
-        if (staff == null) return Forbid();
-        if (request.FromDate.Date < DateTime.Today || request.ToDate.Date < request.FromDate.Date || string.IsNullOrWhiteSpace(request.Reason))
-            return BadRequest(new { success = false, message = "Choose valid future dates and enter a reason." });
-        var allowedLeaveTypes = new[] { "Casual Leave", "Sick Leave", "Planned Leave", "Unpaid Leave", "Earned Leave" };
+        if (staff == null)
+            return Forbid();
+        if (
+            request.FromDate.Date < DateTime.Today
+            || request.ToDate.Date < request.FromDate.Date
+            || string.IsNullOrWhiteSpace(request.Reason)
+        )
+            return BadRequest(
+                new { success = false, message = "Choose valid future dates and enter a reason." }
+            );
+        var allowedLeaveTypes = new[]
+        {
+            "Casual Leave",
+            "Sick Leave",
+            "Planned Leave",
+            "Unpaid Leave",
+            "Earned Leave",
+        };
         if (!allowedLeaveTypes.Contains(request.LeaveType))
             return BadRequest(new { success = false, message = "Choose a valid leave type." });
-        if (await _db.StaffLeaveRequests.AnyAsync(x => x.StaffId == staff.Id && x.IsActive && x.Status != "Rejected" &&
-            x.FromDate.Date <= request.ToDate.Date && x.ToDate.Date >= request.FromDate.Date))
-            return Conflict(new { success = false, message = "A leave request already covers these dates." });
-        var session = await _db.AcademicSessions.AsNoTracking().Where(x => x.SchoolId == staff.SchoolId && x.IsActive &&
-            x.Year_Start.Date <= request.FromDate.Date && x.Year_End.Date >= request.FromDate.Date)
-            .OrderByDescending(x => x.Year_Start).FirstOrDefaultAsync();
+        if (
+            await _db.StaffLeaveRequests.AnyAsync(x =>
+                x.StaffId == staff.Id
+                && x.IsActive
+                && x.Status != "Rejected"
+                && x.FromDate.Date <= request.ToDate.Date
+                && x.ToDate.Date >= request.FromDate.Date
+            )
+        )
+            return Conflict(
+                new { success = false, message = "A leave request already covers these dates." }
+            );
+        var session = await _db
+            .AcademicSessions.AsNoTracking()
+            .Where(x =>
+                x.SchoolId == staff.SchoolId
+                && x.IsActive
+                && x.Year_Start.Date <= request.FromDate.Date
+                && x.Year_End.Date >= request.FromDate.Date
+            )
+            .OrderByDescending(x => x.Year_Start)
+            .FirstOrDefaultAsync();
         if (session == null || request.ToDate.Date > session.Year_End.Date)
-            return BadRequest(new { success = false, message = "Choose dates within one active academic session." });
-        var allotted = await _db.StaffLeaveAllocations.AsNoTracking()
-            .Where(x => x.StaffId == staff.Id && x.AcademicSessionId == session.Id && x.LeaveType == request.LeaveType)
-            .Select(x => (int?)x.Days).FirstOrDefaultAsync() ?? 0;
-        var existing = await _db.StaffLeaveRequests.AsNoTracking().Where(x => x.StaffId == staff.Id && x.IsActive &&
-            x.LeaveType == request.LeaveType && (x.Status == "Pending" || x.Status == "Approved") &&
-            x.FromDate.Date >= session.Year_Start.Date && x.ToDate.Date <= session.Year_End.Date)
-            .Select(x => new { x.FromDate, x.ToDate }).ToListAsync();
+            return BadRequest(
+                new
+                {
+                    success = false,
+                    message = "Choose dates within one active academic session.",
+                }
+            );
+        var allotted =
+            await _db
+                .StaffLeaveAllocations.AsNoTracking()
+                .Where(x =>
+                    x.StaffId == staff.Id
+                    && x.AcademicSessionId == session.Id
+                    && x.LeaveType == request.LeaveType
+                )
+                .Select(x => (int?)x.Days)
+                .FirstOrDefaultAsync()
+            ?? 0;
+        var existing = await _db
+            .StaffLeaveRequests.AsNoTracking()
+            .Where(x =>
+                x.StaffId == staff.Id
+                && x.IsActive
+                && x.LeaveType == request.LeaveType
+                && (x.Status == "Pending" || x.Status == "Approved")
+                && x.FromDate.Date >= session.Year_Start.Date
+                && x.ToDate.Date <= session.Year_End.Date
+            )
+            .Select(x => new { x.FromDate, x.ToDate })
+            .ToListAsync();
         var reserved = existing.Sum(x => (x.ToDate.Date - x.FromDate.Date).Days + 1);
         var requested = (request.ToDate.Date - request.FromDate.Date).Days + 1;
         if (requested > allotted - reserved)
-            return BadRequest(new { success = false, message = $"Only {Math.Max(0, allotted - reserved)} {request.LeaveType} day(s) remain in this academic year." });
-        var item = new StaffLeaveRequest { SchoolId = staff.SchoolId, StaffId = staff.Id,
-            LeaveType = request.LeaveType.Trim(), FromDate = request.FromDate.Date, ToDate = request.ToDate.Date,
-            Reason = request.Reason.Trim() };
+            return BadRequest(
+                new
+                {
+                    success = false,
+                    message = $"Only {Math.Max(0, allotted - reserved)} {request.LeaveType} day(s) remain in this academic year.",
+                }
+            );
+        var item = new StaffLeaveRequest
+        {
+            SchoolId = staff.SchoolId,
+            StaffId = staff.Id,
+            LeaveType = request.LeaveType.Trim(),
+            FromDate = request.FromDate.Date,
+            ToDate = request.ToDate.Date,
+            Reason = request.Reason.Trim(),
+        };
         _db.StaffLeaveRequests.Add(item);
         await _db.SaveChangesAsync();
-        return Ok(new { success = true, message = "Leave request submitted.", data = new { item.Id } });
+        return Ok(
+            new
+            {
+                success = true,
+                message = "Leave request submitted.",
+                data = new { item.Id },
+            }
+        );
     }
 
     [HttpGet("payslips")]
     public async Task<IActionResult> Payslips()
     {
         var staff = await CurrentStaff();
-        if (staff == null) return Forbid();
-        var rows = await _db.SalaryPayment.AsNoTracking().Where(x => x.StaffId == staff.Id && x.schoolId == staff.SchoolId)
-            .OrderByDescending(x => x.SalaryYear).ThenByDescending(x => x.SalaryMonth)
-            .Select(x => new { x.Id, x.SalaryMonth, x.SalaryYear, x.BasicSalary, x.Bonus, x.Deduction,
-                x.NetSalary, x.Status, x.PaymentDate, x.PaymentMethod, x.Remarks }).ToListAsync();
+        if (staff == null)
+            return Forbid();
+        var rows = await _db
+            .SalaryPayment.AsNoTracking()
+            .Where(x => x.StaffId == staff.Id && x.schoolId == staff.SchoolId)
+            .OrderByDescending(x => x.SalaryYear)
+            .ThenByDescending(x => x.SalaryMonth)
+            .Select(x => new
+            {
+                x.Id,
+                x.SalaryMonth,
+                x.SalaryYear,
+                x.BasicSalary,
+                x.Bonus,
+                x.Deduction,
+                x.NetSalary,
+                x.Status,
+                x.PaymentDate,
+                x.PaymentMethod,
+                x.Remarks,
+            })
+            .ToListAsync();
         return Ok(new { success = true, data = rows });
     }
 
@@ -312,10 +778,20 @@ public class TeacherSelfServiceController : ControllerBase
     public async Task<IActionResult> Documents()
     {
         var staff = await CurrentStaff();
-        if (staff == null) return Forbid();
-        var rows = await _db.StaffDocuments.AsNoTracking().Where(x => x.StaffId == staff.Id)
-            .OrderByDescending(x => x.CreatedDate).Select(x => new { id = x.Id, x.DocumentName,
-                documentUrl = x.FileUrl, x.CreatedDate }).ToListAsync();
+        if (staff == null)
+            return Forbid();
+        var rows = await _db
+            .StaffDocuments.AsNoTracking()
+            .Where(x => x.StaffId == staff.Id)
+            .OrderByDescending(x => x.CreatedDate)
+            .Select(x => new
+            {
+                id = x.Id,
+                x.DocumentName,
+                documentUrl = x.FileUrl,
+                x.CreatedDate,
+            })
+            .ToListAsync();
         return Ok(new { success = true, data = rows });
     }
 }
@@ -359,4 +835,8 @@ public class TeacherCalendarItem
     public string Detail { get; set; } = "";
 }
 
-public class StudentLeaveReviewInput { public string Status { get; set; } = ""; public string? Response { get; set; } }
+public class StudentLeaveReviewInput
+{
+    public string Status { get; set; } = "";
+    public string? Response { get; set; }
+}
