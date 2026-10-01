@@ -16,6 +16,7 @@ namespace SchoolManagement.DTOs
         public string EmploymentType { get; set; }
         public int SchoolId { get; set; }
 
+        [System.ComponentModel.DataAnnotations.Required, System.ComponentModel.DataAnnotations.EmailAddress, System.ComponentModel.DataAnnotations.StringLength(254)]
         public string Email { get; set; }
         public string Phone { get; set; }
         public string Address { get; set; }

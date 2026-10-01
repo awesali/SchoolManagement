@@ -11,6 +11,7 @@ namespace SchoolManagement.Service
     {
         // Dependencies and state used by this component.
         private readonly IConfiguration _config;
+        public string LoginUrl => _config["EmailSettings:LoginUrl"]?.Trim() ?? "https://school.cognerasystems.com/login";
         private readonly AppDbContext _context;
 
         // Creates the component with its required dependencies.
@@ -20,7 +21,13 @@ namespace SchoolManagement.Service
             _context = context;
         }
 
-        public async Task SendEmailAsync(string toEmail, string subject, string body)
+        public Task SendEmailAsync(string toEmail, string subject, string body) =>
+            SendEmailAsync(toEmail, subject, body, Array.Empty<EmailAttachment>());
+
+        public Task SendEmailAsync(string toEmail, string subject, string body, IReadOnlyCollection<EmailAttachment> attachments) =>
+            SendEmailAsync(new[] { toEmail }, subject, body, attachments);
+
+        public async Task SendEmailAsync(IReadOnlyCollection<string> recipients, string subject, string body, IReadOnlyCollection<EmailAttachment> attachments)
         {
             Exception? lastError = null;
             for (var attempt = 1; attempt <= 3; attempt++)
@@ -46,8 +53,12 @@ namespace SchoolManagement.Service
                         Body = body,
                         IsBodyHtml = true,
                     };
-                    mail.To.Add(toEmail);
-                    await smtpClient.SendMailAsync(mail);
+                    foreach (var recipient in recipients.Distinct(StringComparer.OrdinalIgnoreCase))
+                        mail.To.Add(recipient);
+                    foreach (var attachment in attachments)
+                        mail.Attachments.Add(new Attachment(new MemoryStream(attachment.Content), attachment.FileName, attachment.MediaType));
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                    await smtpClient.SendMailAsync(mail, timeout.Token);
                     return;
                 }
                 catch (Exception exception)
@@ -59,7 +70,7 @@ namespace SchoolManagement.Service
             }
 
             throw new InvalidOperationException(
-                $"Email delivery to {toEmail} failed after three attempts.",
+                "Email delivery failed after three attempts.",
                 lastError
             );
         }
@@ -82,7 +93,7 @@ namespace SchoolManagement.Service
             // 🔥 Replace placeholders
             foreach (var key in placeholders.Keys)
             {
-                body = body.Replace($"{{{{{key}}}}}", placeholders[key]);
+                body = body.Replace($"{{{{{key}}}}}", System.Net.WebUtility.HtmlEncode(placeholders[key]));
                 subject = subject.Replace($"{{{{{key}}}}}", placeholders[key]);
             }
 

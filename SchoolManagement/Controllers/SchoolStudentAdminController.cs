@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
 using SchoolManagement.Model;
+using SchoolManagement.Service;
 
 namespace SchoolManagement.Controllers;
 
@@ -16,9 +17,10 @@ public class SchoolStudentAdminController : ControllerBase
 {
     // Dependencies and state used by this component.
     private readonly AppDbContext _db;
+    private readonly IEventEmailService _notifications;
 
     // Creates the component with its required dependencies.
-    public SchoolStudentAdminController(AppDbContext db) => _db = db;
+    public SchoolStudentAdminController(AppDbContext db, IEventEmailService notifications) { _db = db; _notifications = notifications; }
 
     private bool CanManage(int schoolId)
     {
@@ -95,6 +97,16 @@ public class SchoolStudentAdminController : ControllerBase
             || input.Response?.Length > 2000
         )
             return BadRequest(new { message = "Choose a valid status and response." });
+        if (request.Type == "Leave" && request.Status != input.Status && (input.Status == "Approved" || input.Status == "Rejected"))
+        {
+            try { await _notifications.SendToStudentAsync(request.SchoolId, request.StudentId,
+                "LEAVE_REQUEST_DECIDED", new() {
+                    ["Decision"] = input.Status.ToLowerInvariant(),
+                    ["FromDate"] = request.FromDate?.ToString("dd MMM yyyy") ?? "",
+                    ["ToDate"] = request.ToDate?.ToString("dd MMM yyyy") ?? "",
+                    ["Response"] = input.Response?.Trim() ?? "No additional response" }); }
+            catch (Exception) { return StatusCode(503, new { message = "Leave decision email could not be sent. Nothing was saved." }); }
+        }
         request.Status = input.Status;
         request.Response = input.Response?.Trim();
         request.RespondedAt = DateTime.UtcNow;
@@ -179,6 +191,10 @@ public class SchoolStudentAdminController : ControllerBase
             Description = input.Description?.Trim(),
             AwardedAt = input.AwardedAt == default ? DateTime.Today : input.AwardedAt.Date,
         };
+        try { await _notifications.SendToStudentAsync(input.SchoolId, input.StudentId,
+            "ACHIEVEMENT_AWARDED", new() { ["AchievementTitle"] = item.Title,
+                ["Description"] = item.Description ?? "" }); }
+        catch (Exception) { return StatusCode(503, new { message = "Achievement email could not be sent. Nothing was saved." }); }
         _db.StudentAchievements.Add(item);
         await _db.SaveChangesAsync();
         return Ok(new { success = true, data = new { item.Id } });
@@ -266,6 +282,11 @@ public class SchoolStudentAdminController : ControllerBase
             Description = input.Description?.Trim(),
             EventDate = input.EventDate,
         };
+        try { await _notifications.SendToSectionAsync(input.SchoolId, null, null, input.SectionId,
+            "SCHOOL_EVENT_PUBLISHED", new() { ["EventTitle"] = item.Title,
+                ["EventDate"] = item.EventDate.ToString("dd MMM yyyy"),
+                ["Description"] = item.Description ?? "" }); }
+        catch (Exception) { return StatusCode(503, new { message = "Event email could not be sent. Nothing was saved." }); }
         _db.SchoolCalendarEvents.Add(item);
         await _db.SaveChangesAsync();
         return Ok(new { success = true, data = new { item.Id } });
@@ -326,12 +347,20 @@ public class SchoolStudentAdminController : ControllerBase
             )
         )
             return BadRequest();
+        var sendPublication = input.Publish && !item.IsPublished;
         item.SectionId = input.SectionId;
         item.Title = input.Title.Trim();
         item.Body = input.Body.Trim();
         item.ExpiresAt = input.ExpiresAt;
         item.IsPinned = input.IsPinned;
         item.IsPublished = input.Publish;
+        if (sendPublication)
+        {
+            try { await _notifications.SendToSectionAsync(input.SchoolId, null, null, input.SectionId,
+                "ANNOUNCEMENT_PUBLISHED", new() { ["AnnouncementTitle"] = item.Title,
+                    ["AnnouncementBody"] = item.Body }); }
+            catch { return StatusCode(503, new { message = "Announcement email could not be sent; changes were not saved." }); }
+        }
         await _db.SaveChangesAsync();
         return Ok(new { success = true, data = new { item.Id } });
     }
@@ -371,6 +400,13 @@ public class SchoolStudentAdminController : ControllerBase
             IsPinned = input.IsPinned,
             IsPublished = input.Publish,
         };
+        if (input.Publish)
+        {
+            try { await _notifications.SendToSectionAsync(input.SchoolId, null, null, input.SectionId,
+                "ANNOUNCEMENT_PUBLISHED", new() { ["AnnouncementTitle"] = item.Title,
+                    ["AnnouncementBody"] = item.Body }); }
+            catch (Exception) { return StatusCode(503, new { message = "Announcement email could not be sent. Nothing was saved." }); }
+        }
         _db.SchoolAnnouncements.Add(item);
         await _db.SaveChangesAsync();
         return Ok(new { success = true, data = new { item.Id } });
@@ -614,7 +650,21 @@ public class SchoolStudentAdminController : ControllerBase
         item.Room = input.Room.Trim();
         item.Venue = input.Venue?.Trim();
         item.DocumentUrl = input.DocumentUrl?.Trim();
+        var sendPublication = input.Publish && !item.IsPublished;
         item.IsPublished = input.Publish;
+        if (sendPublication)
+        {
+            var studentName = await _db.Students.AsNoTracking().Where(x => x.Id == input.StudentId).Select(x => x.StudentName).FirstOrDefaultAsync() ?? "Student";
+            var schoolName = await _db.Schools.AsNoTracking().Where(x => x.Id == input.SchoolId).Select(x => x.SchoolName).FirstOrDefaultAsync() ?? "School";
+            var pdf = new EmailAttachment($"hall-ticket-{input.ExamId}-{input.StudentId}.pdf", MailPdf.Create("Hall ticket", new[] {
+                schoolName, $"Student: {studentName}", $"Exam: {exam.Name}", $"Seat number: {item.SeatNumber}", $"Room: {item.Room}",
+                $"Venue: {item.Venue ?? ""}"
+            }));
+            try { await _notifications.SendToStudentAsync(input.SchoolId, input.StudentId,
+                "HALL_TICKET_PUBLISHED", new() { ["ExamName"] = exam.Name, ["SeatNumber"] = item.SeatNumber,
+                    ["Room"] = item.Room, ["Venue"] = item.Venue ?? "" }, pdf); }
+            catch { return StatusCode(503, new { message = "Hall ticket email could not be sent; ticket was not saved." }); }
+        }
         await _db.SaveChangesAsync();
         return Ok(new { success = true, data = new { item.Id } });
     }

@@ -88,6 +88,7 @@ namespace SchoolManagement.DTOs
         public DateTime? CertificationDate { get; set; }
         public DateTime? CertificationExpiry { get; set; }
         public bool IsActive { get; set; }
+        public bool PendingEmailVerification { get; set; }
         public string? ProfilePictureUrl { get; set; }
 
         public List<StaffDocumentDto> Documents { get; set; }

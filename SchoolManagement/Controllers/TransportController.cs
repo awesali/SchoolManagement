@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
 using SchoolManagement.Model;
+using SchoolManagement.Service;
 
 namespace SchoolManagement.Controllers
 {
@@ -16,12 +17,14 @@ namespace SchoolManagement.Controllers
         // Dependencies and state used by this component.
         private readonly AppDbContext _context;
         private readonly IWebHostEnvironment _environment;
+        private readonly IEventEmailService _notifications;
 
         // Creates the component with its required dependencies.
-        public TransportController(AppDbContext context, IWebHostEnvironment environment)
+        public TransportController(AppDbContext context, IWebHostEnvironment environment, IEventEmailService notifications)
         {
             _context = context;
             _environment = environment;
+            _notifications = notifications;
         }
 
         private IActionResult Success(object? data, string message = "Success") =>
@@ -1134,6 +1137,19 @@ namespace SchoolManagement.Controllers
             fee.Status = fee.PaidAmount >= fee.Amount ? "Paid" : "Partial";
             _context.TransportFeePayments.Add(item);
             await _context.SaveChangesAsync();
+            var studentId = await _context.StudentTransportAllocations.AsNoTracking()
+                .Where(x => x.Id == fee.StudentTransportAllocationId).Select(x => (int?)x.StudentId).FirstOrDefaultAsync();
+            if (!studentId.HasValue) return BadRequest(new { message = "Student transport allocation not found." });
+            var pdf = new EmailAttachment($"transport-receipt-{item.ReceiptNumber}.pdf", MailPdf.Create("Transport fee receipt", new[] {
+                $"Receipt: {item.ReceiptNumber}", $"Period: {fee.FeeMonth}/{fee.FeeYear}",
+                $"Paid: {item.Amount:0.00}", $"Payment date: {item.PaymentDate:dd MMM yyyy}",
+                $"Balance: {fee.Amount - fee.PaidAmount:0.00}"
+            }));
+            try { await _notifications.SendToStudentAsync(fee.SchoolId, studentId.Value,
+                "FEE_PAYMENT_RECEIPT", new() { ["FeeType"] = "Transport", ["AmountPaid"] = item.Amount.ToString("0.00"),
+                    ["ReceiptNumber"] = item.ReceiptNumber, ["PaymentDate"] = item.PaymentDate.ToString("dd MMM yyyy"),
+                    ["PaymentMode"] = "Transport payment", ["PendingAmount"] = (fee.Amount - fee.PaidAmount).ToString("0.00") }, pdf); }
+            catch { return StatusCode(503, new { message = "Receipt email could not be sent; payment was not saved." }); }
             await transaction.CommitAsync();
             return Success(item, "Payment recorded.");
         }

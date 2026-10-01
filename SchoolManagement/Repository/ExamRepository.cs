@@ -15,12 +15,14 @@ namespace SchoolManagement.Repository
         // Dependencies and state used by this component.
         private readonly AppDbContext _context;
         private readonly IEmailService _emailService;
+        private readonly IEventEmailService _eventEmail;
 
         // Creates the component with its required dependencies.
-        public ExamRepository(AppDbContext context, IEmailService emailService)
+        public ExamRepository(AppDbContext context, IEmailService emailService, IEventEmailService eventEmail)
         {
             _context = context;
             _emailService = emailService;
+            _eventEmail = eventEmail;
         }
 
         // ---------------- CREATE EXAM ----------------
@@ -683,6 +685,7 @@ namespace SchoolManagement.Repository
                     Message =
                         "You can create a unit test only for a subject you teach in that section's timetable",
                 };
+            await using var transaction = await _context.Database.BeginTransactionAsync();
             var unitTestType = await _context.ExamTypes.FirstOrDefaultAsync(x =>
                 x.schoolId == staff.SchoolId.Value && x.IsActive && x.Name.ToLower() == "unit test"
             );
@@ -709,7 +712,7 @@ namespace SchoolManagement.Repository
                     Message = "No active academic session found",
                 };
 
-            await using var transaction = await _context.Database.BeginTransactionAsync();
+
             var exam = new Exams
             {
                 Name = dto.Name.Trim(),
@@ -741,6 +744,13 @@ namespace SchoolManagement.Repository
                 }
             );
             await _context.SaveChangesAsync();
+            var subjectName = await _context.Subjects.AsNoTracking().Where(x => x.Id == dto.SubjectId).Select(x => x.SubjectName).FirstOrDefaultAsync() ?? "Subject";
+            await _eventEmail.SendToSectionAsync(staff.SchoolId.Value, session.Id, dto.ClassId, dto.SectionId,
+                "UNIT_TEST_CREATED", new() {
+                    ["TestName"] = exam.Name, ["SubjectName"] = subjectName,
+                    ["TestDate"] = dto.TestDate.ToString("dd MMM yyyy"),
+                    ["MaxMarks"] = dto.MaxMarks.ToString("0.##")
+                });
             await transaction.CommitAsync();
             return new ApiResponse<Exams>
             {
@@ -754,86 +764,34 @@ namespace SchoolManagement.Repository
         {
             try
             {
-                var exam = await _context.Exams.FirstOrDefaultAsync(x => x.Id == examId);
-
-                if (exam == null)
-                {
-                    return new ApiResponse<Exams> { Success = false, Message = "Exam not found" };
-                }
-
+                await using var transaction = await _context.Database.BeginTransactionAsync();
+                var exam = await _context.Exams.FirstOrDefaultAsync(x => x.Id == examId && x.IsActive);
+                if (exam == null) return new() { Success = false, Message = "Exam not found" };
+                if (exam.IsPublished) return new() { Success = true, Message = "Exam already published", Data = exam };
                 exam.IsPublished = true;
                 await _context.SaveChangesAsync();
-
-                await SendExamPublishEmailsAsync(exam);
-
-                return new ApiResponse<Exams>
+                var rows = await (from schedule in _context.ExamSchedules.AsNoTracking()
+                    join subject in _context.Subjects.AsNoTracking() on schedule.SubjectId equals subject.Id
+                    where schedule.ExamId == examId && schedule.SchoolId == exam.SchoolId && schedule.IsActive
+                    orderby schedule.ExamDate, schedule.StartTime
+                    select new { schedule.ClassId, schedule.SectionId, subject.SubjectName, schedule.ExamDate, schedule.StartTime, schedule.EndTime }).ToListAsync();
+                if (rows.Count == 0) return new() { Success = false, Message = "Add an exam timetable before publishing." };
+                foreach (var group in rows.GroupBy(x => new { x.ClassId, x.SectionId }))
                 {
-                    Success = true,
-                    Message = "Exam Published Successfully",
-                    Data = exam,
-                };
-            }
-            catch (Exception ex)
-            {
-                return new ApiResponse<Exams> { Success = false, Message = ex.Message };
-            }
-        }
-
-        private async Task SendExamPublishEmailsAsync(Exams exam)
-        {
-            var classSections = await _context
-                .ExamSubjects.Where(x => x.ExamId == exam.Id && x.IsActive)
-                .Select(x => new
-                {
-                    x.ClassId,
-                    x.SectionId,
-                    x.SubjectId,
-                })
-                .Distinct()
-                .ToListAsync();
-
-            foreach (var cs in classSections)
-            {
-                var subject = await _context.Subjects.FirstOrDefaultAsync(x =>
-                    x.Id == cs.SubjectId
-                );
-
-                var students = await (
-                    from se in _context.StudentEnrollment
-                    join st in _context.Students on se.StudentId equals st.Id
-                    where
-                        se.ClassId == cs.ClassId
-                        && se.SectionId == cs.SectionId
-                        && se.SchoolId == exam.SchoolId
-                        && se.IsActive
-                        && !string.IsNullOrEmpty(st.Email)
-                    select new { st.StudentName, st.Email }
-                ).ToListAsync();
-
-                foreach (var student in students)
-                {
-                    try
-                    {
-                        var (emailSubject, body) = await _emailService.GetEmailTemplateAsync(
-                            "ExamPublished",
-                            new Dictionary<string, string>
-                            {
-                                { "StudentName", student.StudentName },
-                                { "ExamName", exam.Name },
-                                { "SubjectName", subject?.SubjectName ?? "" },
-                                { "StartDate", exam.StartDate?.ToString("dd MMM yyyy") ?? "" },
-                                { "EndDate", exam.EndDate?.ToString("dd MMM yyyy") ?? "" },
-                            }
-                        );
-
-                        await _emailService.SendEmailAsync(student.Email, emailSubject, body);
-                    }
-                    catch
-                    {
-                        // Don't fail publish if email fails
-                    }
+                    var timetable = string.Join("; ", group.Select(row => $"{row.SubjectName}: {row.ExamDate:dd MMM yyyy} {row.StartTime}-{row.EndTime}"));
+                    var schoolName = await _context.Schools.AsNoTracking().Where(x => x.Id == exam.SchoolId).Select(x => x.SchoolName).FirstOrDefaultAsync() ?? "School";
+                    var className = await _context.Classes.AsNoTracking().Where(x => x.Id == group.Key.ClassId).Select(x => x.ClassName).FirstOrDefaultAsync() ?? "Class";
+                    var sectionName = await _context.SectionDetails.AsNoTracking().Where(x => x.Id == group.Key.SectionId).Select(x => x.SectionName).FirstOrDefaultAsync() ?? "Section";
+                    var pdfLines = new[] { schoolName, $"Class: {className} / {sectionName}", "Subject | Date | Start - End" }
+                        .Concat(group.Select(row => $"{row.SubjectName} | {row.ExamDate:dd MMM yyyy} | {row.StartTime} - {row.EndTime}"));
+                    var pdf = new EmailAttachment($"exam-timetable-{examId}.pdf", MailPdf.Create(exam.Name + " timetable", pdfLines));                    await _eventEmail.SendToSectionAsync(exam.SchoolId, exam.AcademicSessionId, group.Key.ClassId, group.Key.SectionId,
+                        "EXAM_TIMETABLE_PUBLISHED", new() { ["ExamName"] = exam.Name, ["Timetable"] = timetable,
+                            ["StartDate"] = exam.StartDate?.ToString("dd MMM yyyy") ?? "", ["EndDate"] = exam.EndDate?.ToString("dd MMM yyyy") ?? "" }, _ => pdf);
                 }
+                await transaction.CommitAsync();
+                return new() { Success = true, Message = "Exam Published Successfully", Data = exam };
             }
+            catch (Exception ex) { return new() { Success = false, Message = ex.Message }; }
         }
 
         public async Task<ApiResponse<ExamSubjects>> AddExamSubject(
@@ -1691,6 +1649,9 @@ namespace SchoolManagement.Repository
 
         public async Task<ApiResponse<string>> PublishResults(int examId, int schoolId)
         {
+            if (await _context.Exams.AsNoTracking().AnyAsync(x => x.Id == examId && x.SchoolId == schoolId && x.ResultPublished))
+                return new() { Success = true, Message = "Results already published." };
+            await using var transaction = await _context.Database.BeginTransactionAsync();
             // Recalculate and validate every scheduled subject for every enrolled student
             // before changing any publication flag.
             var generation = await GenerateResults(
@@ -1719,6 +1680,25 @@ namespace SchoolManagement.Repository
                 result.Published = true;
             exam.ResultPublished = true;
             await _context.SaveChangesAsync();
+            foreach (var result in results)
+            {
+                var detailResponse = await GetStudentResultDetail(result.StudentId, examId, schoolId);
+                if (!detailResponse.Success || detailResponse.Data == null || !detailResponse.Data.IsComplete)
+                    throw new InvalidOperationException($"Complete report card unavailable for student {result.StudentId}.");
+                var detail = detailResponse.Data;
+                var lines = new List<string> {
+                    detail.SchoolName ?? "School", $"Exam: {exam.Name}", $"Student: {detail.StudentName}",
+                    $"Class: {detail.ClassName} / {detail.SectionName}", $"Roll number: {detail.RollNumber}",
+                    $"Parent: {detail.ParentName}", "Subject | Maximum | Obtained | Percentage"
+                };
+                lines.AddRange(detail.Subjects.Select(subject => $"{subject.SubjectName} | {subject.MaxMarks:0.##} | {subject.ObtainedMarks:0.##} | {(subject.MaxMarks > 0 ? subject.ObtainedMarks / subject.MaxMarks * 100 : 0):0.##}%"));
+                lines.Add($"Total: {detail.ObtainedMarks:0.##} / {detail.TotalMarks:0.##} ({detail.Percentage:0.##}%)");
+                lines.Add($"Result: {detail.ResultStatus} | Grade: {detail.Grade}");
+                var pdf = new EmailAttachment($"result-{examId}-{result.StudentId}.pdf", MailPdf.Create("Report card", lines));
+                await _eventEmail.SendToStudentAsync(schoolId, result.StudentId,
+                    "EXAM_RESULT_PUBLISHED", new() { ["ExamName"] = exam.Name }, pdf);
+            }
+            await transaction.CommitAsync();
 
             return new ApiResponse<string>
             {

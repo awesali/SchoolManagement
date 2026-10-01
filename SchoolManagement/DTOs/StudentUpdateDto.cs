@@ -11,6 +11,7 @@ namespace SchoolManagement.DTOs
         public string? StudentName { get; set; }
         public DateTime? DOB { get; set; }
         public string? GenderCode { get; set; }
+        [System.ComponentModel.DataAnnotations.EmailAddress, System.ComponentModel.DataAnnotations.StringLength(254)]
         public string? Email { get; set; }
         public string? PhoneNumber { get; set; }
 
@@ -96,6 +97,7 @@ namespace SchoolManagement.DTOs
 
         [System.ComponentModel.DataAnnotations.MaxLength(6)]
         public string? PinCode { get; set; }
+        [System.ComponentModel.DataAnnotations.EmailAddress, System.ComponentModel.DataAnnotations.StringLength(254)]
         public string? Email { get; set; }
         public string? Relationship { get; set; }
     }

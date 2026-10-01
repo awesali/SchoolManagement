@@ -275,9 +275,16 @@ namespace SchoolManagement.Controllers
         [HttpPost("PayFee")]
         public async Task<IActionResult> PayFee(FeePaymentDto dto)
         {
-            var result = await _repo.PayFeeAsync(dto);
-
-            return Ok(new { Success = result, Message = "Fee payment successful" });
+            try
+            {
+                var result = await _repo.PayFeeAsync(dto);
+                return Ok(new { Success = result, Message = "Fee payment successful" });
+            }
+            catch (InvalidOperationException exception)
+            {
+                return StatusCode(exception.InnerException == null ? 400 : 503,
+                    new { success = false, message = exception.InnerException == null ? exception.Message : "Receipt email failed; payment was not saved." });
+            }
         }
 
         // ==========================

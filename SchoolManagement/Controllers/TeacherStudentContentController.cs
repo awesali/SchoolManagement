@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
 using SchoolManagement.Model;
+using SchoolManagement.Service;
 
 namespace SchoolManagement.Controllers;
 
@@ -17,12 +18,14 @@ public class TeacherStudentContentController : ControllerBase
     // Dependencies and state used by this component.
     private readonly AppDbContext _db;
     private readonly IWebHostEnvironment _env;
+    private readonly IEventEmailService _notifications;
 
     // Creates the component with its required dependencies.
-    public TeacherStudentContentController(AppDbContext db, IWebHostEnvironment env)
+    public TeacherStudentContentController(AppDbContext db, IWebHostEnvironment env, IEventEmailService notifications)
     {
         _db = db;
         _env = env;
+        _notifications = notifications;
     }
 
     private async Task<Staff?> CurrentStaff()
@@ -280,6 +283,13 @@ public class TeacherStudentContentController : ControllerBase
             IsPinned = input.IsPinned,
             IsPublished = input.Publish,
         };
+        if (input.Publish)
+        {
+            try { await _notifications.SendToSectionAsync(staff.SchoolId, null, null, input.SectionId,
+                "ANNOUNCEMENT_PUBLISHED", new() { ["AnnouncementTitle"] = item.Title,
+                    ["AnnouncementBody"] = item.Body }); }
+            catch (Exception) { return StatusCode(503, new { message = "Announcement email could not be sent. Nothing was saved." }); }
+        }
         _db.SchoolAnnouncements.Add(item);
         await _db.SaveChangesAsync();
         return Ok(new { success = true, data = new { item.Id } });
@@ -350,6 +360,9 @@ public class TeacherStudentContentController : ControllerBase
             Body = input.Body.Trim(),
             FromStudent = false,
         };
+        try { await _notifications.SendToStudentAsync(staff.SchoolId, input.StudentId,
+            "TEACHER_MESSAGE_RECEIVED", new() { ["TeacherName"] = staff.Name, ["MessagePreview"] = item.Body }); }
+        catch { return StatusCode(503, new { message = "Message email could not be sent; message was not saved." }); }
         _db.TeacherStudentMessages.Add(item);
         await _db.SaveChangesAsync();
         return Ok(new { success = true, data = new { item.Id } });

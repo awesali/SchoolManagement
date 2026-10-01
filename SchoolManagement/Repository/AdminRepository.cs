@@ -20,6 +20,7 @@ namespace SchoolManagement.Repository
         private readonly IUserRepository _user;
         private readonly IWebHostEnvironment _env;
         private readonly IEmailService _emailService;
+        private readonly IConfiguration _configuration;
         private readonly IHttpContextAccessor _httpContextAccessor;
 
         // Creates the component with its required dependencies.
@@ -29,6 +30,7 @@ namespace SchoolManagement.Repository
             ICommonRepository common,
             IWebHostEnvironment env,
             IEmailService emailService,
+            IConfiguration configuration,
             IHttpContextAccessor httpContextAccessor
         )
         {
@@ -37,6 +39,7 @@ namespace SchoolManagement.Repository
             _common = common;
             _env = env;
             _emailService = emailService;
+            _configuration = configuration;
             _httpContextAccessor = httpContextAccessor;
         }
 
@@ -293,6 +296,7 @@ namespace SchoolManagement.Repository
                     CertificationDate = s.CertificationDate,
                     CertificationExpiry = s.CertificationExpiry,
                     IsActive = s.IsActive,
+                    PendingEmailVerification = s.Status == "PendingVerification",
                     ProfilePictureUrl = _context
                         .ProfilePictures.Where(p =>
                             p.PersonType == "Staff" && p.PersonId == s.Id && p.IsActive
@@ -521,6 +525,9 @@ namespace SchoolManagement.Repository
                 }
 
                 // âœ… Create Staff after User created
+                userResult.IsActive = false;
+                await _context.SaveChangesAsync();
+
                 var staff = new Staff
                 {
                     Name = dto.Name,
@@ -558,8 +565,9 @@ namespace SchoolManagement.Repository
                     CertificationNumber = dto.CertificationNumber,
                     CertificationDate = dto.CertificationDate,
                     CertificationExpiry = dto.CertificationExpiry,
+                    Status = "PendingVerification",
                     usersid = userResult.Id, // âœ… Save UserId
-                    IsActive = true,
+                    IsActive = false,
                     Created_Date = DateTime.UtcNow,
                 };
 
@@ -660,22 +668,34 @@ namespace SchoolManagement.Repository
                 }
 
                 // âœ… Commit only if ALL success
-                var staffEmailPlaceholders = new Dictionary<string, string>
+                var schoolName = await _context.Schools.AsNoTracking()
+                    .Where(school => school.Id == dto.SchoolId)
+                    .Select(school => school.SchoolName).FirstOrDefaultAsync() ?? "Your school";                var staffEmailPlaceholders = new Dictionary<string, string>
                 {
                     { "Name", dto.Name },
                     { "Email", dto.Email },
                     { "Password", password },
+                    { "SchoolName", schoolName },
+                    { "LoginUrl", _emailService.LoginUrl },
                 };
                 var (staffEmailSubject, staffEmailBody) = await _emailService.GetEmailTemplateAsync(
                     "STAFF_CREDENTIALS",
                     staffEmailPlaceholders
                 );
                 await _emailService.SendEmailAsync(dto.Email, staffEmailSubject, staffEmailBody);
+                var verificationLink = EmailVerificationLinks.Create(_configuration,
+                    _httpContextAccessor.HttpContext!.Request, "Staff", userResult.Id, dto.SchoolId, dto.Email);
+                var (verificationSubject, verificationBody) = await _emailService.GetEmailTemplateAsync(
+                    "EMAIL_VERIFICATION", new() {
+                        ["Name"] = dto.Name, ["Role"] = "Staff", ["SchoolName"] = schoolName,
+                        ["VerificationLink"] = verificationLink
+                    });
+                await _emailService.SendEmailAsync(dto.Email, verificationSubject, EmailVerificationLinks.Clickable(verificationBody, verificationLink));
                 await transaction.CommitAsync();
                 return new ApiResponse<Staff>
                 {
                     Success = true,
-                    Message = "Staff added successfully",
+                    Message = "Staff saved pending email verification. Open the verification link before signing in.",
                     Data = staff,
                 };
             }
@@ -787,6 +807,21 @@ namespace SchoolManagement.Repository
                         Data = null,
                     };
 
+                var pendingUser = staff.Status == "PendingVerification"
+                    ? await _context.Users.FirstOrDefaultAsync(user => user.Id == staff.usersid && !user.IsActive)
+                    : null;
+                if (pendingUser != null)
+                {
+                    var normalizedEmail = dto.Email?.Trim().ToLowerInvariant();
+                    if (string.IsNullOrWhiteSpace(normalizedEmail) ||
+                        !System.Net.Mail.MailAddress.TryCreate(normalizedEmail, out var parsedEmail) ||
+                        parsedEmail.Address != normalizedEmail)
+                        return new ApiResponse<string> { Success = false, Message = "Enter a valid email address." };
+                    if (await _context.Users.AnyAsync(user => user.Id != pendingUser.Id && user.Email.ToLower() == normalizedEmail))
+                        return new ApiResponse<string> { Success = false, Message = "Email already exists." };
+                    pendingUser.Email = normalizedEmail;
+                    dto.Email = normalizedEmail;
+                }
                 if (staff.RoleId != dto.RoleId)
                     return new ApiResponse<string>
                     {
@@ -829,7 +864,7 @@ namespace SchoolManagement.Repository
                 staff.CertificationNumber = dto.CertificationNumber;
                 staff.CertificationDate = dto.CertificationDate;
                 staff.CertificationExpiry = dto.CertificationExpiry;
-                staff.IsActive = dto.IsActive;
+                staff.IsActive = pendingUser == null && dto.IsActive;
                 staff.Modified_Date = DateTime.UtcNow;
 
                 var folderPath = Path.Combine(_env.WebRootPath, "staffdocs", staff.Id.ToString());
@@ -974,6 +1009,34 @@ namespace SchoolManagement.Repository
                     await _context.SaveChangesAsync();
                 }
 
+                var schoolName = await _context.Schools.AsNoTracking().Where(x => x.Id == staff.SchoolId).Select(x => x.SchoolName).FirstOrDefaultAsync() ?? "School";
+                if (pendingUser != null)
+                {
+                    var password = _common.GeneratePassword(staff.Name, staff.DOB);
+                    pendingUser.Password_Hash = BCrypt.Net.BCrypt.HashPassword(password);
+                    await _context.SaveChangesAsync();
+                    var (credentialsSubject, credentialsBody) = await _emailService.GetEmailTemplateAsync(
+                        "STAFF_CREDENTIALS", new() {
+                            ["Name"] = staff.Name, ["Email"] = staff.Email, ["Password"] = password,
+                            ["SchoolName"] = schoolName, ["LoginUrl"] = _emailService.LoginUrl
+                        });
+                    await _emailService.SendEmailAsync(staff.Email, credentialsSubject, credentialsBody);
+                    var link = EmailVerificationLinks.Create(_configuration, _httpContextAccessor.HttpContext!.Request,
+                        "Staff", pendingUser.Id, staff.SchoolId, staff.Email);
+                    var (verifySubject, verifyBody) = await _emailService.GetEmailTemplateAsync(
+                        "EMAIL_VERIFICATION", new() {
+                            ["Name"] = staff.Name, ["Role"] = "Staff", ["SchoolName"] = schoolName,
+                            ["VerificationLink"] = link
+                        });
+                    await _emailService.SendEmailAsync(staff.Email, verifySubject, EmailVerificationLinks.Clickable(verifyBody, link));
+                    await transaction.CommitAsync();
+                    return new ApiResponse<string> { Success = true, Message = "Verification resent. Account remains pending until the link is opened." };
+                }
+                var (subject, body) = await _emailService.GetEmailTemplateAsync("STAFF_UPDATED", new() {
+                    ["Name"] = staff.Name, ["SchoolName"] = schoolName,
+                    ["UpdateDate"] = DateTime.Now.ToString("dd MMM yyyy")
+                });
+                await _emailService.SendEmailAsync(staff.Email, subject, body);
                 await transaction.CommitAsync();
                 // Only delete old files after the replacement is committed.
                 newPicturePath = null;

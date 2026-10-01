@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
+using SchoolManagement.Service;
 
 namespace SchoolManagement.Controllers;
 
@@ -15,9 +16,10 @@ public class StudentRequestInboxController : ControllerBase
 {
     // Dependencies and state used by this component.
     private readonly AppDbContext _db;
+    private readonly IEventEmailService _notifications;
 
     // Creates the component with its required dependencies.
-    public StudentRequestInboxController(AppDbContext db) => _db = db;
+    public StudentRequestInboxController(AppDbContext db, IEventEmailService notifications) { _db = db; _notifications = notifications; }
 
     private async Task<(int userId, int roleId, int schoolId)?> Recipient()
     {
@@ -111,6 +113,16 @@ public class StudentRequestInboxController : ControllerBase
             || input.Response?.Length > 2000
         )
             return BadRequest(new { message = "Choose a valid status and response." });
+        if (request.Type == "Leave" && request.Status != input.Status && (input.Status == "Approved" || input.Status == "Rejected"))
+        {
+            try { await _notifications.SendToStudentAsync(request.SchoolId, request.StudentId,
+                "LEAVE_REQUEST_DECIDED", new() {
+                    ["Decision"] = input.Status.ToLowerInvariant(),
+                    ["FromDate"] = request.FromDate?.ToString("dd MMM yyyy") ?? "",
+                    ["ToDate"] = request.ToDate?.ToString("dd MMM yyyy") ?? "",
+                    ["Response"] = input.Response?.Trim() ?? "No additional response" }); }
+            catch (Exception) { return StatusCode(503, new { message = "Leave decision email could not be sent. Nothing was saved." }); }
+        }
         request.Status = input.Status;
         request.Response = input.Response?.Trim();
         request.RespondedAt = DateTime.UtcNow;

@@ -428,60 +428,61 @@ namespace SchoolManagement.Repository
         {
             var paidCount = 0;
             var failedRecords = new List<string>();
-
             foreach (var item in dto.Salaries)
             {
+                await using var transaction = await _context.Database.BeginTransactionAsync();
                 var salary = await _context.SalaryPayment.FirstOrDefaultAsync(x =>
-                    x.StaffId == item.StaffId
-                    && x.SalaryMonth == item.Month
-                    && x.SalaryYear == item.Year
-                );
-
-                if (salary == null)
+                    x.StaffId == item.StaffId && x.SalaryMonth == item.Month && x.SalaryYear == item.Year);
+                if (salary == null || salary.Status == "Paid")
                 {
-                    failedRecords.Add($"StaffId {item.StaffId} - Salary Record Not Found");
+                    failedRecords.Add($"StaffId {item.StaffId} - salary missing or already paid for {item.Month}/{item.Year}");
                     continue;
                 }
-
-                if (salary.Status == "Paid")
+                var staff = await _context.Staff.AsNoTracking().FirstOrDefaultAsync(x => x.Id == item.StaffId && x.IsActive);
+                if (staff == null || string.IsNullOrWhiteSpace(staff.Email))
                 {
-                    failedRecords.Add(
-                        $"StaffId {item.StaffId} - Salary already paid for {item.Month}/{item.Year}"
-                    );
+                    failedRecords.Add($"StaffId {item.StaffId} - active staff email not found");
                     continue;
                 }
-
                 salary.Bonus = item.Bonus;
                 salary.Deduction = item.Deduction;
-
                 salary.NetSalary = salary.BasicSalary + item.Bonus - item.Deduction;
-
                 salary.PaymentMethod = item.PaymentMethod;
                 salary.PaymentDate = DateTime.Now;
-                var reference = string.IsNullOrWhiteSpace(item.PaymentReference)
-                    ? null
-                    : $"Payment reference: {item.PaymentReference.Trim()}";
-                salary.Remarks = string.Join(
-                    Environment.NewLine,
-                    new[] { reference, item.Remarks?.Trim() }.Where(x =>
-                        !string.IsNullOrWhiteSpace(x)
-                    )
-                );
+                var reference = string.IsNullOrWhiteSpace(item.PaymentReference) ? null : $"Payment reference: {item.PaymentReference.Trim()}";
+                salary.Remarks = string.Join(Environment.NewLine, new[] { reference, item.Remarks?.Trim() }.Where(x => !string.IsNullOrWhiteSpace(x)));
                 salary.Status = "Paid";
-
-                paidCount++;
+                await _context.SaveChangesAsync();
+                try
+                {
+                    var schoolName = await _context.Schools.AsNoTracking().Where(x => x.Id == staff.SchoolId).Select(x => x.SchoolName).FirstOrDefaultAsync() ?? "School";
+                    var values = new Dictionary<string, string> {
+                        ["Name"] = staff.Name, ["SchoolName"] = schoolName,
+                        ["SalaryMonth"] = System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(salary.SalaryMonth), ["SalaryYear"] = salary.SalaryYear.ToString(),
+                        ["NetSalary"] = salary.NetSalary.ToString("0.00"),
+                        ["PaymentDate"] = salary.PaymentDate?.ToString("dd MMM yyyy") ?? ""
+                    };
+                    var (subject, body) = await _emailService.GetEmailTemplateAsync("SALARY_PAID", values);
+                    var pdf = new EmailAttachment($"salary-slip-{salary.SalaryMonth}-{salary.SalaryYear}.pdf", MailPdf.Create("Salary slip", new[] {
+                        schoolName, $"Staff: {staff.Name}", $"Period: {salary.SalaryMonth}/{salary.SalaryYear}",
+                        $"Basic: {salary.BasicSalary:0.00}", $"Bonus: {salary.Bonus:0.00}",
+                        $"Deduction: {salary.Deduction:0.00}", $"Net salary: {salary.NetSalary:0.00}",
+                        $"Paid on: {salary.PaymentDate:dd MMM yyyy}", $"Method: {salary.PaymentMethod}",
+                        salary.Remarks ?? ""
+                    }));
+                    await _emailService.SendEmailAsync(staff.Email, subject, body, new[] { pdf });
+                    await transaction.CommitAsync();
+                    paidCount++;
+                }
+                catch (Exception ex)
+                {
+                    failedRecords.Add($"StaffId {item.StaffId} - email failed: {ex.Message}");
+                    _context.Entry(salary).State = EntityState.Detached;
+                }
             }
-
-            await _context.SaveChangesAsync();
-
-            return new
-            {
-                Success = failedRecords.Count == 0,
-                PaidCount = paidCount,
-                FailedCount = failedRecords.Count,
-                FailedRecords = failedRecords,
-                Message = $"{paidCount} Salary Paid Successfully",
-            };
+            return new { Success = failedRecords.Count == 0, PaidCount = paidCount,
+                FailedCount = failedRecords.Count, FailedRecords = failedRecords,
+                Message = $"{paidCount} salary payments completed" };
         }
 
         public async Task<object> GetPendingSalary(int schoolId)

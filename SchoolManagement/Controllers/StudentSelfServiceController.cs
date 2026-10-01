@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
+using SchoolManagement.Service;
 
 namespace SchoolManagement.Controllers;
 
@@ -16,12 +17,14 @@ public class StudentSelfServiceController : ControllerBase
     // Dependencies and state used by this component.
     private readonly AppDbContext _db;
     private readonly IWebHostEnvironment _env;
+    private readonly IEmailService _email;
 
     // Creates the component with its required dependencies.
-    public StudentSelfServiceController(AppDbContext db, IWebHostEnvironment env)
+    public StudentSelfServiceController(AppDbContext db, IWebHostEnvironment env, IEmailService email)
     {
         _db = db;
         _env = env;
+        _email = email;
     }
 
     [HttpGet("overview")]
@@ -1281,6 +1284,21 @@ public class StudentSelfServiceController : ControllerBase
             Body = input.Body.Trim(),
             FromStudent = true,
         };
+        var staffRecipient = await _db.Staff.AsNoTracking().Where(x => x.Id == input.StaffId && x.SchoolId == student.SchoolId && x.IsActive)
+            .Select(x => new { x.Name, x.Email }).FirstOrDefaultAsync();
+        if (staffRecipient == null || string.IsNullOrWhiteSpace(staffRecipient.Email))
+            return BadRequest(new { message = "The selected staff member has no email address." });
+        var schoolName = await _db.Schools.AsNoTracking().Where(x => x.Id == student.SchoolId)
+            .Select(x => x.SchoolName).FirstOrDefaultAsync() ?? "School";
+        try
+        {
+            var (subject, body) = await _email.GetEmailTemplateAsync("STUDENT_MESSAGE_RECEIVED", new() {
+                ["StudentName"] = student.StudentName, ["StaffName"] = staffRecipient.Name,
+                ["SchoolName"] = schoolName
+            });
+            await _email.SendEmailAsync(staffRecipient.Email, subject, body);
+        }
+        catch { return StatusCode(503, new { message = "Message email could not be sent; message was not saved." }); }
         _db.TeacherStudentMessages.Add(message);
         await _db.SaveChangesAsync();
         return Ok(new { success = true, data = new { message.Id } });

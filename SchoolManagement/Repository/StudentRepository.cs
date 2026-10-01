@@ -19,6 +19,8 @@ namespace SchoolManagement.Repository
         private readonly ICommonRepository _common;
         private readonly IWebHostEnvironment _env;
         private readonly IEmailService _emailService;
+        private readonly IConfiguration _configuration;
+        private readonly IEventEmailService _eventEmail;
         private readonly IHttpContextAccessor _httpContextAccessor;
 
         // Creates the component with its required dependencies.
@@ -27,6 +29,8 @@ namespace SchoolManagement.Repository
             ICommonRepository common,
             IWebHostEnvironment env,
             IEmailService emailService,
+            IConfiguration configuration,
+            IEventEmailService eventEmail,
             IHttpContextAccessor httpContextAccessor
         )
         {
@@ -34,6 +38,8 @@ namespace SchoolManagement.Repository
             _common = common;
             _env = env;
             _emailService = emailService;
+            _configuration = configuration;
+            _eventEmail = eventEmail;
             _httpContextAccessor = httpContextAccessor;
         }
 
@@ -128,11 +134,37 @@ namespace SchoolManagement.Repository
                         Data = null,
                     };
 
+                var pendingStudentCredential = await _context.Students_Parents_Creds.FirstOrDefaultAsync(
+                    credential => credential.School_Id == student.SchoolId && credential.Email == student.Email &&
+                        credential.RoleName == "Student" && credential.Status == "PendingVerification");
+                if (pendingStudentCredential != null && !string.IsNullOrWhiteSpace(dto.Email))
+                {
+                    var normalizedEmail = dto.Email.Trim().ToLowerInvariant();
+                    if (!System.Net.Mail.MailAddress.TryCreate(normalizedEmail, out var parsedEmail) || parsedEmail.Address != normalizedEmail)
+                        return new ApiResponse<string> { Success = false, Message = "Enter a valid student email address." };
+                    if (await _context.Students_Parents_Creds.AnyAsync(credential => credential.Id != pendingStudentCredential.Id && credential.Email.ToLower() == normalizedEmail))
+                        return new ApiResponse<string> { Success = false, Message = "Student email already exists." };
+                    dto.Email = normalizedEmail;
+                    pendingStudentCredential.Email = normalizedEmail;
+                }
                 // 2️⃣ Update Parent (if provided)
                 var parent = await _context.ParentDetails.FirstOrDefaultAsync(p =>
                     p.Id == student.ParentId
                 );
 
+                var pendingParentCredential = parent == null ? null : await _context.Students_Parents_Creds.FirstOrDefaultAsync(
+                    credential => credential.School_Id == student.SchoolId && credential.Email == parent.Email &&
+                        credential.RoleName == "Parent" && credential.Status == "PendingVerification");
+                if (pendingParentCredential != null && !string.IsNullOrWhiteSpace(dto.Parent?.Email))
+                {
+                    var normalizedParentEmail = dto.Parent.Email.Trim().ToLowerInvariant();
+                    if (!System.Net.Mail.MailAddress.TryCreate(normalizedParentEmail, out var parsedEmail) || parsedEmail.Address != normalizedParentEmail)
+                        return new ApiResponse<string> { Success = false, Message = "Enter a valid parent email address." };
+                    if (await _context.Students_Parents_Creds.AnyAsync(credential => credential.Id != pendingParentCredential.Id && credential.Email.ToLower() == normalizedParentEmail))
+                        return new ApiResponse<string> { Success = false, Message = "Parent email already exists." };
+                    dto.Parent.Email = normalizedParentEmail;
+                    pendingParentCredential.Email = normalizedParentEmail;
+                }
                 if (dto.Parent != null && parent != null)
                 {
                     parent.Name = dto.Parent.Name ?? parent.Name;
@@ -207,7 +239,7 @@ namespace SchoolManagement.Repository
                 student.Modified_Date = DateTime.Now;
 
                 if (dto.IsActive.HasValue)
-                    student.IsActive = dto.IsActive.Value;
+                    student.IsActive = pendingStudentCredential == null && dto.IsActive.Value;
 
                 student.Updated_By = 1;
                 student.Modified_Date = DateTime.Now;
@@ -345,65 +377,6 @@ namespace SchoolManagement.Repository
                     await _context.SaveChangesAsync();
                 }
 
-                // ✅ Send Update Notification Emails
-                // Send email to student (if email was updated or always notify)
-                if (!string.IsNullOrEmpty(dto.Email))
-                {
-                    var studentPlaceholders = new Dictionary<string, string>
-                    {
-                        { "StudentName", student.StudentName },
-                        { "Email", dto.Email },
-                        { "SchoolName", "Blue Berry School" }, // You might want to fetch this
-                        { "UpdateDate", DateTime.Now.ToString("dd MMM yyyy") },
-                    };
-
-                    try
-                    {
-                        var (studentSubject, studentBody) =
-                            await _emailService.GetEmailTemplateAsync(
-                                "STUDENT_UPDATE",
-                                studentPlaceholders
-                            );
-
-                        await _emailService.SendEmailAsync(dto.Email, studentSubject, studentBody);
-                    }
-                    catch
-                    {
-                        // Log error but don't fail the operation
-                    }
-                }
-
-                // Send email to parent (if parent email was updated)
-                if (dto.Parent?.Email != null && parent != null)
-                {
-                    var parentPlaceholders = new Dictionary<string, string>
-                    {
-                        { "ParentName", parent.Name },
-                        { "StudentName", student.StudentName },
-                        { "Email", dto.Parent.Email },
-                        { "SchoolName", "Blue Berry School" },
-                        { "UpdateDate", DateTime.Now.ToString("dd MMM yyyy") },
-                    };
-
-                    try
-                    {
-                        var (parentSubject, parentBody) = await _emailService.GetEmailTemplateAsync(
-                            "PARENT_UPDATE",
-                            parentPlaceholders
-                        );
-
-                        await _emailService.SendEmailAsync(
-                            dto.Parent.Email,
-                            parentSubject,
-                            parentBody
-                        );
-                    }
-                    catch
-                    {
-                        // Log error but don't fail the operation
-                    }
-                }
-
                 if (dto.ProfilePicture != null)
                 {
                     var picture = dto.ProfilePicture;
@@ -471,6 +444,58 @@ namespace SchoolManagement.Repository
                     await _context.SaveChangesAsync();
                 }
 
+                if (pendingStudentCredential != null || pendingParentCredential != null)
+                {
+                    var schoolName = await _context.Schools.AsNoTracking().Where(x => x.Id == student.SchoolId)
+                        .Select(x => x.SchoolName).FirstOrDefaultAsync() ?? "Your school";
+                    var className = await (from enrollment in _context.StudentEnrollment
+                        join schoolClass in _context.Classes on enrollment.ClassId equals schoolClass.Id
+                        where enrollment.StudentId == student.Id && enrollment.IsActive
+                        orderby enrollment.EnrollmentDate descending
+                        select schoolClass.ClassName).FirstOrDefaultAsync() ?? "Your class";
+                    if (pendingStudentCredential != null)
+                    {
+                        var password = _common.GeneratePassword(student.StudentName, student.DOB);
+                        pendingStudentCredential.Password_Hash = BCrypt.Net.BCrypt.HashPassword(password);
+                        var (welcomeSubject, welcomeBody) = await _emailService.GetEmailTemplateAsync("STUDENT_WELCOME", new() {
+                            ["StudentName"] = student.StudentName, ["Email"] = student.Email, ["Password"] = password,
+                            ["SchoolName"] = schoolName, ["ClassName"] = className, ["ParentName"] = parent?.Name ?? "",
+                            ["LoginUrl"] = _emailService.LoginUrl
+                        });
+                        await _emailService.SendEmailAsync(student.Email, welcomeSubject, welcomeBody);
+                        var link = EmailVerificationLinks.Create(_configuration, _httpContextAccessor.HttpContext!.Request,
+                            "Student", pendingStudentCredential.Id, student.SchoolId, student.Email);
+                        var (verifySubject, verifyBody) = await _emailService.GetEmailTemplateAsync("EMAIL_VERIFICATION", new() {
+                            ["Name"] = student.StudentName, ["Role"] = "Student", ["SchoolName"] = schoolName,
+                            ["VerificationLink"] = link
+                        });
+                        await _emailService.SendEmailAsync(student.Email, verifySubject, EmailVerificationLinks.Clickable(verifyBody, link));
+                    }
+                    if (pendingParentCredential != null && parent != null)
+                    {
+                        var password = _common.GeneratePassword(parent.Name, student.DOB);
+                        pendingParentCredential.Password_Hash = BCrypt.Net.BCrypt.HashPassword(password);
+                        var (welcomeSubject, welcomeBody) = await _emailService.GetEmailTemplateAsync("PARENT_WELCOME", new() {
+                            ["ParentName"] = parent.Name, ["StudentName"] = student.StudentName, ["Email"] = parent.Email,
+                            ["Password"] = password, ["SchoolName"] = schoolName, ["ClassName"] = className,
+                            ["LoginUrl"] = _emailService.LoginUrl
+                        });
+                        await _emailService.SendEmailAsync(parent.Email, welcomeSubject, welcomeBody);
+                        var link = EmailVerificationLinks.Create(_configuration, _httpContextAccessor.HttpContext!.Request,
+                            "Parent", pendingParentCredential.Id, student.SchoolId, parent.Email);
+                        var (verifySubject, verifyBody) = await _emailService.GetEmailTemplateAsync("EMAIL_VERIFICATION", new() {
+                            ["Name"] = parent.Name, ["Role"] = "Parent", ["SchoolName"] = schoolName,
+                            ["VerificationLink"] = link
+                        });
+                        await _emailService.SendEmailAsync(parent.Email, verifySubject, EmailVerificationLinks.Clickable(verifyBody, link));
+                    }
+                    await _context.SaveChangesAsync();
+                }
+                else
+                {
+                    await _eventEmail.SendToStudentAsync(student.SchoolId, student.Id, "STUDENT_UPDATED",
+                        new() { ["UpdateDate"] = DateTime.Now.ToString("dd MMM yyyy") });
+                }
                 await transaction.CommitAsync();
                 // Only delete old files after the replacement is committed.
                 newPicturePath = null;
@@ -673,6 +698,14 @@ namespace SchoolManagement.Repository
                     SectionName = sd != null ? sd.SectionName : null,
                     AcademicSession = ac != null ? ac.Year_Start : (DateTime?)null,
                     IsActive = s.IsActive,
+                    PendingEmailVerification = _context.Students_Parents_Creds.Any(credential =>
+                        credential.School_Id == s.SchoolId && credential.Email == s.Email &&
+                        credential.RoleName == "Student" && credential.Status == "PendingVerification"),
+                    ParentEmailVerificationPending = _context.Students_Parents_Creds.Any(credential =>
+                        credential.School_Id == s.SchoolId && credential.RoleName == "Parent" &&
+                        credential.Status == "PendingVerification" &&
+                        credential.Email == _context.ParentDetails.Where(parent => parent.Id == s.ParentId)
+                            .Select(parent => parent.Email).FirstOrDefault()),
                     ProfilePictureUrl = _context
                         .ProfilePictures.Where(p =>
                             p.PersonType == "Student" && p.PersonId == s.Id && p.IsActive
@@ -1535,10 +1568,10 @@ namespace SchoolManagement.Repository
                     ParentId = parent.Id,
                     Rollnumber = dto.Rollnumber,
                     SchoolId = dto.SchoolId,
+                    IsActive = false,
                     Created_By = 1,
                     Updated_By = 1,
                     Created_Date = DateTime.Now,
-                    IsActive = true,
                 };
 
                 _context.Students.Add(student);
@@ -1614,17 +1647,18 @@ namespace SchoolManagement.Repository
                     Password_Hash = BCrypt.Net.BCrypt.HashPassword(studentPassword),
                     RoleName = "Student",
                     School_Id = dto.SchoolId,
-                    Status = "Active",
+                    Status = "PendingVerification",
                     Created_At = DateTime.Now,
-                    IsActive = true,
+                    IsActive = false,
                 };
 
                 _context.Students_Parents_Creds.Add(studentCred);
 
                 // Reuse an existing parent login for siblings in the same school.
+                Students_Parents_Creds? parentCred = null;
                 if (existingParentCredential == null)
                 {
-                    var parentCred = new Students_Parents_Creds
+                    parentCred = new Students_Parents_Creds
                     {
                         Name = dto.Parent.Name,
                         Email = dto.Parent.Email,
@@ -1632,9 +1666,9 @@ namespace SchoolManagement.Repository
                         Password_Hash = BCrypt.Net.BCrypt.HashPassword(parentPassword),
                         RoleName = "Parent",
                         School_Id = dto.SchoolId,
-                        Status = "Active",
+                        Status = "PendingVerification",
                         Created_At = DateTime.Now,
-                        IsActive = true,
+                        IsActive = false,
                     };
 
                     _context.Students_Parents_Creds.Add(parentCred);
@@ -1738,54 +1772,65 @@ namespace SchoolManagement.Repository
                     await _context.SaveChangesAsync();
                 }
 
-                // Commit credentials and student records before queueing welcome emails.
+                // Deliver credentials before committing the student and parent records.
+                var schoolName = await _context.Schools.AsNoTracking()
+                    .Where(school => school.Id == dto.SchoolId)
+                    .Select(school => school.SchoolName).FirstOrDefaultAsync() ?? "Your school";
+                var className = await _context.Classes.AsNoTracking()
+                    .Where(schoolClass => schoolClass.Id == dto.ClassId && schoolClass.SchoolId == dto.SchoolId)
+                    .Select(schoolClass => schoolClass.ClassName).FirstOrDefaultAsync() ?? "Your class";
                 var studentEmailPlaceholders = new Dictionary<string, string>
                 {
-                    { "StudentName", dto.StudentName },
-                    { "Email", dto.Email },
-                    { "Password", studentPassword },
-                    { "SchoolName", "Blue Berry School" },
-                    { "ClassName", $"Class {dto.ClassId}" },
-                    { "ParentName", dto.Parent.Name },
+                    ["StudentName"] = dto.StudentName, ["Email"] = dto.Email,
+                    ["Password"] = studentPassword, ["SchoolName"] = schoolName,
+                    ["ClassName"] = className, ["ParentName"] = dto.Parent.Name,
+                    ["LoginUrl"] = _emailService.LoginUrl
                 };
-                var (studentEmailSubject, studentEmailBody) =
-                    await _emailService.GetEmailTemplateAsync(
-                        "STUDENT_WELCOME",
-                        studentEmailPlaceholders
-                    );
-                await _emailService.SendEmailAsync(
-                    dto.Email,
-                    studentEmailSubject,
-                    studentEmailBody
-                );
-
+                var (studentEmailSubject, studentEmailBody) = await _emailService.GetEmailTemplateAsync(
+                    "STUDENT_WELCOME", studentEmailPlaceholders);
+                await _emailService.SendEmailAsync(dto.Email, studentEmailSubject, studentEmailBody);
+                var studentVerificationLink = EmailVerificationLinks.Create(_configuration,
+                    _httpContextAccessor.HttpContext!.Request, "Student", studentCred.Id, dto.SchoolId, dto.Email);
+                var (studentVerificationSubject, studentVerificationBody) = await _emailService.GetEmailTemplateAsync(
+                    "EMAIL_VERIFICATION", new() {
+                        ["Name"] = dto.StudentName, ["Role"] = "Student", ["SchoolName"] = schoolName,
+                        ["VerificationLink"] = studentVerificationLink
+                    });
+                await _emailService.SendEmailAsync(dto.Email, studentVerificationSubject, EmailVerificationLinks.Clickable(studentVerificationBody, studentVerificationLink));
                 if (existingParentCredential == null)
                 {
                     var parentEmailPlaceholders = new Dictionary<string, string>
                     {
-                        { "ParentName", dto.Parent.Name },
-                        { "StudentName", dto.StudentName },
-                        { "Email", dto.Parent.Email },
-                        { "Password", parentPassword },
-                        { "SchoolName", "Blue Berry School" },
-                        { "ClassName", $"Class {dto.ClassId}" },
+                        ["ParentName"] = dto.Parent.Name, ["StudentName"] = dto.StudentName,
+                        ["Email"] = dto.Parent.Email, ["Password"] = parentPassword,
+                        ["SchoolName"] = schoolName, ["ClassName"] = className,
+                        ["LoginUrl"] = _emailService.LoginUrl
                     };
-                    var (parentEmailSubject, parentEmailBody) =
-                        await _emailService.GetEmailTemplateAsync(
-                            "STUDENT_WELCOME",
-                            parentEmailPlaceholders
-                        );
-                    await _emailService.SendEmailAsync(
-                        dto.Parent.Email,
-                        parentEmailSubject,
-                        parentEmailBody
-                    );
+                    var (parentEmailSubject, parentEmailBody) = await _emailService.GetEmailTemplateAsync(
+                        "PARENT_WELCOME", parentEmailPlaceholders);
+                    await _emailService.SendEmailAsync(dto.Parent.Email, parentEmailSubject, parentEmailBody);
+                    var parentVerificationLink = EmailVerificationLinks.Create(_configuration,
+                        _httpContextAccessor.HttpContext!.Request, "Parent", parentCred!.Id, dto.SchoolId, dto.Parent.Email);
+                    var (parentVerificationSubject, parentVerificationBody) = await _emailService.GetEmailTemplateAsync(
+                        "EMAIL_VERIFICATION", new() {
+                            ["Name"] = dto.Parent.Name, ["Role"] = "Parent", ["SchoolName"] = schoolName,
+                            ["VerificationLink"] = parentVerificationLink
+                        });
+                    await _emailService.SendEmailAsync(dto.Parent.Email, parentVerificationSubject, EmailVerificationLinks.Clickable(parentVerificationBody, parentVerificationLink));
                 }
-                await transaction.CommitAsync();
+                else
+                {
+                    var (parentSubject, parentBody) = await _emailService.GetEmailTemplateAsync(
+                        "PARENT_STUDENT_LINKED", new() {
+                            ["ParentName"] = dto.Parent.Name, ["StudentName"] = dto.StudentName,
+                            ["SchoolName"] = schoolName
+                        });
+                    await _emailService.SendEmailAsync(dto.Parent.Email, parentSubject, parentBody);
+                }                await transaction.CommitAsync();
                 return new ApiResponse<string>
                 {
                     Success = true,
-                    Message = "Student added successfully",
+                    Message = "Student saved pending email verification. Student and new parent must verify before sign-in.",
                     Data = null,
                 };
             }
@@ -2153,8 +2198,7 @@ namespace SchoolManagement.Repository
                 throw new InvalidOperationException(
                     "Payment cannot exceed the outstanding balance."
                 );
-            _context.FeePayments.Add(
-                new FeePayments
+            var payment = new FeePayments
                 {
                     StudentFeeId = dto.StudentFeeId,
                     AmountPaid = dto.AmountPaid,
@@ -2165,10 +2209,25 @@ namespace SchoolManagement.Repository
                     SchoolId = dto.SchoolId,
                     Created_Date = DateTime.UtcNow,
                     IsActive = true,
-                }
-            );
+                };
+            _context.FeePayments.Add(payment);
             fee.Status = paidBefore + dto.AmountPaid < fee.Amount ? "Partial" : "Paid";
             await _context.SaveChangesAsync();
+            var feeType = await _context.FeeTypes.AsNoTracking().Where(x => x.Id == fee.FeeTypeId).Select(x => x.Name).FirstOrDefaultAsync() ?? "Fee";
+            var schoolName = await _context.Schools.AsNoTracking().Where(x => x.Id == dto.SchoolId).Select(x => x.SchoolName).FirstOrDefaultAsync() ?? "School";
+            var studentName = await _context.Students.AsNoTracking().Where(x => x.Id == fee.StudentId && x.SchoolId == dto.SchoolId).Select(x => x.StudentName).FirstOrDefaultAsync() ?? "Student";
+            var receipt = new EmailAttachment($"receipt-{payment.Receipt_Number}.pdf", MailPdf.Create("Payment receipt", new[] {
+                schoolName, $"Student: {studentName}", $"Receipt: {payment.Receipt_Number}", $"Fee: {feeType}",
+                $"Amount paid: {payment.AmountPaid:0.00}", $"Payment date: {payment.Payment_Date:dd MMM yyyy}",
+                $"Payment mode: {payment.Payment_Mode}", $"Remaining balance: {fee.Amount - paidBefore - payment.AmountPaid:0.00}"
+            }));
+            await _eventEmail.SendToStudentAsync(dto.SchoolId, fee.StudentId, "FEE_PAYMENT_RECEIPT", new() {
+                ["FeeType"] = feeType, ["AmountPaid"] = payment.AmountPaid.ToString("0.00"),
+                ["ReceiptNumber"] = payment.Receipt_Number,
+                ["PaymentDate"] = payment.Payment_Date.ToString("dd MMM yyyy"),
+                ["PaymentMode"] = payment.Payment_Mode,
+                ["PendingAmount"] = (fee.Amount - paidBefore - payment.AmountPaid).ToString("0.00")
+            }, receipt);
             await transaction.CommitAsync();
             return true;
         }

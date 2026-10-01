@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
+using SchoolManagement.Service;
 using SchoolManagement.Model;
 
 namespace SchoolManagement.Controllers;
@@ -16,9 +17,10 @@ public class TeacherSelfServiceController : ControllerBase
 {
     // Dependencies and state used by this component.
     private readonly AppDbContext _db;
+    private readonly IEventEmailService _notifications;
 
     // Creates the component with its required dependencies.
-    public TeacherSelfServiceController(AppDbContext db) => _db = db;
+    public TeacherSelfServiceController(AppDbContext db, IEventEmailService notifications) { _db = db; _notifications = notifications; }
 
     private async Task<Staff?> CurrentStaff()
     {
@@ -150,6 +152,16 @@ public class TeacherSelfServiceController : ControllerBase
                     message = "Choose Approved or Rejected and enter a response up to 2000 characters.",
                 }
             );
+        if (request.Type == "Leave" && request.Status != input.Status && (input.Status == "Approved" || input.Status == "Rejected"))
+        {
+            try { await _notifications.SendToStudentAsync(request.SchoolId, request.StudentId,
+                "LEAVE_REQUEST_DECIDED", new() {
+                    ["Decision"] = input.Status.ToLowerInvariant(),
+                    ["FromDate"] = request.FromDate?.ToString("dd MMM yyyy") ?? "",
+                    ["ToDate"] = request.ToDate?.ToString("dd MMM yyyy") ?? "",
+                    ["Response"] = input.Response?.Trim() ?? "No additional response" }); }
+            catch (Exception) { return StatusCode(503, new { message = "Leave decision email could not be sent. Nothing was saved." }); }
+        }
         request.Status = input.Status;
         request.Response = input.Response?.Trim();
         request.RespondedAt = DateTime.UtcNow;
@@ -299,6 +311,16 @@ public class TeacherSelfServiceController : ControllerBase
             ResourceUrl = normalizedHomeworkUrl,
             Status = request.Publish ? "Published" : "Draft",
         };
+        if (request.Publish)
+        {
+            var section = await _db.SectionDetails.AsNoTracking().Where(x => x.Id == request.SectionId && x.SchoolId == staff.SchoolId).FirstOrDefaultAsync();
+            var sessionId = await _db.AcademicSessions.AsNoTracking().Where(x => x.SchoolId == staff.SchoolId && x.IsActive).Select(x => (int?)x.Id).FirstOrDefaultAsync();
+            var subjectName = await _db.Subjects.AsNoTracking().Where(x => x.Id == request.SubjectId).Select(x => x.SubjectName).FirstOrDefaultAsync() ?? "Subject";
+            try { await _notifications.SendToSectionAsync(staff.SchoolId, sessionId, section?.ClassId, request.SectionId,
+                "HOMEWORK_PUBLISHED", new() { ["HomeworkTitle"] = item.Title, ["SubjectName"] = subjectName,
+                    ["DueDate"] = item.DueDate.ToString("dd MMM yyyy") }); }
+            catch { return StatusCode(503, new { message = "Homework email could not be sent; assignment was not saved." }); }
+        }
         _db.HomeworkAssignments.Add(item);
         await _db.SaveChangesAsync();
         return Ok(
