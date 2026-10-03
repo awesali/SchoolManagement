@@ -25,6 +25,7 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpPost("add-student")]
+        [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
         [Consumes("multipart/form-data")]
         // API actions that validate requests and return responses.
         public async Task<IActionResult> AddStudent([FromForm] StudentCreateDto dto)
@@ -329,4 +330,5 @@ namespace SchoolManagement.Controllers
             return Ok(result);
         }
     }
+
 }

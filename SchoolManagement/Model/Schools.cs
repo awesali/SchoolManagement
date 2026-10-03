@@ -42,6 +42,8 @@ namespace SchoolManagement.Model
 
         public bool IsActive { get; set; }
 
+        public bool EmailVerificationRequired { get; set; } = true;
+
         [System.ComponentModel.DataAnnotations.Schema.NotMapped]
         public string? LogoUrl { get; set; }
     }

@@ -494,6 +494,12 @@ namespace SchoolManagement.Repository
             int userId
         )
         {
+            if (dto.TestDate.Date.DayOfWeek == DayOfWeek.Sunday)
+                return new ApiResponse<Exams>
+                {
+                    Success = false,
+                    Message = "Unit tests cannot be scheduled on Sunday.",
+                };
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return new ApiResponse<Exams>
                 {
@@ -623,6 +629,12 @@ namespace SchoolManagement.Repository
             int userId
         )
         {
+            if (dto.TestDate.Date.DayOfWeek == DayOfWeek.Sunday)
+                return new ApiResponse<Exams>
+                {
+                    Success = false,
+                    Message = "Unit tests cannot be scheduled on Sunday.",
+                };
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return new ApiResponse<Exams>
                 {
@@ -951,6 +963,12 @@ namespace SchoolManagement.Repository
                 }
 
                 var examDate = dto.ExamDate.Date;
+                if (examDate.DayOfWeek == DayOfWeek.Sunday)
+                    return new ApiResponse<ExamSchedules>
+                    {
+                        Success = false,
+                        Message = "Exams cannot be scheduled on Sunday.",
+                    };
                 if (examDate < exam.StartDate.Value.Date || examDate > exam.EndDate.Value.Date)
                 {
                     return new ApiResponse<ExamSchedules>

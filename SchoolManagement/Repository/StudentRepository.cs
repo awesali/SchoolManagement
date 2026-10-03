@@ -1483,6 +1483,11 @@ namespace SchoolManagement.Repository
             dto.Email = studentEmail;
             dto.Parent.Email = parentEmail;
 
+            var verificationRequired = await _context.Schools.AsNoTracking()
+                .Where(school => school.Id == dto.SchoolId && school.IsActive)
+                .Select(school => (bool?)school.EmailVerificationRequired).FirstOrDefaultAsync();
+            if (verificationRequired == null)
+                return new ApiResponse<string> { Success = false, Message = "School not found." };
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
@@ -1568,7 +1573,7 @@ namespace SchoolManagement.Repository
                     ParentId = parent.Id,
                     Rollnumber = dto.Rollnumber,
                     SchoolId = dto.SchoolId,
-                    IsActive = false,
+                    IsActive = !verificationRequired.Value,
                     Created_By = 1,
                     Updated_By = 1,
                     Created_Date = DateTime.Now,
@@ -1647,9 +1652,9 @@ namespace SchoolManagement.Repository
                     Password_Hash = BCrypt.Net.BCrypt.HashPassword(studentPassword),
                     RoleName = "Student",
                     School_Id = dto.SchoolId,
-                    Status = "PendingVerification",
+                    Status = verificationRequired.Value ? "PendingVerification" : "Active",
                     Created_At = DateTime.Now,
-                    IsActive = false,
+                    IsActive = !verificationRequired.Value,
                 };
 
                 _context.Students_Parents_Creds.Add(studentCred);
@@ -1666,9 +1671,9 @@ namespace SchoolManagement.Repository
                         Password_Hash = BCrypt.Net.BCrypt.HashPassword(parentPassword),
                         RoleName = "Parent",
                         School_Id = dto.SchoolId,
-                        Status = "PendingVerification",
+                        Status = verificationRequired.Value ? "PendingVerification" : "Active",
                         Created_At = DateTime.Now,
-                        IsActive = false,
+                        IsActive = !verificationRequired.Value,
                     };
 
                     _context.Students_Parents_Creds.Add(parentCred);
@@ -1789,6 +1794,8 @@ namespace SchoolManagement.Repository
                 var (studentEmailSubject, studentEmailBody) = await _emailService.GetEmailTemplateAsync(
                     "STUDENT_WELCOME", studentEmailPlaceholders);
                 await _emailService.SendEmailAsync(dto.Email, studentEmailSubject, studentEmailBody);
+                if (verificationRequired.Value)
+                {
                 var studentVerificationLink = EmailVerificationLinks.Create(_configuration,
                     _httpContextAccessor.HttpContext!.Request, "Student", studentCred.Id, dto.SchoolId, dto.Email);
                 var (studentVerificationSubject, studentVerificationBody) = await _emailService.GetEmailTemplateAsync(
@@ -1797,6 +1804,7 @@ namespace SchoolManagement.Repository
                         ["VerificationLink"] = studentVerificationLink
                     });
                 await _emailService.SendEmailAsync(dto.Email, studentVerificationSubject, EmailVerificationLinks.Clickable(studentVerificationBody, studentVerificationLink));
+                }
                 if (existingParentCredential == null)
                 {
                     var parentEmailPlaceholders = new Dictionary<string, string>
@@ -1809,6 +1817,8 @@ namespace SchoolManagement.Repository
                     var (parentEmailSubject, parentEmailBody) = await _emailService.GetEmailTemplateAsync(
                         "PARENT_WELCOME", parentEmailPlaceholders);
                     await _emailService.SendEmailAsync(dto.Parent.Email, parentEmailSubject, parentEmailBody);
+                    if (verificationRequired.Value)
+                    {
                     var parentVerificationLink = EmailVerificationLinks.Create(_configuration,
                         _httpContextAccessor.HttpContext!.Request, "Parent", parentCred!.Id, dto.SchoolId, dto.Parent.Email);
                     var (parentVerificationSubject, parentVerificationBody) = await _emailService.GetEmailTemplateAsync(
@@ -1817,8 +1827,9 @@ namespace SchoolManagement.Repository
                             ["VerificationLink"] = parentVerificationLink
                         });
                     await _emailService.SendEmailAsync(dto.Parent.Email, parentVerificationSubject, EmailVerificationLinks.Clickable(parentVerificationBody, parentVerificationLink));
+                    }
                 }
-                else
+                else if (verificationRequired.Value)
                 {
                     var (parentSubject, parentBody) = await _emailService.GetEmailTemplateAsync(
                         "PARENT_STUDENT_LINKED", new() {
@@ -1830,8 +1841,13 @@ namespace SchoolManagement.Repository
                 return new ApiResponse<string>
                 {
                     Success = true,
-                    Message = "Student saved pending email verification. Student and new parent must verify before sign-in.",
+                    Message = verificationRequired.Value ? "Student saved pending email verification." : "Student added. Credentials are shown once in this response.",
                     Data = null,
+                    OneTimeCredentials = verificationRequired.Value ? null : new OneTimeCredentials {
+                        Username = dto.Email, Password = studentPassword,
+                        ParentUsername = existingParentCredential == null ? dto.Parent.Email : null,
+                        ParentPassword = existingParentCredential == null ? parentPassword : null
+                    },
                 };
             }
             catch (Exception ex)

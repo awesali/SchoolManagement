@@ -244,6 +244,15 @@ namespace SchoolManagement.Repository
 
             var today = DateTime.Today;
 
+            if (today.DayOfWeek == DayOfWeek.Sunday || await _context.SchoolCalendarEvents.AnyAsync(x =>
+                    x.SchoolId == schoolId && x.IsActive && x.EventType == "AcademicHoliday"
+                    && x.EventDate < today.AddDays(1) && (x.EndDate ?? x.EventDate) >= today))
+                return new StaffAttendanceNotificationDto
+                {
+                    ShouldMarkAttendance = false,
+                    Message = "School holiday today",
+                };
+
             var alreadyMarked = await _context.StaffAttendance.AnyAsync(a =>
                 a.Staff_Id == staff.Id
                 && a.School_Id == schoolId

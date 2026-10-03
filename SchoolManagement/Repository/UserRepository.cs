@@ -62,32 +62,31 @@ namespace SchoolManagement.Repository
             if (user == null)
                 throw new Exception("Invalid Email");
 
-            if (!user.IsActive || !user.Status)
-                throw new Exception("User account is inactive");
-
             bool valid = BCrypt.Net.BCrypt.Verify(dto.Password, user.Password_Hash);
 
             if (!valid)
                 throw new Exception("Invalid Password");
 
             var normalizedEmail = email.ToLower();
-            var teacherStaff = await (
+            var linkedStaff = await (
                 from staff in _context.Staff
-                join role in _context.Roles on staff.RoleId equals role.Id
                 where
                     (staff.usersid == user.Id || staff.Email.ToLower() == normalizedEmail)
-                    && role.IsActive
-                    && role.RoleName.Trim().ToLower() == "teacher"
-                select new { staff.DOJ, staff.IsActive }
+                select new { staff.DOJ, staff.IsActive, staff.RoleId, staff.Status }
             ).FirstOrDefaultAsync();
 
-            if (teacherStaff != null && !teacherStaff.IsActive)
-                throw new Exception("Teacher account is inactive.");
+            if (linkedStaff?.Status == "PendingVerification")
+                throw new Exception("Please verify your email address before signing in.");
+            if (!user.IsActive || !user.Status)
+                throw new Exception("You are temporarily blocked. Please contact your school.");
 
-            if (teacherStaff != null && teacherStaff.DOJ.Date > DateTime.Today)
+            if (linkedStaff != null && !linkedStaff.IsActive)
+                throw new Exception("You are temporarily blocked. Please contact your school.");
+
+            if (linkedStaff != null && linkedStaff.RoleId == 2 && linkedStaff.DOJ.Date > DateTime.Today)
             {
                 throw new Exception(
-                    $"You cannot login before your joining date ({teacherStaff.DOJ:dd MMM yyyy})."
+                    $"You cannot login before your joining date ({linkedStaff.DOJ:dd MMM yyyy})."
                 );
             }
 

@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
+using SchoolManagement.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace SchoolManagement.Controllers
 {
@@ -15,11 +17,13 @@ namespace SchoolManagement.Controllers
     {
         // Dependencies and state used by this component.
         private readonly IAdminRepository _repo;
+        private readonly AppDbContext _db;
 
         // Creates the component with its required dependencies.
-        public AdminController(IAdminRepository repo)
+        public AdminController(IAdminRepository repo, AppDbContext db)
         {
             _repo = repo;
+            _db = db;
         }
 
         [HttpPost("create")]
@@ -110,6 +114,20 @@ namespace SchoolManagement.Controllers
             return result.Success ? Ok(result) : NotFound(result);
         }
 
+        [HttpPut("schools/{schoolId:int}/email-verification")]
+        public async Task<IActionResult> SetEmailVerification(int schoolId, [FromBody] EmailVerificationSettingInput input)
+        {
+            var school = await _db.Schools.FirstOrDefaultAsync(x => x.Id == schoolId && x.IsActive);
+            if (school == null) return NotFound(new { message = "School not found." });
+            var userId = int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : 0;
+            var ownsSchool = school.SuperAdminId == userId || await _db.Staff.AnyAsync(x =>
+                x.SchoolId == schoolId && x.usersid == userId && x.IsActive &&
+                _db.Roles.Any(r => r.Id == x.RoleId && r.RoleName == "Admin"));
+            if (!ownsSchool) return Forbid();
+            school.EmailVerificationRequired = input.Required;
+            await _db.SaveChangesAsync();
+            return Ok(new { success = true, data = new { school.Id, school.EmailVerificationRequired } });
+        }
         [HttpGet("staff-emails")]
         public async Task<IActionResult> GetStaffEmails([FromQuery] int schoolId)
         {
@@ -132,6 +150,7 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpPost("add-staff")]
+        [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> AddStaff([FromForm] AddStaffDto dto)
         {
@@ -309,3 +328,5 @@ namespace SchoolManagement.Controllers
         }
     }
 }
+
+public sealed class EmailVerificationSettingInput { public bool Required { get; set; } }

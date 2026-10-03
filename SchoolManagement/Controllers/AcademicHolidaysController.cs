@@ -26,6 +26,35 @@ public class AcademicHolidaysController : ControllerBase
             && claimed == schoolId
         );
 
+    [HttpGet("today")]
+    public async Task<IActionResult> Today(int? schoolId)
+    {
+        int resolvedSchoolId;
+        if (User.IsInRole("Student"))
+        {
+            if (!int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var credentialId))
+                return Forbid();
+            resolvedSchoolId = await _db.Students_Parents_Creds.AsNoTracking()
+                .Where(x => x.Id == credentialId && x.IsActive && x.Status == "Active" && x.RoleName == "Student")
+                .Select(x => x.School_Id).FirstOrDefaultAsync();
+        }
+        else if (User.FindFirstValue("RoleId") == "1" && schoolId.HasValue)
+            resolvedSchoolId = schoolId.Value;
+        else if (!int.TryParse(User.FindFirstValue("SchoolId"), out resolvedSchoolId)
+            || (schoolId.HasValue && schoolId.Value != resolvedSchoolId))
+            return Forbid();
+
+        if (resolvedSchoolId <= 0) return Forbid();
+        var today = DateTime.Today;
+        if (today.DayOfWeek == DayOfWeek.Sunday)
+            return Ok(new { success = true, data = new { isHoliday = true, title = "Sunday holiday", date = today } });
+        var holiday = await _db.SchoolCalendarEvents.AsNoTracking()
+            .Where(x => x.SchoolId == resolvedSchoolId && x.IsActive && x.EventType == "AcademicHoliday"
+                && x.EventDate < today.AddDays(1) && (x.EndDate ?? x.EventDate) >= today)
+            .OrderBy(x => x.EventDate).Select(x => x.Title).FirstOrDefaultAsync();
+        return Ok(new { success = true, data = new { isHoliday = holiday != null, title = holiday, date = today } });
+    }
+
     [HttpGet("school/{schoolId:int}")]
     // API actions that validate requests and return responses.
     public async Task<IActionResult> List(int schoolId, int sessionId)

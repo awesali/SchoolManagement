@@ -272,6 +272,7 @@ public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
             p.Contains("school-by-superadmin")
             || p.Contains("/api/admin/create")
             || p.Contains("update-school")
+            || p.Contains("/email-verification")
         )
             return "management.schools";
         if (p.Contains("dashboardcard"))

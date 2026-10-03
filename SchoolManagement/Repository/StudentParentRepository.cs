@@ -65,9 +65,8 @@ namespace SchoolManagement.Repository
 
         public async Task<string> LoginStudentParentAsync(StudentParentLoginDto dto)
         {
-            var user = await _context.Students_Parents_Creds.FirstOrDefaultAsync(u =>
-                u.Email == dto.Email && u.IsActive
-            );
+            var email = dto.Email?.Trim();
+            var user = await _context.Students_Parents_Creds.FirstOrDefaultAsync(u => u.Email == email);
 
             if (user == null)
                 throw new Exception("Invalid Email");
@@ -76,6 +75,18 @@ namespace SchoolManagement.Repository
 
             if (!valid)
                 throw new Exception("Invalid Password");
+
+            if (user.Status == "PendingVerification")
+                throw new Exception("Please verify your email address before signing in.");
+            if (!user.IsActive || user.Status != "Active")
+                throw new Exception("You are temporarily blocked. Please contact your school.");
+            if (user.RoleName == "Student")
+            {
+                var activeStudentCount = await _context.Students.AsNoTracking().CountAsync(student =>
+                    student.SchoolId == user.School_Id && student.Email == user.Email && student.IsActive);
+                if (activeStudentCount != 1)
+                    throw new Exception("You are temporarily blocked. Please contact your school.");
+            }
 
             // Update last login
             user.Last_Login = DateTime.Now;

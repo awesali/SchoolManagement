@@ -476,6 +476,11 @@ namespace SchoolManagement.Repository
                     Message = "A valid gender is required.",
                 };
 
+            var verificationRequired = await _context.Schools.AsNoTracking()
+                .Where(school => school.Id == dto.SchoolId && school.IsActive)
+                .Select(school => (bool?)school.EmailVerificationRequired).FirstOrDefaultAsync();
+            if (verificationRequired == null)
+                return new ApiResponse<Staff> { Success = false, Message = "School not found." };
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
@@ -525,7 +530,7 @@ namespace SchoolManagement.Repository
                 }
 
                 // âœ… Create Staff after User created
-                userResult.IsActive = false;
+                userResult.IsActive = !verificationRequired.Value;
                 await _context.SaveChangesAsync();
 
                 var staff = new Staff
@@ -565,9 +570,9 @@ namespace SchoolManagement.Repository
                     CertificationNumber = dto.CertificationNumber,
                     CertificationDate = dto.CertificationDate,
                     CertificationExpiry = dto.CertificationExpiry,
-                    Status = "PendingVerification",
+                    Status = verificationRequired.Value ? "PendingVerification" : "Active",
                     usersid = userResult.Id, // âœ… Save UserId
-                    IsActive = false,
+                    IsActive = !verificationRequired.Value,
                     Created_Date = DateTime.UtcNow,
                 };
 
@@ -683,6 +688,8 @@ namespace SchoolManagement.Repository
                     staffEmailPlaceholders
                 );
                 await _emailService.SendEmailAsync(dto.Email, staffEmailSubject, staffEmailBody);
+                if (verificationRequired.Value)
+                {
                 var verificationLink = EmailVerificationLinks.Create(_configuration,
                     _httpContextAccessor.HttpContext!.Request, "Staff", userResult.Id, dto.SchoolId, dto.Email);
                 var (verificationSubject, verificationBody) = await _emailService.GetEmailTemplateAsync(
@@ -691,12 +698,14 @@ namespace SchoolManagement.Repository
                         ["VerificationLink"] = verificationLink
                     });
                 await _emailService.SendEmailAsync(dto.Email, verificationSubject, EmailVerificationLinks.Clickable(verificationBody, verificationLink));
+                }
                 await transaction.CommitAsync();
                 return new ApiResponse<Staff>
                 {
                     Success = true,
-                    Message = "Staff saved pending email verification. Open the verification link before signing in.",
+                    Message = verificationRequired.Value ? "Staff saved pending email verification." : "Staff added. Credentials are shown once in this response.",
                     Data = staff,
+                    OneTimeCredentials = verificationRequired.Value ? null : new OneTimeCredentials { Username = dto.Email, Password = password },
                 };
             }
             catch (Exception ex)
