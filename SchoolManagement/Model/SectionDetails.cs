@@ -9,7 +9,7 @@ namespace SchoolManagement.Model
         public string SectionName { get; set; }
 
         public int ClassId { get; set; }
-        public int StaffId { get; set; }
+        public int? StaffId { get; set; }
         public int MonitorStudentId { get; set; }
         public int SchoolId { get; set; }
 

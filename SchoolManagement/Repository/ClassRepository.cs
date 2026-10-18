@@ -125,7 +125,7 @@ namespace SchoolManagement.Repository
                         {
                             Id = s.Id,
                             SectionName = s.SectionName,
-                            StaffId = s.StaffId,
+                            StaffId = s.StaffId ?? 0,
                             MonitorStudentId = s.MonitorStudentId,
                             Subjects = _context
                                 .SectionSubjects.Where(ss => ss.SectionId == s.Id && ss.IsActive)
@@ -187,7 +187,7 @@ namespace SchoolManagement.Repository
                         {
                             Id = s.Id,
                             SectionName = s.SectionName,
-                            StaffId = s.StaffId,
+                            StaffId = s.StaffId ?? 0,
                             MonitorStudentId = s.MonitorStudentId,
                             Subjects = _context
                                 .SectionSubjects.Where(ss => ss.SectionId == s.Id && ss.IsActive)
@@ -252,7 +252,7 @@ namespace SchoolManagement.Repository
                         {
                             Id = s.Id,
                             SectionName = s.SectionName,
-                            StaffId = s.StaffId,
+                            StaffId = s.StaffId ?? 0,
                             MonitorStudentId = s.MonitorStudentId,
                             Subjects = _context
                                 .SectionSubjects.Where(ss => ss.SectionId == s.Id && ss.IsActive)

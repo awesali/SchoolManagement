@@ -424,7 +424,7 @@ namespace SchoolManagement.Repository
                         {
                             Id = section.Key.SectionId,
                             SectionName = section.Key.SectionName,
-                            StaffId = section.Key.StaffId,
+                            StaffId = section.Key.StaffId ?? 0,
                             Subjects = section
                                 .OrderBy(row => row.SubjectName)
                                 .Select(row => new SectionSubjectDto

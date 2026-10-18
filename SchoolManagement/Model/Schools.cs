@@ -26,7 +26,8 @@ namespace SchoolManagement.Model
 
         public decimal? Longitude { get; set; }
 
-        public string Email { get; set; }
+        // Older school records may not have an email address.
+        public string? Email { get; set; }
 
         public string Phone { get; set; }
 
