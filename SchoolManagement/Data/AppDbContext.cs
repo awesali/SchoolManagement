@@ -23,6 +23,8 @@ namespace SchoolManagement.Data
             _staffHistoryHttp = httpContextAccessor;
         }
 
+        public DbSet<ImportEmail> ImportEmails { get; set; }
+
         public DbSet<Users> Users { get; set; }
 
         public DbSet<Roles> Roles { get; set; }

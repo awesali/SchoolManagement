@@ -162,10 +162,11 @@ public class AccountingController : ControllerBase, IAsyncActionFilter
                 credit = g.Sum(x => x.v.Date >= (@from) ? x.l.Credit : 0),
             }
         ).ToListAsync();
+        var sumsByAccount = sums.ToDictionary(x => x.accountId);
         var report = accounts
             .Select(a =>
             {
-                var s = sums.FirstOrDefault(x => x.accountId == a.Id);
+                sumsByAccount.TryGetValue(a.Id, out var s);
                 return new
                 {
                     a.Id,

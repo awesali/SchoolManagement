@@ -14,7 +14,8 @@ namespace SchoolManagement.Interfaces
         Task<(List<StudentDto> Data, int TotalRecords)> GetStudentsBySchoolIdAsync(
             int schoolId,
             int page,
-            int pageSize
+            int pageSize,
+            string? search = null
         );
 
         Task<List<AttendanceHistoryDto>> GetStudentProfileAttendanceAsync(

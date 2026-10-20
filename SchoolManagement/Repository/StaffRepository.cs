@@ -405,13 +405,14 @@ namespace SchoolManagement.Repository
                 select salary
             ).ToListAsync();
 
+            var staffIds = salaries.Select(x => x.StaffId).Distinct().ToArray();
+            var paidStaffIds = await _context.SalaryPayment.AsNoTracking()
+                .Where(x => staffIds.Contains(x.StaffId) && x.SalaryMonth == month && x.SalaryYear == year)
+                .Select(x => x.StaffId).ToListAsync();
+            var existing = paidStaffIds.ToHashSet();
             foreach (var salary in salaries)
             {
-                bool exists = await _context.SalaryPayment.AnyAsync(x =>
-                    x.StaffId == salary.StaffId && x.SalaryMonth == month && x.SalaryYear == year
-                );
-
-                if (exists)
+                if (!existing.Add(salary.StaffId))
                     continue;
 
                 _context.SalaryPayment.Add(

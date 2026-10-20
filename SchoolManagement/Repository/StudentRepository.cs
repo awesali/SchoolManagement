@@ -2,6 +2,7 @@
 using System.Diagnostics.Eventing.Reader;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 using SchoolManagement.Data;
 using SchoolManagement.DTOs;
 using SchoolManagement.Interfaces;
@@ -19,6 +20,7 @@ namespace SchoolManagement.Repository
         private readonly ICommonRepository _common;
         private readonly IWebHostEnvironment _env;
         private readonly IEmailService _emailService;
+        private readonly IImportEmailService? _importEmailService;
         private readonly IConfiguration _configuration;
         private readonly IEventEmailService _eventEmail;
         private readonly IHttpContextAccessor _httpContextAccessor;
@@ -31,13 +33,15 @@ namespace SchoolManagement.Repository
             IEmailService emailService,
             IConfiguration configuration,
             IEventEmailService eventEmail,
-            IHttpContextAccessor httpContextAccessor
+            IHttpContextAccessor httpContextAccessor,
+            IImportEmailService? importEmailService = null
         )
         {
             _context = context;
             _common = common;
             _env = env;
             _emailService = emailService;
+            _importEmailService = importEmailService;
             _configuration = configuration;
             _eventEmail = eventEmail;
             _httpContextAccessor = httpContextAccessor;
@@ -638,9 +642,11 @@ namespace SchoolManagement.Repository
         public async Task<(List<StudentDto> Data, int TotalRecords)> GetStudentsBySchoolIdAsync(
             int schoolId,
             int page,
-            int pageSize
+            int pageSize,
+            string? search = null
         )
         {
+            var name = search?.Trim();
             var query =
                 from s in _context.Students
                 join se in _context.StudentEnrollment on s.Id equals se.StudentId into seGroup
@@ -652,6 +658,7 @@ namespace SchoolManagement.Repository
                 join ac in _context.AcademicSessions on se.SessionId equals ac.Id into acGroup
                 from ac in acGroup.DefaultIfEmpty()
                 where s.SchoolId == schoolId && (se == null || se.IsActive)
+                    && (string.IsNullOrEmpty(name) || s.StudentName.Contains(name))
                 let currentRollNumber = se != null ? (se.RollNumber ?? s.Rollnumber) : s.Rollnumber
                 orderby string.IsNullOrEmpty(currentRollNumber)
                     ? 1
@@ -712,16 +719,7 @@ namespace SchoolManagement.Repository
                         )
                         .Select(p => p.FileUrl)
                         .FirstOrDefault(),
-                    Documents = _context
-                        .Student_Documents.Where(d => d.StudentId == s.Id)
-                        .Select(d => new StudentDocumentDto
-                        {
-                            DocumentId = d.Id,
-                            DocumentName = d.DocumentName,
-                            DocumentURL = d.FileUrl,
-                            CreatedDate = d.CreatedDate,
-                        })
-                        .ToList(),
+
                 };
 
             var total = await query.CountAsync();
@@ -777,6 +775,23 @@ namespace SchoolManagement.Repository
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync();
+            // Fetch documents only for this page; keep them out of the paginated SQL join.
+            var ids = data.Select(row => row.Id).Distinct().ToArray();
+            if (ids.Length > 0)
+            {
+                var documents = await _context.Student_Documents.AsNoTracking()
+                    .Where(d => ids.Contains(d.StudentId))
+                    .Select(d => new { d.StudentId, Document = new StudentDocumentDto
+                    {
+                        DocumentId = d.Id,
+                        DocumentName = d.DocumentName,
+                        DocumentURL = d.FileUrl,
+                        CreatedDate = d.CreatedDate,
+                    } }).ToListAsync();
+                var byPerson = documents.ToLookup(d => d.StudentId, d => d.Document);
+                foreach (var row in data)
+                    row.Documents = byPerson[row.Id].ToList();
+            }
             return (data, total);
         }
 
@@ -1436,61 +1451,66 @@ namespace SchoolManagement.Repository
                 };
             }
 
-            var existingCredentials = await _context
-                .Students_Parents_Creds.Where(credential =>
-                    credential.Email.ToLower() == studentEmail
-                    || credential.Email.ToLower() == parentEmail
-                )
-                .ToListAsync();
-
-            var studentEmailExists =
-                existingCredentials.Any(credential =>
-                    credential.Email.Equals(studentEmail, StringComparison.OrdinalIgnoreCase)
-                )
-                || await _context.Students.AnyAsync(student =>
-                    student.Email.ToLower() == studentEmail
-                );
-
-            if (studentEmailExists)
-            {
-                return new ApiResponse<string>
-                {
-                    Success = false,
-                    Message = "A student already exists with this email address.",
-                };
-            }
-
-            var existingParentCredential = existingCredentials.FirstOrDefault(credential =>
-                credential.Email.Equals(parentEmail, StringComparison.OrdinalIgnoreCase)
-            );
-
-            if (
-                existingParentCredential != null
-                && !string.Equals(
-                    existingParentCredential.RoleName?.Trim(),
-                    "Parent",
-                    StringComparison.OrdinalIgnoreCase
-                )
-            )
-            {
-                return new ApiResponse<string>
-                {
-                    Success = false,
-                    Message = "The parent email is already used by a non-parent account.",
-                };
-            }
-
-            dto.Email = studentEmail;
-            dto.Parent.Email = parentEmail;
-
-            var verificationRequired = await _context.Schools.AsNoTracking()
-                .Where(school => school.Id == dto.SchoolId && school.IsActive)
-                .Select(school => (bool?)school.EmailVerificationRequired).FirstOrDefaultAsync();
-            if (verificationRequired == null)
-                return new ApiResponse<string> { Success = false, Message = "School not found." };
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
+                // Serialize overlapping login emails before checking existing accounts.
+                await StudentLoginEmailLock.AcquireAsync(_context, studentEmail, parentEmail);
+                var existingCredentials = await _context
+                    .Students_Parents_Creds.Where(credential =>
+                        credential.Email.ToLower() == studentEmail
+                        || credential.Email.ToLower() == parentEmail
+                    )
+                    .ToListAsync();
+
+                var studentEmailExists =
+                    existingCredentials.Any(credential =>
+                        credential.Email.Equals(studentEmail, StringComparison.OrdinalIgnoreCase)
+                    )
+                    || await _context.Students.AnyAsync(student =>
+                        student.Email.ToLower() == studentEmail
+                    );
+
+                if (studentEmailExists)
+                {
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "A student already exists with this email address.",
+                    };
+                }
+
+                var existingParentCredential = existingCredentials.FirstOrDefault(credential =>
+                    credential.Email.Equals(parentEmail, StringComparison.OrdinalIgnoreCase)
+                );
+
+                if (
+                    existingParentCredential != null
+                    && !string.Equals(
+                        existingParentCredential.RoleName?.Trim(),
+                        "Parent",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
+                {
+                    return new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "The parent email is already used by a non-parent account.",
+                    };
+                }
+
+                if (existingParentCredential != null && existingParentCredential.School_Id != dto.SchoolId)
+                    return new ApiResponse<string> { Success = false, Message = "The parent email is already registered with another school. Use a different email address." };
+
+                dto.Email = studentEmail;
+                dto.Parent.Email = parentEmail;
+
+                var verificationRequired = await _context.Schools.AsNoTracking()
+                    .Where(school => school.Id == dto.SchoolId && school.IsActive)
+                    .Select(school => (bool?)school.EmailVerificationRequired).FirstOrDefaultAsync();
+                if (verificationRequired == null)
+                    return new ApiResponse<string> { Success = false, Message = "School not found." };
                 // Reuse the same parent profile when adding siblings.
                 var parent =
                     existingParentCredential == null
@@ -1777,7 +1797,7 @@ namespace SchoolManagement.Repository
                     await _context.SaveChangesAsync();
                 }
 
-                // Deliver credentials before committing the student and parent records.
+                // Queue credentials atomically with the imported records; SMTP runs after commit.
                 var schoolName = await _context.Schools.AsNoTracking()
                     .Where(school => school.Id == dto.SchoolId)
                     .Select(school => school.SchoolName).FirstOrDefaultAsync() ?? "Your school";
@@ -1793,7 +1813,7 @@ namespace SchoolManagement.Repository
                 };
                 var (studentEmailSubject, studentEmailBody) = await _emailService.GetEmailTemplateAsync(
                     "STUDENT_WELCOME", studentEmailPlaceholders);
-                await _emailService.SendEmailAsync(dto.Email, studentEmailSubject, studentEmailBody);
+                await (_importEmailService ?? throw new InvalidOperationException("Import email queue is not configured.")).EnqueueAsync(dto.Email, studentEmailSubject, studentEmailBody);
                 if (verificationRequired.Value)
                 {
                 var studentVerificationLink = EmailVerificationLinks.Create(_configuration,
@@ -1803,7 +1823,7 @@ namespace SchoolManagement.Repository
                         ["Name"] = dto.StudentName, ["Role"] = "Student", ["SchoolName"] = schoolName,
                         ["VerificationLink"] = studentVerificationLink
                     });
-                await _emailService.SendEmailAsync(dto.Email, studentVerificationSubject, EmailVerificationLinks.Clickable(studentVerificationBody, studentVerificationLink));
+                await (_importEmailService ?? throw new InvalidOperationException("Import email queue is not configured.")).EnqueueAsync(dto.Email, studentVerificationSubject, EmailVerificationLinks.Clickable(studentVerificationBody, studentVerificationLink));
                 }
                 if (existingParentCredential == null)
                 {
@@ -1816,7 +1836,7 @@ namespace SchoolManagement.Repository
                     };
                     var (parentEmailSubject, parentEmailBody) = await _emailService.GetEmailTemplateAsync(
                         "PARENT_WELCOME", parentEmailPlaceholders);
-                    await _emailService.SendEmailAsync(dto.Parent.Email, parentEmailSubject, parentEmailBody);
+                    await (_importEmailService ?? throw new InvalidOperationException("Import email queue is not configured.")).EnqueueAsync(dto.Parent.Email, parentEmailSubject, parentEmailBody);
                     if (verificationRequired.Value)
                     {
                     var parentVerificationLink = EmailVerificationLinks.Create(_configuration,
@@ -1826,7 +1846,7 @@ namespace SchoolManagement.Repository
                             ["Name"] = dto.Parent.Name, ["Role"] = "Parent", ["SchoolName"] = schoolName,
                             ["VerificationLink"] = parentVerificationLink
                         });
-                    await _emailService.SendEmailAsync(dto.Parent.Email, parentVerificationSubject, EmailVerificationLinks.Clickable(parentVerificationBody, parentVerificationLink));
+                    await (_importEmailService ?? throw new InvalidOperationException("Import email queue is not configured.")).EnqueueAsync(dto.Parent.Email, parentVerificationSubject, EmailVerificationLinks.Clickable(parentVerificationBody, parentVerificationLink));
                     }
                 }
                 else if (verificationRequired.Value)
@@ -1836,8 +1856,9 @@ namespace SchoolManagement.Repository
                             ["ParentName"] = dto.Parent.Name, ["StudentName"] = dto.StudentName,
                             ["SchoolName"] = schoolName
                         });
-                    await _emailService.SendEmailAsync(dto.Parent.Email, parentSubject, parentBody);
-                }                await transaction.CommitAsync();
+                    await (_importEmailService ?? throw new InvalidOperationException("Import email queue is not configured.")).EnqueueAsync(dto.Parent.Email, parentSubject, parentBody);
+                }                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
                 return new ApiResponse<string>
                 {
                     Success = true,
@@ -1848,6 +1869,16 @@ namespace SchoolManagement.Repository
                         ParentUsername = existingParentCredential == null ? dto.Parent.Email : null,
                         ParentPassword = existingParentCredential == null ? parentPassword : null
                     },
+                };
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is SqlException sql && (sql.Number == 2601 || sql.Number == 2627))
+            {
+                await transaction.RollbackAsync();
+                return new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "A student, parent login email or enrollment already exists. Check the row's emails and avoid importing the same record twice.",
+                    Data = null,
                 };
             }
             catch (Exception ex)
@@ -2044,6 +2075,10 @@ namespace SchoolManagement.Repository
         {
             try
             {
+                var paymentsByFee = _context.FeePayments
+                    .Where(p => p.SchoolId == schoolId && p.IsActive)
+                    .GroupBy(p => p.StudentFeeId)
+                    .Select(g => new { StudentFeeId = g.Key, Paid = g.Sum(p => p.AmountPaid) });
                 var query =
                     from sf in _context.StudentFees
 
@@ -2055,6 +2090,8 @@ namespace SchoolManagement.Repository
 
                     join sec in _context.SectionDetails on se.SectionId equals sec.Id
 
+                    join paidTotal in paymentsByFee on sf.Id equals paidTotal.StudentFeeId into paidTotals
+                    from paidTotal in paidTotals.DefaultIfEmpty()
                     where
                         sf.SchoolId == schoolId
                         && s.SchoolId == schoolId
@@ -2091,26 +2128,8 @@ namespace SchoolManagement.Repository
 
                         Amount = sf.Amount,
 
-                        Paid = _context
-                            .FeePayments.Where(p =>
-                                p.StudentFeeId == sf.Id
-                                && p.SchoolId == schoolId
-                                && p.IsActive == true
-                            )
-                            .Sum(p => (decimal?)p.AmountPaid)
-                            ?? 0,
-
-                        Balance = sf.Amount
-                            - (
-                                _context
-                                    .FeePayments.Where(p =>
-                                        p.StudentFeeId == sf.Id
-                                        && p.SchoolId == schoolId
-                                        && p.IsActive == true
-                                    )
-                                    .Sum(p => (decimal?)p.AmountPaid)
-                                ?? 0
-                            ),
+                        Paid = paidTotal == null ? 0 : paidTotal.Paid,
+                        Balance = sf.Amount - (paidTotal == null ? 0 : paidTotal.Paid),
 
                         sf.Status,
                     };

@@ -53,16 +53,17 @@ namespace SchoolManagement.Controllers
         public async Task<IActionResult> GetStudentsBySchool(
             [FromQuery] int schoolId,
             int page = 1,
-            int pageSize = 10
+            int pageSize = 10,
+            string? search = null
         )
         {
             if (page == -1)
             {
-                var (_, tempTotal) = await _repo.GetStudentsBySchoolIdAsync(schoolId, 1, pageSize);
-                page = (int)Math.Ceiling((double)tempTotal / pageSize);
+                var (_, tempTotal) = await _repo.GetStudentsBySchoolIdAsync(schoolId, 1, pageSize, search);
+                page = Math.Max(1, (int)Math.Ceiling((double)tempTotal / pageSize));
             }
 
-            var (data, total) = await _repo.GetStudentsBySchoolIdAsync(schoolId, page, pageSize);
+            var (data, total) = await _repo.GetStudentsBySchoolIdAsync(schoolId, page, pageSize, search);
             var totalPages = (int)Math.Ceiling((double)total / pageSize);
 
             return Ok(

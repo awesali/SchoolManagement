@@ -44,6 +44,29 @@ namespace SchoolManagement.Controllers
             return Ok(result);
         }
 
+        [HttpGet("dashboard-exams")]
+        public async Task<IActionResult> DashboardExams(int schoolId)
+        {
+            var today = DateTime.Today;
+            var cutoff = DateTime.UtcNow.AddDays(-2);
+            var notices = await _db.Exams.AsNoTracking()
+                .Where(e => e.SchoolId == schoolId && e.ResultPublished && e.CreatedDate >= cutoff)
+                .OrderByDescending(e => e.CreatedDate).ThenByDescending(e => e.Id)
+                .Select(e => new { e.Id, e.Name, e.CreatedDate, e.ResultPublished })
+                .Take(5).ToListAsync();
+            var events = await (from schedule in _db.ExamSchedules.AsNoTracking()
+                join exam in _db.Exams on schedule.ExamId equals exam.Id
+                join subject in _db.Subjects on schedule.SubjectId equals subject.Id
+                join classroom in _db.Classes on schedule.ClassId equals classroom.Id
+                join section in _db.SectionDetails on schedule.SectionId equals section.Id
+                where exam.SchoolId == schoolId && schedule.SchoolId == schoolId && schedule.ExamDate >= today
+                orderby schedule.ExamDate, schedule.StartTime, schedule.Id
+                select new { schedule.Id, examName = exam.Name, subjectName = subject.SubjectName,
+                    className = classroom.ClassName, sectionName = section.SectionName,
+                    schedule.ExamDate, schedule.StartTime }).Take(5).ToListAsync();
+            return Ok(new { success = true, data = new { notices, events } });
+        }
+
         [HttpGet("School-by-superadmin")]
         public async Task<IActionResult> GetSchoolsBySuperAdmin()
         {
@@ -57,7 +80,8 @@ namespace SchoolManagement.Controllers
             [FromQuery] int schoolId,
             int page = 1,
             int pageSize = 10,
-            int? staffId = null
+            int? staffId = null,
+            string? search = null
         )
         {
             try
@@ -70,16 +94,18 @@ namespace SchoolManagement.Controllers
                         schoolId,
                         1,
                         pageSize,
-                        staffId
+                        staffId,
+                        search
                     );
-                    page = (int)Math.Ceiling((double)tempTotal / pageSize);
+                    page = Math.Max(1, (int)Math.Ceiling((double)tempTotal / pageSize));
                 }
 
                 var (data, total) = await _repo.GetStaffFullAsync(
                     schoolId,
                     page,
                     pageSize,
-                    staffId
+                    staffId,
+                    search
                 );
                 var totalPages = (int)Math.Ceiling((double)total / pageSize);
 

@@ -109,7 +109,7 @@ public class TeacherController : ControllerBase
                     classTeacherSections.Contains(e.SectionId)
                     && a.School_Id == staff.SchoolId
                     && a.IsActive
-                    && a.Attendance_Date.Date == today
+                    && a.Attendance_Date >= today && a.Attendance_Date < today.AddDays(1)
                 select new { e.SectionId, a.Status }
             ).ToListAsync()
             : null;
@@ -123,13 +123,21 @@ public class TeacherController : ControllerBase
         )
             .Distinct()
             .ToListAsync();
+        var sectionsByClass = sections.ToLookup(x => x.ClassId);
+        var sectionById = sections.ToDictionary(x => x.Id);
+        var classById = classes.ToDictionary(x => x.Id);
+        var subjectById = subjects.ToDictionary(x => x.Id);
+        var mappingsBySection = mappings.ToLookup(x => x.SectionId);
+        var mappingKeys = mappings.Select(x => (x.SectionId, x.SubjectId)).ToHashSet();
+        var periodBySlot = periods.GroupBy(x => (x.SectionId, x.PeriodNumber)).ToDictionary(g => g.Key, g => g.First());
+        var markedSections = attendance?.Select(x => x.SectionId).ToHashSet() ?? new HashSet<int>();
         return Ok(
             new
             {
                 success = true,
                 attendancePending = attendance == null
                     ? (int?)null
-                    : populatedSections.Count(id => !attendance.Any(a => a.SectionId == id)),
+                    : populatedSections.Count(id => !markedSections.Contains(id)),
                 studentsAbsent = attendance == null
                     ? (int?)null
                     : attendance.Count(a => a.Status == "Absent"),
@@ -137,21 +145,17 @@ public class TeacherController : ControllerBase
                 {
                     id = c.Id,
                     className = c.ClassName,
-                    sections = sections
-                        .Where(s => s.ClassId == c.Id)
+                    sections = sectionsByClass[c.Id]
                         .Select(s => new
                         {
                             id = s.Id,
                             sectionName = s.SectionName,
                             isClassTeacher = s.StaffId == staff.Id,
-                            subjects = mappings
-                                .Where(m => m.SectionId == s.Id)
+                            subjects = mappingsBySection[s.Id]
                                 .Select(m => new
                                 {
                                     subjectId = m.SubjectId,
-                                    subjectName = subjects
-                                        .FirstOrDefault(v => v.Id == m.SubjectId)
-                                        ?.SubjectName
+                                    subjectName = subjectById.GetValueOrDefault(m.SubjectId)?.SubjectName
                                         ?? "",
                                 }),
                         }),
@@ -159,20 +163,16 @@ public class TeacherController : ControllerBase
                 slots = slots
                     .Where(t =>
                         t.SubjectId.HasValue
-                        && mappings.Any(m =>
-                            m.SectionId == t.SectionId && m.SubjectId == t.SubjectId
-                        )
+                        && mappingKeys.Contains((t.SectionId, t.SubjectId.Value))
                     )
                     .Where(t =>
-                        periods.Any(p => p.SectionId == t.SectionId && p.PeriodNumber == t.PeriodId)
+                        periodBySlot.ContainsKey((t.SectionId, t.PeriodId))
                     )
                     .Select(t =>
                     {
                         // Timetable slots store the period number; period rows have their own database IDs.
-                        var period = periods.First(p =>
-                            p.SectionId == t.SectionId && p.PeriodNumber == t.PeriodId
-                        );
-                        var section = sections.First(s => s.Id == t.SectionId);
+                        var period = periodBySlot[(t.SectionId, t.PeriodId)];
+                        var section = sectionById[t.SectionId];
                         return new
                         {
                             id = $"{t.SectionId}-{t.DayOfWeek}-{t.PeriodId}",
@@ -181,17 +181,17 @@ public class TeacherController : ControllerBase
                             sectionId = section.Id,
                             attendanceStatus = attendance == null || section.StaffId != staff.Id
                                 ? null
-                            : attendance.Any(a => a.SectionId == section.Id) ? "Submitted"
+                            : markedSections.Contains(section.Id) ? "Submitted"
                             : "Pending",
                             start = period.StartTime.ToString().Substring(0, 5),
                             end = period.EndTime.ToString().Substring(0, 5),
                             className = (
-                                classes.FirstOrDefault(c => c.Id == section.ClassId)?.ClassName
+                                classById.GetValueOrDefault(section.ClassId)?.ClassName
                                 ?? ""
                             )
                                 + " · "
                                 + section.SectionName,
-                            subject = subjects.FirstOrDefault(s => s.Id == t.SubjectId)?.SubjectName
+                            subject = subjectById.GetValueOrDefault(t.SubjectId!.Value)?.SubjectName
                                 ?? "",
                         };
                     }),
