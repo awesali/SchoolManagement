@@ -44,6 +44,50 @@ namespace SchoolManagement.Controllers
             return Ok(result);
         }
 
+        [HttpGet("fee-chart")]
+        public async Task<IActionResult> FeeChart([FromQuery] int schoolId, [FromQuery] int year)
+        {
+            if (schoolId <= 0 || year < 2000 || year > 2100)
+                return BadRequest(new { message = "Choose a valid school and year." });
+            var roleId = User.FindFirstValue("RoleId");
+            if (roleId != "1" && User.FindFirstValue("SchoolId") != schoolId.ToString())
+                return Forbid();
+
+            var regularFees = await _db.StudentFees.AsNoTracking()
+                .Where(x => x.SchoolId == schoolId && x.IsActive)
+                .Select(x => new { x.Id, x.Amount, x.Created_Date }).ToListAsync();
+            var feeIds = regularFees.Select(x => x.Id).ToList();
+            var regularPayments = await _db.FeePayments.AsNoTracking()
+                .Where(x => x.SchoolId == schoolId && x.IsActive && feeIds.Contains(x.StudentFeeId))
+                .Select(x => new { x.StudentFeeId, x.AmountPaid, x.Payment_Date }).ToListAsync();
+            var transportFees = await _db.TransportFees.AsNoTracking()
+                .Where(x => x.SchoolId == schoolId)
+                .Select(x => new { x.Id, x.Amount, x.DueDate }).ToListAsync();
+            var transportIds = transportFees.Select(x => x.Id).ToList();
+            var transportPayments = await _db.TransportFeePayments.AsNoTracking()
+                .Where(x => transportIds.Contains(x.TransportFeeId))
+                .Select(x => new { x.TransportFeeId, x.Amount, x.PaymentDate }).ToListAsync();
+            var regularPaymentsByFee = regularPayments.ToLookup(x => x.StudentFeeId);
+            var transportPaymentsByFee = transportPayments.ToLookup(x => x.TransportFeeId);
+
+            var rows = Enumerable.Range(1, 12).Select(month =>
+            {
+                var monthEnd = new DateTime(year, month, 1).AddMonths(1);
+                var collected = regularPayments.Where(x => x.Payment_Date.Year == year && x.Payment_Date.Month == month)
+                    .Sum(x => x.AmountPaid)
+                    + transportPayments.Where(x => x.PaymentDate.Year == year && x.PaymentDate.Month == month)
+                        .Sum(x => x.Amount);
+                var regularDue = regularFees.Where(x => !x.Created_Date.HasValue || x.Created_Date.Value < monthEnd)
+                    .Sum(x => Math.Max(0, x.Amount - regularPaymentsByFee[x.Id]
+                        .Where(p => p.Payment_Date < monthEnd).Sum(p => p.AmountPaid)));
+                var transportDue = transportFees.Where(x => x.DueDate < monthEnd)
+                    .Sum(x => Math.Max(0, x.Amount - transportPaymentsByFee[x.Id]
+                        .Where(p => p.PaymentDate < monthEnd).Sum(p => p.Amount)));
+                return new { month, collected, pending = regularDue + transportDue };
+            }).ToList();
+            return Ok(new { success = true, data = rows });
+        }
+
         [HttpGet("School-by-superadmin")]
         public async Task<IActionResult> GetSchoolsBySuperAdmin()
         {
