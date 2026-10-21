@@ -102,179 +102,68 @@ namespace SchoolManagement.Repository
             }
         }
 
-        public async Task<List<ClassDetailDto>> GetClassDetailsBySchoolIdAsync(int schoolId)
-        {
-            return await _context
-                .Classes.Where(c => c.SchoolId == schoolId && c.IsActive)
-                .Select(c => new ClassDetailDto
-                {
-                    Id = c.Id,
-                    ClassName = c.ClassName,
-                    SchoolId = c.SchoolId,
-                    CreatedDate = c.Created_Date,
-                    IsActive = c.IsActive,
-
-                    SectionCount = _context.SectionDetails.Count(s =>
-                        s.ClassId == c.Id && s.IsActive
-                    ),
-
-                    // 🔥 Sections list
-                    Sections = _context
-                        .SectionDetails.Where(s => s.ClassId == c.Id && s.IsActive)
-                        .Select(s => new GetSectionDto
-                        {
-                            Id = s.Id,
-                            SectionName = s.SectionName,
-                            StaffId = s.StaffId ?? 0,
-                            MonitorStudentId = s.MonitorStudentId,
-                            Subjects = _context
-                                .SectionSubjects.Where(ss => ss.SectionId == s.Id && ss.IsActive)
-                                .Join(
-                                    _context.Subjects,
-                                    ss => ss.SubjectId,
-                                    sub => sub.Id,
-                                    (ss, sub) =>
-                                        new SectionSubjectDto
-                                        {
-                                            TeacherId = _context
-                                                .SectionSubjectTeachers.Where(mapping =>
-                                                    mapping.SectionId == ss.SectionId
-                                                    && mapping.SubjectId == sub.Id
-                                                    && mapping.IsActive
-                                                )
-                                                .Select(mapping => (int?)mapping.StaffId)
-                                                .FirstOrDefault(),
-                                            SubjectId = sub.Id,
-                                            SubjectName = sub.SubjectName,
-                                        }
-                                )
-                                .ToList(),
-                        })
-                        .ToList(),
-                })
-                .OrderByDescending(c => c.CreatedDate)
-                .ToListAsync();
-        }
+        public Task<List<ClassDetailDto>> GetClassDetailsBySchoolIdAsync(int schoolId) =>
+            LoadClassDetailsAsync(_context.Classes.Where(c => c.SchoolId == schoolId && c.IsActive)
+                .OrderByDescending(c => c.Created_Date).ThenBy(c => c.Id));
 
         public async Task<(List<ClassDetailDto> Data, int TotalRecords)> GetClassDetailsPagedAsync(
-            int schoolId,
-            int page,
-            int pageSize
-        )
+            int schoolId, int page, int pageSize)
         {
-            var query = _context
-                .Classes.Where(c => c.SchoolId == schoolId && c.IsActive)
-                .OrderByDescending(c => c.Created_Date);
-
+            var query = _context.Classes.Where(c => c.SchoolId == schoolId && c.IsActive);
             var total = await query.CountAsync();
-
-            var data = await query
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .Select(c => new ClassDetailDto
-                {
-                    Id = c.Id,
-                    ClassName = c.ClassName,
-                    SchoolId = c.SchoolId,
-                    CreatedDate = c.Created_Date,
-                    IsActive = c.IsActive,
-                    SectionCount = _context.SectionDetails.Count(s =>
-                        s.ClassId == c.Id && s.IsActive
-                    ),
-                    Sections = _context
-                        .SectionDetails.Where(s => s.ClassId == c.Id && s.IsActive)
-                        .Select(s => new GetSectionDto
-                        {
-                            Id = s.Id,
-                            SectionName = s.SectionName,
-                            StaffId = s.StaffId ?? 0,
-                            MonitorStudentId = s.MonitorStudentId,
-                            Subjects = _context
-                                .SectionSubjects.Where(ss => ss.SectionId == s.Id && ss.IsActive)
-                                .Join(
-                                    _context.Subjects,
-                                    ss => ss.SubjectId,
-                                    sub => sub.Id,
-                                    (ss, sub) =>
-                                        new SectionSubjectDto
-                                        {
-                                            TeacherId = _context
-                                                .SectionSubjectTeachers.Where(mapping =>
-                                                    mapping.SectionId == ss.SectionId
-                                                    && mapping.SubjectId == sub.Id
-                                                    && mapping.IsActive
-                                                )
-                                                .Select(mapping => (int?)mapping.StaffId)
-                                                .FirstOrDefault(),
-                                            SubjectId = sub.Id,
-                                            SubjectName = sub.SubjectName,
-                                        }
-                                )
-                                .ToList(),
-                        })
-                        .ToList(),
-                })
-                .ToListAsync();
-
+            var data = await LoadClassDetailsAsync(query.OrderByDescending(c => c.Created_Date)
+                .ThenBy(c => c.Id).Skip((Math.Max(1, page) - 1) * pageSize).Take(pageSize));
             return (data, total);
         }
 
         public async Task<List<ClassDetailDto>> GetTeacherClassesAsync(int userId)
         {
-            var staffId = await _context
-                .Staff.Where(s => EF.Property<int?>(s, nameof(Staff.usersid)) == userId)
-                .Select(s => (int?)s.Id)
-                .FirstOrDefaultAsync();
+            var staffId = await _context.Staff.Where(s => EF.Property<int?>(s, nameof(Staff.usersid)) == userId)
+                .Select(s => (int?)s.Id).FirstOrDefaultAsync();
+            if (!staffId.HasValue) return new();
+            return await LoadClassDetailsAsync(_context.Classes.Where(c => c.IsActive &&
+                _context.SectionDetails.Any(s => s.ClassId == c.Id && s.StaffId == staffId && s.IsActive))
+                .OrderBy(c => c.ClassName).ThenBy(c => c.Id), staffId);
+        }
 
-            if (!staffId.HasValue)
-                return new List<ClassDetailDto>();
-
-            return await _context
-                .Classes.Where(c =>
-                    c.IsActive
-                    && _context.SectionDetails.Any(s =>
-                        s.ClassId == c.Id && s.StaffId == staffId.Value && s.IsActive
-                    )
-                )
-                .OrderBy(c => c.ClassName)
-                .Select(c => new ClassDetailDto
+        private async Task<List<ClassDetailDto>> LoadClassDetailsAsync(IQueryable<Classes> query, int? staffId = null)
+        {
+            // Three bounded queries avoid multiplying classes by every section and subject in SQL.
+            var classes = await query.AsNoTracking().Select(c => new ClassDetailDto
+            {
+                Id = c.Id, ClassName = c.ClassName, SchoolId = c.SchoolId,
+                CreatedDate = c.Created_Date, IsActive = c.IsActive, Sections = new(),
+            }).ToListAsync();
+            var classIds = classes.Select(c => c.Id).ToArray();
+            if (classIds.Length == 0) return classes;
+            var sections = await _context.SectionDetails.AsNoTracking()
+                .Where(s => classIds.Contains(s.ClassId) && s.IsActive && (!staffId.HasValue || s.StaffId == staffId))
+                .OrderBy(s => s.Id)
+                .Select(s => new { s.ClassId, Section = new GetSectionDto
                 {
-                    Id = c.Id,
-                    ClassName = c.ClassName,
-                    SchoolId = c.SchoolId,
-                    CreatedDate = c.Created_Date,
-                    IsActive = c.IsActive,
-                    Sections = _context
-                        .SectionDetails.Where(s =>
-                            s.ClassId == c.Id && s.StaffId == staffId.Value && s.IsActive
-                        )
-                        .Select(s => new GetSectionDto
-                        {
-                            Id = s.Id,
-                            SectionName = s.SectionName,
-                            StaffId = s.StaffId ?? 0,
-                            MonitorStudentId = s.MonitorStudentId,
-                            Subjects = _context
-                                .SectionSubjects.Where(ss => ss.SectionId == s.Id && ss.IsActive)
-                                .Join(
-                                    _context.Subjects,
-                                    ss => ss.SubjectId,
-                                    subject => subject.Id,
-                                    (ss, subject) =>
-                                        new SectionSubjectDto
-                                        {
-                                            SubjectId = subject.Id,
-                                            SubjectName = subject.SubjectName,
-                                        }
-                                )
-                                .ToList(),
-                        })
-                        .ToList(),
-                    SectionCount = _context.SectionDetails.Count(s =>
-                        s.ClassId == c.Id && s.StaffId == staffId.Value && s.IsActive
-                    ),
-                })
-                .ToListAsync();
+                    Id = s.Id, SectionName = s.SectionName, StaffId = s.StaffId ?? 0,
+                    MonitorStudentId = s.MonitorStudentId, Subjects = new(),
+                } }).ToListAsync();
+            var sectionIds = sections.Select(s => s.Section.Id).ToArray();
+            var subjects = await (from link in _context.SectionSubjects.AsNoTracking()
+                join subject in _context.Subjects on link.SubjectId equals subject.Id
+                where sectionIds.Contains(link.SectionId) && link.IsActive
+                select new { link.SectionId, Subject = new SectionSubjectDto
+                {
+                    SubjectId = subject.Id, SubjectName = subject.SubjectName,
+                    TeacherId = staffId.HasValue ? null : _context.SectionSubjectTeachers
+                        .Where(m => m.SectionId == link.SectionId && m.SubjectId == subject.Id && m.IsActive)
+                        .Select(m => (int?)m.StaffId).FirstOrDefault(),
+                } }).ToListAsync();
+            var bySection = subjects.ToLookup(s => s.SectionId, s => s.Subject);
+            foreach (var section in sections) section.Section.Subjects = bySection[section.Section.Id].ToList();
+            var byClass = sections.ToLookup(s => s.ClassId, s => s.Section);
+            foreach (var classroom in classes)
+            {
+                classroom.Sections = byClass[classroom.Id].ToList();
+                classroom.SectionCount = classroom.Sections.Count;
+            }
+            return classes;
         }
 
         public async Task<ApiResponse<string>> UpdateClassWithSectionsAsync(

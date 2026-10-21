@@ -105,14 +105,18 @@ public class SyllabusController : ControllerBase
             .FirstOrDefaultAsync();
         if (session == null)
             return Ok(new { academicYear = (string?)null, rows = Array.Empty<object>() });
-        var assigned = await Assignments(schoolId, scope.Value.StaffId).ToListAsync();
+        var assignmentQuery = Assignments(schoolId, scope.Value.StaffId);
+        var assigned = await assignmentQuery.ToListAsync();
         try
         {
             var records = await _db
                 .SyllabusProgress.AsNoTracking()
                 .Where(x =>
                     x.SchoolId == schoolId && x.SessionId == session.Id && x.ProgressDate <= day
+                    && assignmentQuery.Any(a => a.SectionId == x.SectionId && a.SubjectId == x.SubjectId)
                 )
+                .GroupBy(x => new { x.SectionId, x.SubjectId })
+                .Select(g => g.OrderByDescending(x => x.ProgressDate).ThenByDescending(x => x.Id).First())
                 .ToListAsync();
             var latest = records
                 .OrderByDescending(x => x.ProgressDate)

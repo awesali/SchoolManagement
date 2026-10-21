@@ -19,7 +19,8 @@ namespace SchoolManagement.Interfaces
             int schoolId,
             int page,
             int pageSize,
-            int? staffId = null
+            int? staffId = null,
+            string? search = null
         );
         Task<List<string>> GetStaffEmailsAsync(int schoolId);
 

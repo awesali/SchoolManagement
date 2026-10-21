@@ -29,7 +29,7 @@ public class StudentSelfServiceController : ControllerBase
 
     [HttpGet("overview")]
     // API actions that validate requests and return responses.
-    public async Task<IActionResult> Overview()
+    public async Task<IActionResult> Overview(string? sections = null)
     {
         if (
             !string.Equals(
@@ -79,33 +79,21 @@ public class StudentSelfServiceController : ControllerBase
         if (enrollment == null)
             return NotFound(new { message = "No active enrollment was found for this student." });
 
-        var school = await _db
-            .Schools.AsNoTracking()
-            .Where(x => x.Id == student.SchoolId)
-            .Select(x => new { x.SchoolName, x.Address })
-            .FirstOrDefaultAsync();
-        var schoolLogoUrl = await _db
-            .ProfilePictures.AsNoTracking()
-            .Where(x => x.PersonType == "School" && x.PersonId == student.SchoolId && x.IsActive)
-            .OrderByDescending(x => x.CreatedDate)
-            .Select(x => x.FileUrl)
-            .FirstOrDefaultAsync();
-        var profilePictureUrl = await _db
-            .ProfilePictures.AsNoTracking()
-            .Where(x => x.PersonType == "Student" && x.PersonId == student.Id && x.IsActive)
-            .OrderByDescending(x => x.CreatedDate)
-            .Select(x => x.FileUrl)
-            .FirstOrDefaultAsync();
-        var className = await _db
-            .Classes.AsNoTracking()
-            .Where(x => x.Id == enrollment.ClassId)
-            .Select(x => x.ClassName)
-            .FirstOrDefaultAsync();
-        var sectionName = await _db
-            .SectionDetails.AsNoTracking()
-            .Where(x => x.Id == enrollment.SectionId)
-            .Select(x => x.SectionName)
-            .FirstOrDefaultAsync();
+        var profile = await _db.StudentEnrollment.AsNoTracking().Where(e => e.Id == enrollment.Id)
+            .Select(e => new
+            {
+                SchoolName = _db.Schools.Where(x => x.Id == student.SchoolId).Select(x => x.SchoolName).FirstOrDefault(),
+                SchoolAddress = _db.Schools.Where(x => x.Id == student.SchoolId).Select(x => x.Address).FirstOrDefault(),
+                SchoolLogoUrl = _db.ProfilePictures.Where(x => x.PersonType == "School" && x.PersonId == student.SchoolId && x.IsActive)
+                    .OrderByDescending(x => x.CreatedDate).Select(x => x.FileUrl).FirstOrDefault(),
+                ProfilePictureUrl = _db.ProfilePictures.Where(x => x.PersonType == "Student" && x.PersonId == student.Id && x.IsActive)
+                    .OrderByDescending(x => x.CreatedDate).Select(x => x.FileUrl).FirstOrDefault(),
+                ClassName = _db.Classes.Where(x => x.Id == e.ClassId).Select(x => x.ClassName).FirstOrDefault(),
+                SectionName = _db.SectionDetails.Where(x => x.Id == e.SectionId).Select(x => x.SectionName).FirstOrDefault(),
+            }).FirstOrDefaultAsync();
+        var requested = sections?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        bool Include(string section) => requested == null || requested.Contains(section);
         var timetable = await (
             from slot in _db.Timetables.AsNoTracking()
             join period in _db.TimetablePeriods on slot.PeriodId equals period.Id
@@ -127,7 +115,7 @@ public class StudentSelfServiceController : ControllerBase
                 updatedDate = slot.Updated_Date,
                 SubjectName = subject == null ? "Break" : subject.SubjectName,
             }
-        ).ToListAsync();
+        ).ToListWhenAsync(Include("timetable"));
         var homework = await (
             from item in _db.HomeworkAssignments.AsNoTracking()
             join subject in _db.Subjects on item.SubjectId equals subject.Id
@@ -148,7 +136,7 @@ public class StudentSelfServiceController : ControllerBase
                 item.ResourceUrl,
                 subject.SubjectName,
             }
-        ).ToListAsync();
+        ).ToListWhenAsync(Include("homework"));
         var materials = await (
             from item in _db.TeacherStudyMaterials.AsNoTracking()
             join subject in _db.Subjects on item.SubjectId equals subject.Id
@@ -167,7 +155,7 @@ public class StudentSelfServiceController : ControllerBase
                 item.CreatedDate,
                 subject.SubjectName,
             }
-        ).ToListAsync();
+        ).ToListWhenAsync(Include("materials"));
         var attendance = await _db
             .StudentAttendance.AsNoTracking()
             .Where(x =>
@@ -178,7 +166,7 @@ public class StudentSelfServiceController : ControllerBase
             )
             .OrderByDescending(x => x.Attendance_Date)
             .Select(x => new { date = x.Attendance_Date, x.Status })
-            .ToListAsync();
+            .ToListWhenAsync(Include("attendance"));
         var exams = await (
             from schedule in _db.ExamSchedules.AsNoTracking()
             join exam in _db.Exams on schedule.ExamId equals exam.Id
@@ -209,7 +197,7 @@ public class StudentSelfServiceController : ControllerBase
                 EndTime = (TimeSpan?)schedule.EndTime,
                 subjectName = subject == null ? "" : subject.SubjectName,
             }
-        ).ToListAsync();
+        ).ToListWhenAsync(Include("exams"));
         // Unit tests are dated when teachers create them but have no ExamSchedule until a time is set.
         // Include these published tests so students can see them and receive the exam notification.
         var unscheduledUnitTests = await (
@@ -247,7 +235,7 @@ public class StudentSelfServiceController : ControllerBase
                 EndTime = (TimeSpan?)null,
                 subjectName = subject.SubjectName,
             }
-        ).ToListAsync();
+        ).ToListWhenAsync(Include("exams"));
         exams.AddRange(unscheduledUnitTests);
         exams = exams.OrderBy(exam => exam.ExamDate).ToList();
         var results = await (
@@ -271,7 +259,7 @@ public class StudentSelfServiceController : ControllerBase
                 result.Grade,
                 result.ResultStatus,
             }
-        ).ToListAsync();
+        ).ToListWhenAsync(Include("results"));
         var parent = await _db
             .ParentDetails.AsNoTracking()
             .Where(x => x.Id == student.ParentId && x.IsActive)
@@ -282,7 +270,7 @@ public class StudentSelfServiceController : ControllerBase
                 x.Email,
                 x.PhoneNumber,
             })
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultWhenAsync(Include("profile"));
         var teachers = await (
             from mapping in _db.SectionSubjectTeachers.AsNoTracking()
             join staff in _db.Staff on mapping.StaffId equals staff.Id
@@ -300,7 +288,7 @@ public class StudentSelfServiceController : ControllerBase
                 staff.Name,
                 subject.SubjectName,
             }
-        ).ToListAsync();
+        ).ToListWhenAsync(Include("teachers"));
         var documents = await _db
             .Student_Documents.AsNoTracking()
             .Where(x => x.StudentId == student.Id)
@@ -313,7 +301,7 @@ public class StudentSelfServiceController : ControllerBase
                 x.FileUrl,
                 x.CreatedDate,
             })
-            .ToListAsync();
+            .ToListWhenAsync(Include("documents"));
         var fees = await (
             from fee in _db.StudentFees.AsNoTracking()
             join type in _db.FeeTypes on fee.FeeTypeId equals type.Id
@@ -330,7 +318,7 @@ public class StudentSelfServiceController : ControllerBase
                 fee.Status,
                 feeType = type.Name,
             }
-        ).ToListAsync();
+        ).ToListWhenAsync(Include("fees"));
         var feeIds = fees.Select(x => x.Id).ToList();
         var payments = await _db
             .FeePayments.AsNoTracking()
@@ -347,7 +335,7 @@ public class StudentSelfServiceController : ControllerBase
                 x.Payment_Mode,
                 x.Receipt_Number,
             })
-            .ToListAsync();
+            .ToListWhenAsync(Include("fees"));
         var transport = await (
             from allocation in _db.StudentTransportAllocations.AsNoTracking()
             join assignment in _db.TransportVehicleAssignments
@@ -373,7 +361,7 @@ public class StudentSelfServiceController : ControllerBase
                 allocation.FeeType,
                 allocation.DueDate,
             }
-        ).FirstOrDefaultAsync();
+        ).FirstOrDefaultWhenAsync(Include("transport"));
         var transportFees = await (
             from fee in _db.TransportFees.AsNoTracking()
             join allocation in _db.StudentTransportAllocations.AsNoTracking()
@@ -394,7 +382,7 @@ public class StudentSelfServiceController : ControllerBase
                 fee.Status,
                 fee.DueDate,
             }
-        ).ToListAsync();
+        ).ToListWhenAsync(Include("transport"));
         var transportFeeIds = transportFees.Select(x => x.Id).ToList();
         var transportPayments = await _db
             .TransportFeePayments.AsNoTracking()
@@ -411,7 +399,7 @@ public class StudentSelfServiceController : ControllerBase
                 x.ReceiptNumber,
                 x.ReferenceNumber,
             })
-            .ToListAsync();
+            .ToListWhenAsync(Include("transport"));
         var diary = await (
             from entry in _db.ClassDiaryEntries.AsNoTracking()
             join subject in _db.Subjects on entry.SubjectId equals subject.Id
@@ -434,7 +422,7 @@ public class StudentSelfServiceController : ControllerBase
             }
         )
             .Take(100)
-            .ToListAsync();
+            .ToListWhenAsync(Include("diary"));
         var submissions = await _db
             .AssignmentSubmissions.AsNoTracking()
             .Where(x =>
@@ -454,7 +442,7 @@ public class StudentSelfServiceController : ControllerBase
                 x.Marks,
                 hasFile = x.FileUrl != null,
             })
-            .ToListAsync();
+            .ToListWhenAsync(Include("homework"));
         var announcements = await _db
             .SchoolAnnouncements.AsNoTracking()
             .Where(x =>
@@ -475,7 +463,7 @@ public class StudentSelfServiceController : ControllerBase
                 x.IsPinned,
             })
             .Take(50)
-            .ToListAsync();
+            .ToListWhenAsync(Include("announcements"));
         var libraryBooks = await _db
             .InventoryBooks.AsNoTracking()
             .Where(x =>
@@ -495,7 +483,7 @@ public class StudentSelfServiceController : ControllerBase
                 x.SubjectId,
             })
             .Take(200)
-            .ToListAsync();
+            .ToListWhenAsync(Include("library"));
         var borrowedBooks = await (
             from order in _db.InventoryStudentOrders.AsNoTracking()
             join item in _db.InventoryStudentOrderItems on order.Id equals item.StudentOrderId
@@ -513,7 +501,7 @@ public class StudentSelfServiceController : ControllerBase
                 order.ReturnDateTime,
                 order.Status,
             }
-        ).ToListAsync();
+        ).ToListWhenAsync(Include("library"));
 
         var requests = await _db
             .StudentServiceRequests.AsNoTracking()
@@ -534,7 +522,7 @@ public class StudentSelfServiceController : ControllerBase
                 x.RecipientRoleId,
                 x.RecipientUserId,
             })
-            .ToListAsync();
+            .ToListWhenAsync(Include("requests"));
         var messages = await (
             from message in _db.TeacherStudentMessages.AsNoTracking()
             join staff in _db.Staff on message.StaffId equals staff.Id
@@ -554,7 +542,7 @@ public class StudentSelfServiceController : ControllerBase
                 message.SentAt,
                 message.ReadAt,
             }
-        ).ToListAsync();
+        ).ToListWhenAsync(Include("messages"));
         var achievements = await _db
             .StudentAchievements.AsNoTracking()
             .Where(x => x.SchoolId == student.SchoolId && x.StudentId == student.Id && x.IsActive)
@@ -566,7 +554,7 @@ public class StudentSelfServiceController : ControllerBase
                 x.Description,
                 x.AwardedAt,
             })
-            .ToListAsync();
+            .ToListWhenAsync(Include("achievements"));
         var schoolEvents = await _db
             .SchoolCalendarEvents.AsNoTracking()
             .Where(x =>
@@ -584,7 +572,7 @@ public class StudentSelfServiceController : ControllerBase
                 x.EndDate,
                 x.EventType,
             })
-            .ToListAsync();
+            .ToListWhenAsync(Include("events"));
 
         var publishedExamIds = results.Select(x => x.examId).Distinct().ToList();
         var markRows = await (
@@ -611,7 +599,7 @@ public class StudentSelfServiceController : ControllerBase
                 mark.Remarks,
                 mark.EnteredDate,
             }
-        ).ToListAsync();
+        ).ToListWhenAsync(Include("results"));
         var examIds = publishedExamIds;
         var maxMarks = await _db
             .ExamSubjects.AsNoTracking()
@@ -629,7 +617,10 @@ public class StudentSelfServiceController : ControllerBase
                 x.SectionId,
                 x.MaxMarks,
             })
-            .ToListAsync();
+            .ToListWhenAsync(Include("results"));
+        var maxBySubject = maxMarks.OrderByDescending(x => x.SectionId == enrollment.SectionId)
+            .ToLookup(x => (x.ExamId, x.SubjectId));
+        var marksBySubject = markRows.ToLookup(x => (x.examId, x.subjectId));
         var gradeHistory = markRows
             .Select(row => new
             {
@@ -637,9 +628,7 @@ public class StudentSelfServiceController : ControllerBase
                 row.examName,
                 row.subjectName,
                 row.ObtainedMarks,
-                maxMarks = maxMarks
-                    .Where(x => x.ExamId == row.examId && x.SubjectId == row.subjectId)
-                    .OrderByDescending(x => x.SectionId == enrollment.SectionId)
+                maxMarks = maxBySubject[(row.examId, row.subjectId)]
                     .Select(x => (decimal?)x.MaxMarks)
                     .FirstOrDefault(),
                 row.Remarks,
@@ -662,7 +651,7 @@ public class StudentSelfServiceController : ControllerBase
                 subjectId = subject.Id,
                 subjectName = subject.SubjectName,
             }
-        ).ToListAsync();
+        ).ToListWhenAsync(Include("results"));
         var resultSubjects = scheduledResultSubjects
             .GroupBy(x => new { x.examId, x.subjectId })
             .Select(group =>
@@ -673,23 +662,21 @@ public class StudentSelfServiceController : ControllerBase
                     subject.examId,
                     subject.subjectId,
                     subject.subjectName,
-                    maxMarks = maxMarks
-                        .Where(x => x.ExamId == subject.examId && x.SubjectId == subject.subjectId)
-                        .OrderByDescending(x => x.SectionId == enrollment.SectionId)
+                    maxMarks = maxBySubject[(subject.examId, subject.subjectId)]
                         .Select(x => (decimal?)x.MaxMarks)
                         .FirstOrDefault(),
-                    obtainedMarks = markRows
-                        .Where(x => x.examId == subject.examId && x.subjectId == subject.subjectId)
+                    obtainedMarks = marksBySubject[(subject.examId, subject.subjectId)]
                         .Select(x => (decimal?)x.ObtainedMarks)
                         .FirstOrDefault(),
                 };
             })
             .OrderBy(x => x.subjectName)
             .ToList();
+        var subjectsByExam = resultSubjects.ToLookup(x => x.examId);
         var resultDetails = results
             .Select(result =>
             {
-                var rows = resultSubjects.Where(x => x.examId == result.examId).ToList();
+                var rows = subjectsByExam[result.examId].ToList();
                 var configuredTotal = rows.All(x => x.maxMarks > 0)
                     ? (decimal?)rows.Sum(x => x.maxMarks ?? 0)
                     : null;
@@ -739,7 +726,7 @@ public class StudentSelfServiceController : ControllerBase
                 resource.Syllabus,
                 resource.ResourceUrl,
             }
-        ).ToListAsync();
+        ).ToListWhenAsync(Include("exams"));
         var hallTickets = await (
             from ticket in _db.StudentHallTickets.AsNoTracking()
             join exam in _db.Exams on ticket.ExamId equals exam.Id
@@ -761,55 +748,44 @@ public class StudentSelfServiceController : ControllerBase
                 ticket.Venue,
                 ticket.DocumentUrl,
             }
-        ).ToListAsync();
-        return Ok(
-            new
+        ).ToListWhenAsync(Include("exams"));
+        var response = new Dictionary<string, object?>
+        {
+            ["profile"] = new
             {
-                success = true,
-                data = new
-                {
-                    profile = new
-                    {
-                        student.StudentName,
-                        student.Email,
-                        rollNumber = enrollment.RollNumber ?? student.Rollnumber,
-                        schoolName = school?.SchoolName,
-                        schoolAddress = school?.Address,
-                        schoolLogoUrl,
-                        profilePictureUrl,
-                        className,
-                        sectionName,
-                    },
-                    timetable,
-                    homework,
-                    materials,
-                    attendance,
-                    exams,
-                    results = resultDetails,
-                    resultSubjects,
-                    parent,
-                    teachers,
-                    documents,
-                    fees,
-                    payments,
-                    transport,
-                    transportFees,
-                    transportPayments,
-                    diary,
-                    submissions,
-                    announcements,
-                    libraryBooks,
-                    borrowedBooks,
-                    requests,
-                    messages,
-                    achievements,
-                    schoolEvents,
-                    gradeHistory,
-                    examResources,
-                    hallTickets,
-                },
-            }
-        );
+                student.StudentName, student.Email, rollNumber = enrollment.RollNumber ?? student.Rollnumber,
+                schoolName = profile?.SchoolName, schoolAddress = profile?.SchoolAddress, schoolLogoUrl = profile?.SchoolLogoUrl,
+                profilePictureUrl = profile?.ProfilePictureUrl, className = profile?.ClassName, sectionName = profile?.SectionName,
+            },
+        };
+        if (Include("timetable")) response["timetable"] = timetable;
+        if (Include("homework")) response["homework"] = homework;
+        if (Include("materials")) response["materials"] = materials;
+        if (Include("attendance")) response["attendance"] = attendance;
+        if (Include("exams")) response["exams"] = exams;
+        if (Include("results")) response["results"] = resultDetails;
+        if (Include("results")) response["resultSubjects"] = resultSubjects;
+        if (Include("profile")) response["parent"] = parent;
+        if (Include("teachers")) response["teachers"] = teachers;
+        if (Include("documents")) response["documents"] = documents;
+        if (Include("fees")) response["fees"] = fees;
+        if (Include("fees")) response["payments"] = payments;
+        if (Include("transport")) response["transport"] = transport;
+        if (Include("transport")) response["transportFees"] = transportFees;
+        if (Include("transport")) response["transportPayments"] = transportPayments;
+        if (Include("diary")) response["diary"] = diary;
+        if (Include("homework")) response["submissions"] = submissions;
+        if (Include("announcements")) response["announcements"] = announcements;
+        if (Include("library")) response["libraryBooks"] = libraryBooks;
+        if (Include("library")) response["borrowedBooks"] = borrowedBooks;
+        if (Include("requests")) response["requests"] = requests;
+        if (Include("messages")) response["messages"] = messages;
+        if (Include("achievements")) response["achievements"] = achievements;
+        if (Include("events")) response["schoolEvents"] = schoolEvents;
+        if (Include("results")) response["gradeHistory"] = gradeHistory;
+        if (Include("exams")) response["examResources"] = examResources;
+        if (Include("exams")) response["hallTickets"] = hallTickets;
+        return Ok(new { success = true, data = response });
     }
 
     [HttpPost("change-password")]

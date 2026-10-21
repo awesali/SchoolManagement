@@ -17,6 +17,8 @@ public class PermissionService : IPermissionService
     // Dependencies and state used by this component.
     private readonly AppDbContext _db;
     private readonly IConfiguration _configuration;
+    // Scoped service: reuse checks within this request only; never retain grants across requests.
+    private readonly Dictionary<int, Task<IReadOnlyList<string>>> _checks = new();
 
     // Creates the component with its required dependencies.
     public PermissionService(AppDbContext db, IConfiguration configuration)
@@ -37,7 +39,9 @@ public class PermissionService : IPermissionService
             return false;
         if (roleIdText == "1")
             return true; // protected platform owner
-        return (await EffectivePermissionsAsync(userId)).Contains(
+        if (!_checks.TryGetValue(userId, out var checks))
+            _checks[userId] = checks = EffectivePermissionsAsync(userId);
+        return (await checks).Contains(
             key,
             StringComparer.OrdinalIgnoreCase
         );
@@ -45,33 +49,20 @@ public class PermissionService : IPermissionService
 
     public async Task<IReadOnlyList<string>> EffectivePermissionsAsync(int userId)
     {
-        var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId);
-        if (user?.RoleId == 1)
-            return await _db.Permissions.Where(x => x.IsActive).Select(x => x.Key).ToListAsync();
-        var roleIds = await _db
-            .EmployeeRoles.Where(x => x.UserId == userId && x.IsActive)
-            .Select(x => x.RoleId)
-            .ToListAsync();
-        if (user?.RoleId is int primary && !roleIds.Contains(primary))
-            roleIds.Add(primary);
-        var grants = await _db
-            .RolePermissions.Where(x => roleIds.Contains(x.RoleId) && x.IsAllowed)
-            .Select(x => x.PermissionId)
-            .ToListAsync();
-        var direct = await _db
-            .EmployeePermissions.Where(x => x.UserId == userId && x.IsAllowed)
-            .Select(x => x.PermissionId)
-            .ToListAsync();
-        // Employee access is additive-only: a user's own role permissions can
-        // never be removed by an individual override. Admins may only add access.
-        var extraAllows = await _db
-            .PermissionOverrides.Where(x => x.UserId == userId && x.IsAllowed == true)
-            .Select(x => x.PermissionId)
-            .ToListAsync();
-        var ids = grants.Concat(direct).Concat(extraAllows).Distinct();
-        return await _db
-            .Permissions.Where(x => ids.Contains(x.Id) && x.IsActive)
-            .Select(x => x.Key)
-            .ToListAsync();
+        // Keep all grant sources in SQL instead of six sequential database round trips.
+        var roleIds = _db.EmployeeRoles
+            .Where(x => x.UserId == userId && x.IsActive).Select(x => x.RoleId)
+            .Union(_db.Users.Where(x => x.Id == userId && x.RoleId.HasValue)
+                .Select(x => x.RoleId!.Value));
+        var grants = _db.RolePermissions
+            .Where(x => roleIds.Contains(x.RoleId) && x.IsAllowed).Select(x => x.PermissionId)
+            .Union(_db.EmployeePermissions.Where(x => x.UserId == userId && x.IsAllowed)
+                .Select(x => x.PermissionId))
+            .Union(_db.PermissionOverrides.Where(x => x.UserId == userId && x.IsAllowed == true)
+                .Select(x => x.PermissionId));
+        var owner = _db.Users.Where(x => x.Id == userId && x.RoleId == 1);
+        return await _db.Permissions.AsNoTracking()
+            .Where(x => x.IsActive && (owner.Any() || grants.Contains(x.Id)))
+            .Select(x => x.Key).ToListAsync();
     }
 }

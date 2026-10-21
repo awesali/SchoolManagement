@@ -160,13 +160,15 @@ public class CaController : ControllerBase
                     && x.SalaryYear == day.Year
                     && x.SalaryMonth == day.Month
                 )
-                .ToListAsync();
+                .GroupBy(x => 1)
+                .Select(g => new { total = g.Sum(x => x.NetSalary), paid = g.Sum(x => x.Status == "Paid" ? x.NetSalary : 0), pending = g.Count(x => x.Status != "Paid"), count = g.Count() })
+                .FirstOrDefaultAsync();
             payroll = new
             {
-                total = salaries.Sum(x => x.NetSalary),
-                paid = salaries.Where(x => x.Status == "Paid").Sum(x => x.NetSalary),
-                pending = salaries.Count(x => x.Status != "Paid"),
-                count = salaries.Count,
+                total = salaries?.total ?? 0m,
+                paid = salaries?.paid ?? 0m,
+                pending = salaries?.pending ?? 0,
+                count = salaries?.count ?? 0,
             };
         }
         return Ok(

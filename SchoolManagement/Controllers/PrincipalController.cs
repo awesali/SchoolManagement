@@ -24,6 +24,31 @@ public class PrincipalController : ControllerBase
         _permissions = permissions;
     }
 
+    [HttpGet("students")]
+    [RequirePermission("attendance.students.read")]
+    public async Task<IActionResult> SearchStudents(string? search = null, int page = 1, int pageSize = 20)
+    {
+        var schoolId = await PrincipalSchoolId();
+        if (!schoolId.HasValue) return Forbid();
+        page = Math.Clamp(page, 1, 100000);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        var name = search?.Trim();
+        var query = from student in _db.Students.AsNoTracking()
+            from enrollment in _db.StudentEnrollment.Where(e => e.StudentId == student.Id && e.SchoolId == schoolId
+                && e.IsActive && e.EnrollmentStatus == "Active")
+                .OrderByDescending(e => e.EnrollmentDate).ThenByDescending(e => e.Id).Take(1)
+            join classroom in _db.Classes on enrollment.ClassId equals classroom.Id
+            join section in _db.SectionDetails on enrollment.SectionId equals section.Id
+            where student.SchoolId == schoolId && student.IsActive && (string.IsNullOrEmpty(name) || student.StudentName.Contains(name))
+                && classroom.SchoolId == schoolId && section.SchoolId == schoolId
+            select new { student.Id, student.StudentName, classroom.ClassName, section.SectionName };
+        var total = await query.CountAsync();
+        var rows = await query.OrderBy(s => s.StudentName).ThenBy(s => s.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+        return Ok(new { success = true, data = rows, totalRecords = total, currentPage = page,
+            totalPages = (int)Math.Ceiling((double)total / pageSize) });
+    }
+
     private async Task<int?> PrincipalSchoolId()
     {
         if (!int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
@@ -402,14 +427,14 @@ public class PrincipalController : ControllerBase
                 .GroupBy(x => x.EnrollmentId)
                 .Select(g => g.OrderByDescending(x => x.Id).First())
                 .ToList();
+            var enrollmentBySection = enrollments.ToLookup(x => x.SectionId, x => x.Id);
+            var latestByEnrollment = latest.ToDictionary(x => x.EnrollmentId);
             var rows = sections
                 .Select(s =>
                 {
-                    var enrolled = enrollments
-                        .Where(x => x.SectionId == s.Id)
-                        .Select(x => x.Id)
-                        .ToHashSet();
-                    var marked = latest.Where(x => enrolled.Contains(x.EnrollmentId)).ToList();
+                    var enrolled = enrollmentBySection[s.Id].ToHashSet();
+                    var marked = enrolled.Where(latestByEnrollment.ContainsKey)
+                        .Select(id => latestByEnrollment[id]).ToList();
                     return new
                     {
                         s.Id,
@@ -470,13 +495,14 @@ public class PrincipalController : ControllerBase
                 )
                 .Select(x => x.StaffId)
                 .ToListAsync();
+            var leaveIds = leaves.ToHashSet();
             var people = employees
                 .Select(x => new
                 {
                     x.Id,
                     x.Name,
                     status = latest.TryGetValue(x.Id, out var status) ? status
-                    : leaves.Contains(x.Id) ? "On Leave"
+                    : leaveIds.Contains(x.Id) ? "On Leave"
                     : "Not marked",
                 })
                 .ToList();
@@ -543,14 +569,16 @@ public class PrincipalController : ControllerBase
                 )
                 .Select(x => new { x.Id, x.SectionId })
                 .ToListAsync();
+            var scheduledBySection = scheduled.ToLookup(x => x.SectionId);
+            var homeworkBySection = homework.ToLookup(x => x.SectionId);
             var classActivity = sections
                 .OrderBy(x => x.name)
                 .Select(s => new
                 {
                     s.Id,
                     s.name,
-                    scheduledPeriods = scheduled.Count(x => x.SectionId == s.Id),
-                    homeworkPosted = homework.Count(x => x.SectionId == s.Id),
+                    scheduledPeriods = scheduledBySection[s.Id].Count(),
+                    homeworkPosted = homeworkBySection[s.Id].Count(),
                 })
                 .ToList();
             academics = new

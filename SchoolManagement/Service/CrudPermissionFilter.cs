@@ -275,6 +275,8 @@ public sealed class CrudPermissionFilter : IAsyncAuthorizationFilter
             || p.Contains("/email-verification")
         )
             return "management.schools";
+        if (p.Contains("/api/admin/dashboard-exams"))
+            return "exams.academic-exam";
         if (p.Contains("dashboardcard"))
             return "dashboard.dashboard";
         if (p.Contains("/api/common/subjects"))

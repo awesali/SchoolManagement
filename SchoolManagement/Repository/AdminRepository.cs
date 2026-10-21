@@ -20,6 +20,7 @@ namespace SchoolManagement.Repository
         private readonly IUserRepository _user;
         private readonly IWebHostEnvironment _env;
         private readonly IEmailService _emailService;
+        private readonly IImportEmailService? _importEmailService;
         private readonly IConfiguration _configuration;
         private readonly IHttpContextAccessor _httpContextAccessor;
 
@@ -31,7 +32,8 @@ namespace SchoolManagement.Repository
             IWebHostEnvironment env,
             IEmailService emailService,
             IConfiguration configuration,
-            IHttpContextAccessor httpContextAccessor
+            IHttpContextAccessor httpContextAccessor,
+            IImportEmailService? importEmailService = null
         )
         {
             _context = context;
@@ -39,6 +41,7 @@ namespace SchoolManagement.Repository
             _common = common;
             _env = env;
             _emailService = emailService;
+            _importEmailService = importEmailService;
             _configuration = configuration;
             _httpContextAccessor = httpContextAccessor;
         }
@@ -177,27 +180,21 @@ namespace SchoolManagement.Repository
         {
             var today = DateTime.Today;
 
-            var totalTeachers = await _context
-                .Staff.Where(x => x.SchoolId == schoolId && x.IsActive)
-                .CountAsync();
-            var teachersPresent = await _context
-                .StaffAttendance.Where(x =>
-                    x.School_Id == schoolId && x.Attendance_Date == today && x.Status == "Present"
-                )
-                .CountAsync();
-            var totalStudents = await _context
-                .Students.Where(x => x.SchoolId == schoolId && x.IsActive)
-                .CountAsync();
-            var studentsPresent = await _context
-                .StudentAttendance.Where(x =>
-                    x.School_Id == schoolId && x.Attendance_Date == today && x.Status == "Present"
-                )
-                .CountAsync();
-            var employeesOnLeave = await _context
-                .StaffAttendance.Where(x =>
-                    x.School_Id == schoolId && x.Attendance_Date == today && x.Status == "Leave"
-                )
-                .CountAsync();
+            // Scalar subqueries return all dashboard counters in one round trip.
+            var counts = await _context.Schools.Where(school => school.Id == schoolId)
+                .Select(school => new
+                {
+                    TotalTeachers = _context.Staff.Count(x => x.SchoolId == schoolId && x.IsActive),
+                    TeachersPresent = _context.StaffAttendance.Count(x => x.School_Id == schoolId && x.Attendance_Date == today && x.Status == "Present"),
+                    TotalStudents = _context.Students.Count(x => x.SchoolId == schoolId && x.IsActive),
+                    StudentsPresent = _context.StudentAttendance.Count(x => x.School_Id == schoolId && x.Attendance_Date == today && x.Status == "Present"),
+                    EmployeesOnLeave = _context.StaffAttendance.Count(x => x.School_Id == schoolId && x.Attendance_Date == today && x.Status == "Leave"),
+                }).FirstOrDefaultAsync();
+            var totalTeachers = counts?.TotalTeachers ?? 0;
+            var teachersPresent = counts?.TeachersPresent ?? 0;
+            var totalStudents = counts?.TotalStudents ?? 0;
+            var studentsPresent = counts?.StudentsPresent ?? 0;
+            var employeesOnLeave = counts?.EmployeesOnLeave ?? 0;
 
             return new ApiResponse<DashboardCardDto>
             {
@@ -245,14 +242,17 @@ namespace SchoolManagement.Repository
             int schoolId,
             int page,
             int pageSize,
-            int? staffId = null
+            int? staffId = null,
+            string? search = null
         )
         {
+            var name = search?.Trim();
             var query =
                 from s in _context.Staff
                 join r in _context.Roles on s.RoleId equals r.Id
                 join sc in _context.Schools on s.SchoolId equals sc.Id
                 where s.SchoolId == schoolId && (!staffId.HasValue || s.Id == staffId.Value)
+                    && (string.IsNullOrEmpty(name) || s.Name.Contains(name))
                 orderby s.Id descending
                 select new StaffListDto
                 {
@@ -303,19 +303,27 @@ namespace SchoolManagement.Repository
                         )
                         .Select(p => p.FileUrl)
                         .FirstOrDefault(),
-                    Documents = _context
-                        .StaffDocuments.Where(d => d.StaffId == s.Id)
-                        .Select(d => new StaffDocumentDto
-                        {
-                            DocumentId = d.Id,
-                            DocumentName = d.DocumentName,
-                            DocumentURL = d.FileUrl,
-                        })
-                        .ToList(),
+
                 };
 
             var total = await query.CountAsync();
             var data = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+            // Fetch documents only for this page; keep them out of the paginated SQL join.
+            var ids = data.Select(row => row.Id).Distinct().ToArray();
+            if (ids.Length > 0)
+            {
+                var documents = await _context.StaffDocuments.AsNoTracking()
+                    .Where(d => ids.Contains(d.StaffId))
+                    .Select(d => new { d.StaffId, Document = new StaffDocumentDto
+                    {
+                        DocumentId = d.Id,
+                        DocumentName = d.DocumentName,
+                        DocumentURL = d.FileUrl,
+                    } }).ToListAsync();
+                var byPerson = documents.ToLookup(d => d.StaffId, d => d.Document);
+                foreach (var row in data)
+                    row.Documents = byPerson[row.Id].ToList();
+            }
             return (data, total);
         }
 
@@ -476,11 +484,12 @@ namespace SchoolManagement.Repository
                     Message = "A valid gender is required.",
                 };
 
-            var verificationRequired = await _context.Schools.AsNoTracking()
+            var schoolSettings = await _context.Schools.AsNoTracking()
                 .Where(school => school.Id == dto.SchoolId && school.IsActive)
-                .Select(school => (bool?)school.EmailVerificationRequired).FirstOrDefaultAsync();
-            if (verificationRequired == null)
+                .Select(school => new { school.EmailVerificationRequired, school.SchoolName }).FirstOrDefaultAsync();
+            if (schoolSettings == null)
                 return new ApiResponse<Staff> { Success = false, Message = "School not found." };
+            var verificationRequired = schoolSettings.EmailVerificationRequired;
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
@@ -530,8 +539,7 @@ namespace SchoolManagement.Repository
                 }
 
                 // âœ… Create Staff after User created
-                userResult.IsActive = !verificationRequired.Value;
-                await _context.SaveChangesAsync();
+                userResult.IsActive = !verificationRequired;
 
                 var staff = new Staff
                 {
@@ -570,9 +578,9 @@ namespace SchoolManagement.Repository
                     CertificationNumber = dto.CertificationNumber,
                     CertificationDate = dto.CertificationDate,
                     CertificationExpiry = dto.CertificationExpiry,
-                    Status = verificationRequired.Value ? "PendingVerification" : "Active",
+                    Status = verificationRequired ? "PendingVerification" : "Active",
                     usersid = userResult.Id, // âœ… Save UserId
-                    IsActive = !verificationRequired.Value,
+                    IsActive = !verificationRequired,
                     Created_Date = DateTime.UtcNow,
                 };
 
@@ -617,12 +625,10 @@ namespace SchoolManagement.Repository
 
                 var folderPath = Path.Combine(_env.WebRootPath, "staffdocs", staff.Id.ToString());
 
-                if (!Directory.Exists(folderPath))
-                    Directory.CreateDirectory(folderPath);
-
                 // âœ… Save Documents
                 if (dto.Files != null && dto.Files.Count > 0)
                 {
+                    Directory.CreateDirectory(folderPath);
                     for (int i = 0; i < dto.Files.Count; i++)
                     {
                         if (i == profilePictureIndex)
@@ -673,9 +679,8 @@ namespace SchoolManagement.Repository
                 }
 
                 // âœ… Commit only if ALL success
-                var schoolName = await _context.Schools.AsNoTracking()
-                    .Where(school => school.Id == dto.SchoolId)
-                    .Select(school => school.SchoolName).FirstOrDefaultAsync() ?? "Your school";                var staffEmailPlaceholders = new Dictionary<string, string>
+                var schoolName = schoolSettings.SchoolName ?? "Your school";
+                var staffEmailPlaceholders = new Dictionary<string, string>
                 {
                     { "Name", dto.Name },
                     { "Email", dto.Email },
@@ -687,8 +692,8 @@ namespace SchoolManagement.Repository
                     "STAFF_CREDENTIALS",
                     staffEmailPlaceholders
                 );
-                await _emailService.SendEmailAsync(dto.Email, staffEmailSubject, staffEmailBody);
-                if (verificationRequired.Value)
+                await (_importEmailService ?? throw new InvalidOperationException("Import email queue is not configured.")).EnqueueAsync(dto.Email, staffEmailSubject, staffEmailBody);
+                if (verificationRequired)
                 {
                 var verificationLink = EmailVerificationLinks.Create(_configuration,
                     _httpContextAccessor.HttpContext!.Request, "Staff", userResult.Id, dto.SchoolId, dto.Email);
@@ -697,15 +702,16 @@ namespace SchoolManagement.Repository
                         ["Name"] = dto.Name, ["Role"] = "Staff", ["SchoolName"] = schoolName,
                         ["VerificationLink"] = verificationLink
                     });
-                await _emailService.SendEmailAsync(dto.Email, verificationSubject, EmailVerificationLinks.Clickable(verificationBody, verificationLink));
+                await (_importEmailService ?? throw new InvalidOperationException("Import email queue is not configured.")).EnqueueAsync(dto.Email, verificationSubject, EmailVerificationLinks.Clickable(verificationBody, verificationLink));
                 }
+                await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
                 return new ApiResponse<Staff>
                 {
                     Success = true,
-                    Message = verificationRequired.Value ? "Staff saved pending email verification." : "Staff added. Credentials are shown once in this response.",
+                    Message = verificationRequired ? "Staff saved pending email verification." : "Staff added. Credentials are shown once in this response.",
                     Data = staff,
-                    OneTimeCredentials = verificationRequired.Value ? null : new OneTimeCredentials { Username = dto.Email, Password = password },
+                    OneTimeCredentials = verificationRequired ? null : new OneTimeCredentials { Username = dto.Email, Password = password },
                 };
             }
             catch (Exception ex)

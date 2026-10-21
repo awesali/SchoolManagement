@@ -12,6 +12,9 @@ var builder = WebApplication.CreateBuilder(args);
 // Controllers
 builder.Services.AddControllers(options => options.Filters.Add<CrudPermissionFilter>());
 
+// Compress JSON responses throughout the API, including HTTPS deployments.
+builder.Services.AddResponseCompression(options => options.EnableForHttps = true);
+
 // Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -78,6 +81,8 @@ builder.Services.RegisterAppServices();
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddHostedService<SalaryGenerationService>();
+builder.Services.AddDataProtection();
+builder.Services.AddHostedService<ImportEmailWorker>();
 
 // JWT Authentication
 builder
@@ -132,6 +137,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseResponseCompression();
 app.UseCors("MyCorsPolicy");
 
 app.UseHttpsRedirection();

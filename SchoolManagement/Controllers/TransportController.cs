@@ -73,11 +73,12 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpGet("vehicle-types")]
-        public async Task<IActionResult> VehicleTypes(int schoolId) =>
+        public async Task<IActionResult> VehicleTypes(int schoolId, int? page = null, int pageSize = 50) =>
             Success(
                 await _context
                     .VehicleTypes.Where(x => x.SchoolId == schoolId)
                     .OrderBy(x => x.VehicleTypeName)
+                    .ThenBy(x => x.Id).ApplyPage(page, pageSize)
                     .ToListAsync()
             );
 
@@ -98,7 +99,7 @@ namespace SchoolManagement.Controllers
             Update(_context.VehicleTypes, id, item, "Vehicle type");
 
         [HttpGet("vehicles")]
-        public async Task<IActionResult> Vehicles(int schoolId) =>
+        public async Task<IActionResult> Vehicles(int schoolId, int? page = null, int pageSize = 50) =>
             Success(
                 await (
                     from vehicle in _context.TransportVehicles
@@ -121,7 +122,7 @@ namespace SchoolManagement.Controllers
                         vehicle.SchoolId,
                         vehicleTypeName = type.VehicleTypeName,
                     }
-                ).ToListAsync()
+                ).OrderBy(x => x.VehicleName).ThenBy(x => x.Id).ApplyPage(page, pageSize).ToListAsync()
             );
 
         [HttpPost("vehicles")]
@@ -153,7 +154,7 @@ namespace SchoolManagement.Controllers
             Update(_context.TransportVehicles, id, item, "Vehicle");
 
         [HttpGet("vehicle-setup")]
-        public async Task<IActionResult> VehicleSetup(int schoolId) =>
+        public async Task<IActionResult> VehicleSetup(int schoolId, int? page = null, int pageSize = 50) =>
             Success(
                 await (
                     from type in _context.VehicleTypes
@@ -178,7 +179,7 @@ namespace SchoolManagement.Controllers
                         pollutionExpiry = vehicle != null ? vehicle.PollutionExpiry : null,
                         isActive = vehicle != null ? vehicle.IsActive : type.IsActive,
                     }
-                ).ToListAsync()
+                ).OrderBy(x => x.VehicleTypeName).ThenBy(x => x.vehicleName).ThenBy(x => x.vehicleId).ApplyPage(page, pageSize).ToListAsync()
             );
 
         [HttpPost("vehicle-setup")]
@@ -297,11 +298,12 @@ namespace SchoolManagement.Controllers
             };
 
         [HttpGet("drivers")]
-        public async Task<IActionResult> Drivers(int schoolId) =>
+        public async Task<IActionResult> Drivers(int schoolId, int? page = null, int pageSize = 50) =>
             Success(
                 await _context
                     .TransportDrivers.Where(x => x.SchoolId == schoolId)
                     .OrderBy(x => x.Name)
+                    .ThenBy(x => x.Id).ApplyPage(page, pageSize)
                     .ToListAsync()
             );
 
@@ -340,11 +342,12 @@ namespace SchoolManagement.Controllers
             Update(_context.TransportDrivers, id, item, "Driver");
 
         [HttpGet("conductors")]
-        public async Task<IActionResult> Conductors(int schoolId) =>
+        public async Task<IActionResult> Conductors(int schoolId, int? page = null, int pageSize = 50) =>
             Success(
                 await _context
                     .TransportConductors.Where(x => x.SchoolId == schoolId)
                     .OrderBy(x => x.Name)
+                    .ThenBy(x => x.Id).ApplyPage(page, pageSize)
                     .ToListAsync()
             );
 
@@ -373,17 +376,19 @@ namespace SchoolManagement.Controllers
             Update(_context.TransportConductors, id, item, "Conductor");
 
         [HttpGet("routes")]
-        public async Task<IActionResult> Routes(int schoolId)
+        public async Task<IActionResult> Routes(int schoolId, int? page = null, int pageSize = 50)
         {
             var routes = await _context
                 .TransportRoutes.Where(x => x.SchoolId == schoolId)
                 .OrderBy(x => x.RouteName)
+                .ThenBy(x => x.Id).ApplyPage(page, pageSize)
                 .ToListAsync();
             var routeIds = routes.Select(x => x.Id).ToList();
             var stops = await _context
                 .TransportRouteStops.Where(x => routeIds.Contains(x.RouteId))
                 .OrderBy(x => x.StopOrder)
                 .ToListAsync();
+            var stopsByRoute = stops.ToLookup(x => x.RouteId);
             return Success(
                 routes.Select(route => new
                 {
@@ -396,7 +401,7 @@ namespace SchoolManagement.Controllers
                     route.DistanceKm,
                     route.EstimatedMinutes,
                     route.IsActive,
-                    stops = stops.Where(x => x.RouteId == route.Id),
+                    stops = stopsByRoute[route.Id],
                 })
             );
         }
@@ -432,7 +437,7 @@ namespace SchoolManagement.Controllers
             Update(_context.TransportRouteStops, id, item, "Route stop");
 
         [HttpGet("assignments")]
-        public async Task<IActionResult> Assignments(int schoolId) =>
+        public async Task<IActionResult> Assignments(int schoolId, int? page = null, int pageSize = 50) =>
             Success(
                 await (
                     from assignment in _context.TransportVehicleAssignments
@@ -461,7 +466,7 @@ namespace SchoolManagement.Controllers
                         conductorName = conductor != null ? conductor.Name : null,
                         routeName = route.RouteName,
                     }
-                ).ToListAsync()
+                ).OrderBy(x => x.Id).ApplyPage(page, pageSize).ToListAsync()
             );
 
         [HttpPost("assignments")]
@@ -540,7 +545,7 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpGet("allocations")]
-        public async Task<IActionResult> Allocations(int schoolId) =>
+        public async Task<IActionResult> Allocations(int schoolId, int? page = null, int pageSize = 50) =>
             Success(
                 await (
                     from allocation in _context.StudentTransportAllocations
@@ -582,7 +587,7 @@ namespace SchoolManagement.Controllers
                         routeName = route.RouteName,
                         driverName = driver.Name,
                     }
-                ).ToListAsync()
+                ).OrderBy(x => x.Id).ApplyPage(page, pageSize).ToListAsync()
             );
 
         [HttpGet("eligible-students")]
@@ -902,7 +907,7 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpGet("fees")]
-        public async Task<IActionResult> Fees(int schoolId) =>
+        public async Task<IActionResult> Fees(int schoolId, int? page = null, int pageSize = 50) =>
             Success(
                 await (
                     from fee in _context.TransportFees
@@ -923,7 +928,7 @@ namespace SchoolManagement.Controllers
                         fee.DueDate,
                         studentName = student.StudentName,
                     }
-                ).ToListAsync()
+                ).OrderByDescending(x => x.FeeYear).ThenByDescending(x => x.FeeMonth).ThenByDescending(x => x.Id).ApplyPage(page, pageSize).ToListAsync()
             );
 
         [HttpGet("fee-students")]
@@ -947,14 +952,12 @@ namespace SchoolManagement.Controllers
                     x.SchoolId == schoolId && allocationIds.Contains(x.StudentTransportAllocationId)
                 )
                 .ToListAsync();
+            var feeByAllocation = fees.Where(x => x.Amount > x.PaidAmount)
+                .OrderBy(x => x.FeeYear).ThenBy(x => x.FeeMonth)
+                .ToLookup(x => x.StudentTransportAllocationId);
             var result = allocations.Select(allocation =>
             {
-                var fee = fees.Where(x =>
-                        x.StudentTransportAllocationId == allocation.Id && x.Amount > x.PaidAmount
-                    )
-                    .OrderBy(x => x.FeeYear)
-                    .ThenBy(x => x.FeeMonth)
-                    .FirstOrDefault();
+                var fee = feeByAllocation[allocation.Id].FirstOrDefault();
                 return new
                 {
                     value = fee?.Id ?? -allocation.Id,
@@ -1056,8 +1059,9 @@ namespace SchoolManagement.Controllers
                 )
                 .Select(x => x.StudentTransportAllocationId)
                 .ToListAsync();
+            var existingAllocations = existing.ToHashSet();
             var fees = allocations
-                .Where(x => !existing.Contains(x.Id))
+                .Where(x => !existingAllocations.Contains(x.Id))
                 .Select(x => new TransportFee
                 {
                     SchoolId = schoolId,
@@ -1155,7 +1159,7 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpGet("payments")]
-        public async Task<IActionResult> Payments(int schoolId) =>
+        public async Task<IActionResult> Payments(int schoolId, int? page = null, int pageSize = 50) =>
             Success(
                 await (
                     from payment in _context.TransportFeePayments
@@ -1179,7 +1183,7 @@ namespace SchoolManagement.Controllers
                         dueAmount = fee.Amount - fee.PaidAmount,
                         fee.DueDate,
                     }
-                ).ToListAsync()
+                ).OrderByDescending(x => x.PaymentDate).ThenByDescending(x => x.Id).ApplyPage(page, pageSize).ToListAsync()
             );
 
         [HttpPut("payments/{id:int}")]
@@ -1195,11 +1199,12 @@ namespace SchoolManagement.Controllers
         }
 
         [HttpGet("fuel-logs")]
-        public async Task<IActionResult> FuelLogs(int schoolId) =>
+        public async Task<IActionResult> FuelLogs(int schoolId, int? page = null, int pageSize = 50) =>
             Success(
                 await _context
                     .TransportFuelLogs.Where(x => x.SchoolId == schoolId)
                     .OrderByDescending(x => x.FuelDate)
+                    .ThenBy(x => x.Id).ApplyPage(page, pageSize)
                     .ToListAsync()
             );
 
@@ -1220,11 +1225,12 @@ namespace SchoolManagement.Controllers
             Update(_context.TransportFuelLogs, id, item, "Fuel log");
 
         [HttpGet("maintenance")]
-        public async Task<IActionResult> Maintenance(int schoolId) =>
+        public async Task<IActionResult> Maintenance(int schoolId, int? page = null, int pageSize = 50) =>
             Success(
                 await _context
                     .TransportVehicleMaintenance.Where(x => x.SchoolId == schoolId)
                     .OrderByDescending(x => x.ServiceDate)
+                    .ThenBy(x => x.Id).ApplyPage(page, pageSize)
                     .ToListAsync()
             );
 

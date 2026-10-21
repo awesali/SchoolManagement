@@ -280,7 +280,9 @@ public class PermissionsController : ControllerBase
     public async Task<IActionResult> Employees(
         int? roleId = null,
         string? search = null,
-        int? schoolId = null
+        int? schoolId = null,
+        int? page = null,
+        int pageSize = 50
     )
     {
         if (!IsSuperAdmin)
@@ -309,9 +311,10 @@ public class PermissionsController : ControllerBase
             var term = search.Trim().ToLower();
             query = query.Where(x =>
                 x.Name.ToLower().Contains(term) || x.Email.ToLower().Contains(term)
+                || (x.RoleName != null && x.RoleName.ToLower().Contains(term))
             );
         }
-        return Ok(await query.OrderBy(x => x.Name).ToListAsync());
+        return Ok(await query.OrderBy(x => x.Name).ThenBy(x => x.Id).ApplyPage(page, pageSize).ToListAsync());
     }
 
     [HttpGet("employees/{userId:int}")]
