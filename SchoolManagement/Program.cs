@@ -8,6 +8,7 @@ using SchoolManagement.Data;
 using SchoolManagement.Service;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
 // Controllers
 builder.Services.AddControllers(options => options.Filters.Add<CrudPermissionFilter>());

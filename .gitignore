@@ -363,3 +363,6 @@ MigrationBackup/
 FodyWeavers.xsd
 # Private teacher and student uploads
 SchoolManagement/private-uploads/
+
+# Local SMTP credentials (never commit)
+SchoolManagement/appsettings.Local.json

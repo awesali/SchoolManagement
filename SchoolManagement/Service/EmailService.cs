@@ -1,6 +1,7 @@
 // Backend section: application services and shared rules.
-using System.Net;
-using System.Net.Mail;
+using MailKit.Net.Smtp;
+using MailKit.Security;
+using MimeKit;
 using Microsoft.EntityFrameworkCore;
 using SchoolManagement.Data;
 
@@ -11,7 +12,7 @@ namespace SchoolManagement.Service
     {
         // Dependencies and state used by this component.
         private readonly IConfiguration _config;
-        public string LoginUrl => _config["EmailSettings:LoginUrl"]?.Trim() ?? "https://school.cognerasystems.com/login";
+        public string LoginUrl => _config["EmailSettings:LoginUrl"]?.Trim() ?? "https://academicrigor.cognerasystems.com/";
         private readonly AppDbContext _context;
 
         // Creates the component with its required dependencies.
@@ -35,30 +36,31 @@ namespace SchoolManagement.Service
                 try
                 {
                     var fromEmail = _config["EmailSettings:FromEmail"]?.Trim();
-                    var password = _config["EmailSettings:Password"]?.Replace(" ", "").Trim();
+                    var password = _config["EmailSettings:Password"]?.Trim();
                     var smtpHost = _config["EmailSettings:SmtpHost"]?.Trim();
                     var port = int.Parse(_config["EmailSettings:Port"]!);
+                    if (string.IsNullOrWhiteSpace(fromEmail) || string.IsNullOrWhiteSpace(password) ||
+                        string.IsNullOrWhiteSpace(smtpHost))
+                        throw new InvalidOperationException("Email settings are incomplete.");
 
-                    using var smtpClient = new SmtpClient(smtpHost, port)
-                    {
-                        EnableSsl = true,
-                        UseDefaultCredentials = false,
-                        Credentials = new NetworkCredential(fromEmail, password),
-                        DeliveryMethod = SmtpDeliveryMethod.Network,
-                    };
-                    using var mail = new MailMessage
-                    {
-                        From = new MailAddress(fromEmail!),
-                        Subject = subject,
-                        Body = body,
-                        IsBodyHtml = true,
-                    };
+                    var mail = new MimeMessage();
+                    mail.From.Add(new MailboxAddress("Academic Rigor", fromEmail));
+                    mail.Subject = subject;
                     foreach (var recipient in recipients.Distinct(StringComparer.OrdinalIgnoreCase))
-                        mail.To.Add(recipient);
+                        mail.To.Add(MailboxAddress.Parse(recipient));
+                    var builder = new BodyBuilder { HtmlBody = body };
                     foreach (var attachment in attachments)
-                        mail.Attachments.Add(new Attachment(new MemoryStream(attachment.Content), attachment.FileName, attachment.MediaType));
+                        builder.Attachments.Add(attachment.FileName, attachment.Content,
+                            new ContentType(attachment.MediaType.Split('/')[0], attachment.MediaType.Split('/')[1]));
+                    mail.Body = builder.ToMessageBody();
                     using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                    await smtpClient.SendMailAsync(mail, timeout.Token);
+                    using var smtpClient = new SmtpClient();
+                    await smtpClient.ConnectAsync(smtpHost, port,
+                        port == 465 ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTls,
+                        timeout.Token);
+                    await smtpClient.AuthenticateAsync(fromEmail, password, timeout.Token);
+                    await smtpClient.SendAsync(mail, timeout.Token);
+                    await smtpClient.DisconnectAsync(true, timeout.Token);
                     return;
                 }
                 catch (Exception exception)
